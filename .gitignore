@@ -26,4 +26,11 @@ go.work
 *.swo
 *~
 
+# pending test workloads
+hack/test-workloads/ignore-pending
+hack/test-workloads/ignore-pending/*
+
+# LLM specific contexts
 CLAUDE.md
+GEMINI.md
+

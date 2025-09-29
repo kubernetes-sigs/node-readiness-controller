@@ -121,7 +121,7 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeReadinessGateRule")
 		os.Exit(1)
 	}
-	if err := nodeReconciler.SetupWithManager(mgr); err != nil {
+	if err := nodeReconciler.SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Node")
 		os.Exit(1)
 	}
@@ -144,7 +144,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}

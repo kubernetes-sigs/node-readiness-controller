@@ -231,7 +231,7 @@ func (r *ReadinessGateController) recordNodeFailure(
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *NodeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	nodeController, err := ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Node{}).
 		Named("node").
@@ -245,6 +245,8 @@ func (r *NodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&handler.TypedEnqueueRequestForObject[*corev1.Node]{},
 			predicate.TypedFuncs[*corev1.Node]{
 				UpdateFunc: func(e event.TypedUpdateEvent[*corev1.Node]) bool {
+					log := ctrl.LoggerFrom(ctx)
+					log.Info("Processing node update event", "node", e.ObjectNew.Name)
 					// Reconcile if the resource version has changed.
 					return e.ObjectOld.GetResourceVersion() != e.ObjectNew.GetResourceVersion()
 				},
