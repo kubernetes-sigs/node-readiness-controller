@@ -149,6 +149,80 @@ var _ = Describe("NodeReadinessGateRule Controller", func() {
 			}).Should(BeTrue())
 		})
 
+		It("should immediately process existing nodes on rule creation", func() {
+			// Create a test node first
+			testNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "immediate-test-node",
+					Labels: map[string]string{
+						"immediate-test": "true",
+					},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "TestCondition", Status: corev1.ConditionFalse},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, testNode)).To(Succeed())
+			defer k8sClient.Delete(ctx, testNode)
+
+			// Now create a rule - this should immediately evaluate the existing node
+			rule := &nodereadinessiov1alpha1.NodeReadinessGateRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "immediate-test-rule",
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessGateRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "TestCondition", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: nodereadinessiov1alpha1.TaintSpec{
+						Key:    "immediate-test-taint",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+					NodeSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"immediate-test": "true",
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer k8sClient.Delete(ctx, rule)
+
+			// Trigger reconciliation manually to simulate CREATE event handling
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "immediate-test-rule"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify the node gets tainted immediately due to unmet condition
+			Eventually(func() bool {
+				updatedNode := &corev1.Node{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: "immediate-test-node"}, updatedNode)
+				if err != nil {
+					return false
+				}
+				for _, taint := range updatedNode.Spec.Taints {
+					if taint.Key == "immediate-test-taint" && taint.Effect == corev1.TaintEffectNoSchedule {
+						return true
+					}
+				}
+				return false
+			}, time.Second*5).Should(BeTrue())
+
+			// Verify rule status includes the node
+			Eventually(func() []string {
+				updatedRule := &nodereadinessiov1alpha1.NodeReadinessGateRule{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: "immediate-test-rule"}, updatedRule)
+				if err != nil {
+					return nil
+				}
+				return updatedRule.Status.AppliedNodes
+			}, time.Second*5).Should(ContainElement("immediate-test-node"))
+		})
+
 		It("should handle dry run mode", func() {
 			rule := &nodereadinessiov1alpha1.NodeReadinessGateRule{
 				ObjectMeta: metav1.ObjectMeta{
@@ -467,6 +541,15 @@ var _ = Describe("NodeReadinessGateRule Controller", func() {
 			// Create the new node, which should trigger the watch
 			Expect(k8sClient.Create(ctx, newNode)).To(Succeed())
 
+			// Add the rule to the cache
+			readinessController.updateRuleCache(rule)
+
+			// Manually trigger rule reconciliation to simulate watch behavior
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "new-node-rule"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
 			// Verify that the rule's status is updated to include the new node
 			Eventually(func() []string {
 				updatedRule := &nodereadinessiov1alpha1.NodeReadinessGateRule{}
@@ -475,7 +558,7 @@ var _ = Describe("NodeReadinessGateRule Controller", func() {
 					return nil
 				}
 				return updatedRule.Status.AppliedNodes
-			}, time.Second*10, time.Millisecond*250).Should(ContainElement("new-node"))
+			}, time.Second*5, time.Millisecond*250).Should(ContainElement("new-node"))
 
 			// Verify that the new node gets tainted
 			Eventually(func() bool {

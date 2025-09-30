@@ -404,10 +404,33 @@ func (r *RuleReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager)
 		return requests
 	}
 
+	// Custom predicate to handle both CREATE and UPDATE events
+	rulePredicate := predicate.TypedFuncs[*readinessv1alpha1.NodeReadinessGateRule]{
+		CreateFunc: func(e event.TypedCreateEvent[*readinessv1alpha1.NodeReadinessGateRule]) bool {
+			log := ctrl.LoggerFrom(ctx)
+			log.Info("Processing rule create event - evaluating existing nodes", "rule", e.Object.Name)
+			return true
+		},
+		UpdateFunc: func(e event.TypedUpdateEvent[*readinessv1alpha1.NodeReadinessGateRule]) bool {
+			log := ctrl.LoggerFrom(ctx)
+			// Only trigger if generation changed (spec changed)
+			if e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() {
+				log.Info("Processing rule update event - spec changed", "rule", e.ObjectNew.Name)
+				return true
+			}
+			return false
+		},
+		DeleteFunc: func(e event.TypedDeleteEvent[*readinessv1alpha1.NodeReadinessGateRule]) bool {
+			log := ctrl.LoggerFrom(ctx)
+			log.Info("Processing rule delete event", "rule", e.Object.Name)
+			return false // No need to reconcile on delete
+		},
+	}
+
 	err = c.Watch(
 		source.Kind(mgr.GetCache(), &readinessv1alpha1.NodeReadinessGateRule{},
 			handler.TypedEnqueueRequestsFromMapFunc[*readinessv1alpha1.NodeReadinessGateRule](mapFn),
-			predicate.TypedGenerationChangedPredicate[*readinessv1alpha1.NodeReadinessGateRule]{}))
+			rulePredicate))
 	if err != nil {
 		return err
 	}

@@ -239,14 +239,19 @@ func (r *NodeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager)
 	if err != nil {
 		return err
 	}
-	// Watch node updates for readiness taint processing
+	// Watch node create/update events for readiness taint processing
 	return nodeController.Watch(
 		source.Kind(mgr.GetCache(), &corev1.Node{},
 			&handler.TypedEnqueueRequestForObject[*corev1.Node]{},
 			predicate.TypedFuncs[*corev1.Node]{
+				CreateFunc: func(e event.TypedCreateEvent[*corev1.Node]) bool {
+					log := ctrl.LoggerFrom(ctx)
+					log.Info("NodeReconciler processing node create event", "node", e.Object.Name)
+					return true
+				},
 				UpdateFunc: func(e event.TypedUpdateEvent[*corev1.Node]) bool {
 					log := ctrl.LoggerFrom(ctx)
-					log.Info("Processing node update event", "node", e.ObjectNew.Name)
+					log.Info("NodeReconciler processing node update event", "node", e.ObjectNew.Name)
 					// Reconcile if the resource version has changed.
 					return e.ObjectOld.GetResourceVersion() != e.ObjectNew.GetResourceVersion()
 				},
