@@ -1,0 +1,17 @@
+apiVersion: nodereadiness.io/v1alpha1
+kind: NodeReadinessGateRule
+metadata:
+  name: dryrun-test-rule
+spec:
+  conditions:
+    - type: "TestReady"
+      requiredStatus: "True"
+  taint:
+    key: "test-taint"
+    effect: "NoSchedule"
+    value: "pending"
+  enforcementMode: "continuous"
+  dryRun: true
+  nodeSelector:
+    matchLabels:
+      e2e-test: "dryrun"

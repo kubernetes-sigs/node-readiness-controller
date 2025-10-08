@@ -1,0 +1,16 @@
+apiVersion: nodereadiness.io/v1alpha1
+kind: NodeReadinessGateRule
+metadata:
+  name: node-selector-rule
+spec:
+  conditions:
+    - type: "TestReady"
+      requiredStatus: "True"
+  taint:
+    key: "test-taint"
+    effect: "NoSchedule"
+    value: "pending"
+  enforcementMode: "continuous"
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/worker: ""

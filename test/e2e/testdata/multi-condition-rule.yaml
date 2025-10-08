@@ -1,0 +1,18 @@
+apiVersion: nodereadiness.io/v1alpha1
+kind: NodeReadinessGateRule
+metadata:
+  name: multi-condition-rule
+spec:
+  conditions:
+    - type: "NetworkReady"
+      requiredStatus: "True"
+    - type: "StorageReady"
+      requiredStatus: "True"
+  taint:
+    key: "readiness.k8s.io/Ready"
+    effect: "NoSchedule"
+    value: "pending"
+  enforcementMode: "continuous"
+  nodeSelector:
+    matchLabels:
+      e2e-test: "multi-condition"

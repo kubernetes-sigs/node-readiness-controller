@@ -1,0 +1,16 @@
+apiVersion: nodereadiness.io/v1alpha1
+kind: NodeReadinessGateRule
+metadata:
+  name: continuous-test-rule
+spec:
+  conditions:
+    - type: "StorageReady"
+      requiredStatus: "True"
+  taint:
+    key: "readiness.k8s.io/StorageReady"
+    effect: "NoSchedule"
+    value: "pending"
+  enforcementMode: "continuous"
+  nodeSelector:
+    matchLabels:
+      e2e-test: "continuous"

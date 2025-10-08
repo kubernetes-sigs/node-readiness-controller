@@ -26,7 +26,13 @@ jobs:
       - name: Verify kind installation
         run: kind version
 
-      - name: Running Test e2e
+      - name: Install controller-gen and setup-envtest
         run: |
-          go mod tidy
-          make test-e2e
+          make controller-gen
+          make setup-envtest
+
+      - name: Running Test e2e
+        run: make test-e2e
+        env:
+          KIND: kind
+          KIND_CLUSTER: kind

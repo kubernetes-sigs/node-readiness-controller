@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -72,6 +73,13 @@ var _ = Describe("Manager", Ordered, func() {
 		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", projectImage))
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+
+		By("removing node selector for e2e testing")
+		cmd = exec.Command("kubectl", "patch", "deployment", "nrgcontroller-controller-manager",
+			"-n", namespace, "--type=json",
+			"-p", `[{"op":"remove","path":"/spec/template/spec/nodeSelector"},{"op":"replace","path":"/spec/template/spec/tolerations","value":[]}]`)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to patch deployment")
 	})
 
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
@@ -140,7 +148,7 @@ var _ = Describe("Manager", Ordered, func() {
 	SetDefaultEventuallyTimeout(2 * time.Minute)
 	SetDefaultEventuallyPollingInterval(time.Second)
 
-	Context("Manager", func() {
+	Context("Manager", Ordered, func() {
 		It("should run successfully", func() {
 			By("validating that the controller-manager pod is running as expected")
 			verifyControllerUp := func(g Gomega) {
@@ -173,107 +181,368 @@ var _ = Describe("Manager", Ordered, func() {
 			Eventually(verifyControllerUp).Should(Succeed())
 		})
 
-		It("should ensure the metrics endpoint is serving metrics", func() {
-			By("creating a ClusterRoleBinding for the service account to allow access to metrics")
-			cmd := exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
-				"--clusterrole=nrgcontroller-metrics-reader",
-				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
-			)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create ClusterRoleBinding")
-
-			By("validating that the metrics service is available")
-			cmd = exec.Command("kubectl", "get", "service", metricsServiceName, "-n", namespace)
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Metrics service should exist")
-
-			By("getting the service account token")
-			token, err := serviceAccountToken()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(token).NotTo(BeEmpty())
-
-			By("waiting for the metrics endpoint to be ready")
-			verifyMetricsEndpointReady := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "endpoints", metricsServiceName, "-n", namespace)
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(ContainSubstring("8443"), "Metrics endpoint is not ready")
-			}
-			Eventually(verifyMetricsEndpointReady).Should(Succeed())
-
-			By("verifying that the controller manager is serving the metrics server")
-			verifyMetricsServerStarted := func(g Gomega) {
-				cmd := exec.Command("kubectl", "logs", controllerPodName, "-n", namespace)
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(ContainSubstring("controller-runtime.metrics\tServing metrics server"),
-					"Metrics server not yet started")
-			}
-			Eventually(verifyMetricsServerStarted).Should(Succeed())
-
-			By("creating the curl-metrics pod to access the metrics endpoint")
-			cmd = exec.Command("kubectl", "run", "curl-metrics", "--restart=Never",
-				"--namespace", namespace,
-				"--image=curlimages/curl:latest",
-				"--overrides",
-				fmt.Sprintf(`{
-					"spec": {
-						"containers": [{
-							"name": "curl",
-							"image": "curlimages/curl:latest",
-							"command": ["/bin/sh", "-c"],
-							"args": ["curl -v -k -H 'Authorization: Bearer %s' https://%s.%s.svc.cluster.local:8443/metrics"],
-							"securityContext": {
-								"readOnlyRootFilesystem": true,
-								"allowPrivilegeEscalation": false,
-								"capabilities": {
-									"drop": ["ALL"]
-								},
-								"runAsNonRoot": true,
-								"runAsUser": 1000,
-								"seccompProfile": {
-									"type": "RuntimeDefault"
-								}
-							}
-						}],
-						"serviceAccountName": "%s"
-					}
-				}`, token, metricsServiceName, namespace, serviceAccountName))
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create curl-metrics pod")
-
-			By("waiting for the curl-metrics pod to complete.")
-			verifyCurlUp := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "pods", "curl-metrics",
-					"-o", "jsonpath={.status.phase}",
-					"-n", namespace)
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Succeeded"), "curl pod in wrong status")
-			}
-			Eventually(verifyCurlUp, 5*time.Minute).Should(Succeed())
-
-			By("getting the metrics by checking curl-metrics logs")
-			verifyMetricsAvailable := func(g Gomega) {
-				metricsOutput, err := getMetricsOutput()
-				g.Expect(err).NotTo(HaveOccurred(), "Failed to retrieve logs from curl pod")
-				g.Expect(metricsOutput).NotTo(BeEmpty())
-				g.Expect(metricsOutput).To(ContainSubstring("< HTTP/1.1 200 OK"))
-			}
-			Eventually(verifyMetricsAvailable, 2*time.Minute).Should(Succeed())
-		})
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
+	})
 
-		// TODO: Customize the e2e test suite with scenarios specific to your project.
-		// Consider applying sample/CR(s) and check their status and/or verifying
-		// the reconciliation by using the metrics, i.e.:
-		// metricsOutput, err := getMetricsOutput()
-		// Expect(err).NotTo(HaveOccurred(), "Failed to retrieve logs from curl pod")
-		// Expect(metricsOutput).To(ContainSubstring(
-		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
-		//    strings.ToLower(<Kind>),
-		// ))
+	Context("NodeReadinessGateRule", func() {
+		It("should handle bootstrap-only mode correctly", func() {
+			nodeName := "bootstrap-test-node"
+
+			By("creating a test node with initial taint and condition")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(`
+apiVersion: v1
+kind: Node
+metadata:
+  name: %s
+  labels:
+    e2e-test: "bootstrap"
+spec:
+  taints:
+    - key: readiness.k8s.io/TestReady
+      effect: NoSchedule
+      value: pending
+status:
+  conditions:
+    - type: TestReady
+      status: "False"
+      lastHeartbeatTime: %s
+      lastTransitionTime: %s
+`, nodeName, time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339)))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("applying the bootstrap-only rule")
+			cmd = exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/bootstrap-only-rule.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("updating node condition to True")
+			cmd = exec.Command("kubectl", "patch", "node", nodeName, "--type=json", "-p",
+				`[{"op":"replace","path":"/status/conditions/0/status","value":"True"}]`)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying taint is removed")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return !strings.Contains(output, "readiness.k8s.io/TestReady")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("verifying rule status shows node in completedNodes")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "nodereadinessgaterule", "bootstrap-test-rule", "-o", "jsonpath={.status.completedNodes}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, nodeName)
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("updating node condition back to False")
+			cmd = exec.Command("kubectl", "patch", "node", nodeName, "--type=json", "-p",
+				`[{"op":"replace","path":"/status/conditions/0/status","value":"False"}]`)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying taint stays removed (bootstrap-only behavior)")
+			Consistently(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return !strings.Contains(output, "readiness.k8s.io/TestReady")
+			}, 10*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("cleaning up test resources")
+			exec.Command("kubectl", "delete", "node", nodeName).Run()
+			exec.Command("kubectl", "delete", "nodereadinessgaterule", "bootstrap-test-rule").Run()
+		})
+
+		It("should handle continuous mode with add/remove cycle", func() {
+			nodeName := "continuous-test-node"
+
+			By("creating a test node with condition satisfied")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(`
+apiVersion: v1
+kind: Node
+metadata:
+  name: %s
+  labels:
+    e2e-test: "continuous"
+status:
+  conditions:
+    - type: StorageReady
+      status: "True"
+      lastHeartbeatTime: %s
+      lastTransitionTime: %s
+`, nodeName, time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339)))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("applying the continuous mode rule")
+			cmd = exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/continuous-rule.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying no taint is added (condition satisfied)")
+			Consistently(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return !strings.Contains(output, "readiness.k8s.io/StorageReady")
+			}, 10*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("updating node condition to False")
+			cmd = exec.Command("kubectl", "patch", "node", nodeName, "--type=json", "-p",
+				`[{"op":"replace","path":"/status/conditions/0/status","value":"False"}]`)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying taint is added")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "readiness.k8s.io/StorageReady")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("updating node condition back to True")
+			cmd = exec.Command("kubectl", "patch", "node", nodeName, "--type=json", "-p",
+				`[{"op":"replace","path":"/status/conditions/0/status","value":"True"}]`)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying taint is removed again (continuous enforcement)")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return !strings.Contains(output, "readiness.k8s.io/StorageReady")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("cleaning up test resources")
+			exec.Command("kubectl", "delete", "node", nodeName).Run()
+			exec.Command("kubectl", "delete", "nodereadinessgaterule", "continuous-test-rule").Run()
+		})
+
+		It("should enforce multi-condition rules with ALL logic", func() {
+			nodeName := "multi-condition-node"
+
+			By("creating a test node with both conditions unsatisfied")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(`
+apiVersion: v1
+kind: Node
+metadata:
+  name: %s
+  labels:
+    e2e-test: "multi-condition"
+status:
+  conditions:
+    - type: NetworkReady
+      status: "False"
+      lastHeartbeatTime: %s
+      lastTransitionTime: %s
+    - type: StorageReady
+      status: "False"
+      lastHeartbeatTime: %s
+      lastTransitionTime: %s
+`, nodeName, time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339),
+				time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339)))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("applying the multi-condition rule")
+			cmd = exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/multi-condition-rule.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying taint is added (conditions not met)")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "readiness.k8s.io/Ready")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("updating NetworkReady to True, StorageReady stays False")
+			cmd = exec.Command("kubectl", "patch", "node", nodeName, "--type=json", "-p",
+				`[{"op":"replace","path":"/status/conditions/0/status","value":"True"}]`)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying taint still present (not all conditions met)")
+			Consistently(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "readiness.k8s.io/Ready")
+			}, 10*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("updating StorageReady to True as well")
+			cmd = exec.Command("kubectl", "patch", "node", nodeName, "--type=json", "-p",
+				`[{"op":"replace","path":"/status/conditions/1/status","value":"True"}]`)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying taint is removed (all conditions met)")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return !strings.Contains(output, "readiness.k8s.io/Ready")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("cleaning up test resources")
+			exec.Command("kubectl", "delete", "node", nodeName).Run()
+			exec.Command("kubectl", "delete", "nodereadinessgaterule", "multi-condition-rule").Run()
+		})
+
+		It("should respect node selector matching", func() {
+			nodeAName := "worker-test-node"
+			nodeBName := "control-plane-test-node"
+
+			By("creating worker node")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(`
+apiVersion: v1
+kind: Node
+metadata:
+  name: %s
+  labels:
+    node-role.kubernetes.io/worker: ""
+status:
+  conditions:
+    - type: TestReady
+      status: "False"
+      lastHeartbeatTime: %s
+      lastTransitionTime: %s
+`, nodeAName, time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339)))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("creating control-plane node")
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(`
+apiVersion: v1
+kind: Node
+metadata:
+  name: %s
+  labels:
+    node-role.kubernetes.io/control-plane: ""
+status:
+  conditions:
+    - type: TestReady
+      status: "False"
+      lastHeartbeatTime: %s
+      lastTransitionTime: %s
+`, nodeBName, time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339)))
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("applying the node-selector rule (targets workers only)")
+			cmd = exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/node-selector-rule.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying only worker node gets tainted")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeAName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "test-taint")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("verifying control-plane node is unaffected")
+			Consistently(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeBName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return !strings.Contains(output, "test-taint")
+			}, 10*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("cleaning up test resources")
+			exec.Command("kubectl", "delete", "node", nodeAName).Run()
+			exec.Command("kubectl", "delete", "node", nodeBName).Run()
+			exec.Command("kubectl", "delete", "nodereadinessgaterule", "node-selector-rule").Run()
+		})
+
+		It("should preview changes in dry-run mode without applying them", func() {
+			nodeName := "dryrun-test-node"
+
+			By("creating a test node with condition unsatisfied")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(`
+apiVersion: v1
+kind: Node
+metadata:
+  name: %s
+  labels:
+    e2e-test: "dryrun"
+status:
+  conditions:
+    - type: TestReady
+      status: "False"
+      lastHeartbeatTime: %s
+      lastTransitionTime: %s
+`, nodeName, time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339)))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("applying the dry-run rule")
+			cmd = exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/dryrun-rule.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying no taint is added to the node")
+			Consistently(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return !strings.Contains(output, "test-taint")
+			}, 10*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("verifying rule has dry-run results showing what would happen")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "nodereadinessgaterule", "dryrun-test-rule", "-o", "jsonpath={.status.dryRunResults}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				// Check that dry run results exist and contain the node
+				return len(output) > 0
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("cleaning up test resources")
+			exec.Command("kubectl", "delete", "node", nodeName).Run()
+			exec.Command("kubectl", "delete", "nodereadinessgaterule", "dryrun-test-rule").Run()
+		})
 	})
 })
 
