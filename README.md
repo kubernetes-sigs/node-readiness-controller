@@ -1,5 +1,7 @@
 # node-readiness-controller
 
+> [WIP] This readme is being updated. 
+
 This repository contains a reference implementation of [NodeReadinessGates](https://github.com/kubernetes/enhancements/pull/5416) as a Kubernetes controller that manages node taints based on multiple readiness gate conditions, providing fine-grained control over when nodes are ready to accept workloads.
 
 ## Goals
@@ -462,13 +464,14 @@ kubectl explain nodereadinessgaterule.status
 
 ## Roadmap
 
+- [ ] Add documentation capturing design details
 - [ ] Metrics and alerting integration
-- [ ] Integration with cluster lifecycle management tools
-- [ ] Enhanced conflict resolution strategies
+- [ ] Validation Webhook for rules
+- [ ] Improve logging and add debugging pointers
 - [ ] Performance optimizations for large clusters
 - [ ] Scale testing 1000+ nodes
 
-## Project Distribution
+## Project Distribution [WIP]
 
 ### YAML Bundle
 
@@ -479,7 +482,7 @@ make build-installer IMG=<registry>/nrgcontroller:tag
 kubectl apply -f dist/install.yaml
 ```
 
-### Helm Chart
+### Helm Chart [WIP]
 
 ```sh
 # Generate Helm chart
