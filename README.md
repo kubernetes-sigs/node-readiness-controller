@@ -74,18 +74,13 @@ https://drive.google.com/file/d/1Q2vCU7FYUrEkHDeQV5NneCH_MNoFshvH/view?usp=shari
 
 If you're interested in participating in future discussions or development related to Node Readiness Controller, you can reach the maintainers of the project at:
 
-- **Slack**: [#node-readiness-controller](https://kubernetes.slack.com/messages/sig-node-readiness-controller) for general usage or development discussion. (visit [slack.k8s.io] for a workspace invitation)
+- **Slack**: [#sig-node-readiness-controller](https://kubernetes.slack.com/messages/sig-node-readiness-controller). (visit [slack.k8s.io](https://slack.k8s.io) for a workspace invitation)
 
 Open Issues / PRs / Discussions here:
 - **Issues**: [GitHub Issues](https://github.com/ajaysundark/node-readiness-gate-controller/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/ajaysundark/node-readiness-gate-controller/discussions)
 
-### Community, discussion, contribution, and support
-
-See the Kubernetes community on the [community page](http://kubernetes.io/community/). You can also engage with SIG Node at:
-
-- [Slack channel](https://kubernetes.slack.com/messages/sig-node)
-- [Mailing List](https://groups.google.com/a/kubernetes.io/g/sig-node)
+See the Kubernetes community on the [community page](http://kubernetes.io/community/). You can also engage with SIG Node at [#sig-node](https://kubernetes.slack.com/messages/sig-node) and [mailing List](https://groups.google.com/a/kubernetes.io/g/sig-node)
 
 ### Code of conduct
 
