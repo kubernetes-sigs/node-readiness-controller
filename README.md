@@ -41,7 +41,7 @@ With this controller you can:
 
 ```yaml
 apiVersion: readiness.node.x-k8s.io/v1alpha1
-kind: NodeReadinessGateRule
+kind: NodeReadinessRule
 metadata:
   name: network-readiness-rule
 spec:

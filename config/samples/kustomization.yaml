@@ -1,4 +1,4 @@
 ## Append samples of your project ##
 resources:
-- v1alpha1_nodereadinessgaterule.yaml
+- v1alpha1_nodereadinessrule.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

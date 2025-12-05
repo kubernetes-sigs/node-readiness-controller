@@ -21,8 +21,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// NodeReadinessGateRuleSpec defines the desired state of NodeReadinessGateRule
-type NodeReadinessGateRuleSpec struct {
+// NodeReadinessRuleSpec defines the desired state of NodeReadinessRule
+type NodeReadinessRuleSpec struct {
 	// Replace single ConditionType with multiple conditions
 	Conditions []ConditionRequirement `json:"conditions"`
 
@@ -59,8 +59,8 @@ const (
 	EnforcementModeContinuous    EnforcementMode = "continuous"
 )
 
-// NodeReadinessGateRuleStatus defines the observed state of NodeReadinessGateRule.
-type NodeReadinessGateRuleStatus struct {
+// NodeReadinessRuleStatus defines the observed state of NodeReadinessRule.
+type NodeReadinessRuleStatus struct {
 	// Keep existing
 	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
@@ -106,34 +106,34 @@ type DryRunResults struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster,shortName=nrgr
+// +kubebuilder:resource:scope=Cluster,shortName=nrr
 
-// NodeReadinessGateRule is the Schema for the nodereadinessgaterules API
-type NodeReadinessGateRule struct {
+// NodeReadinessRule is the Schema for the NodeReadinessRules API
+type NodeReadinessRule struct {
 	metav1.TypeMeta `json:",inline"`
 
 	// metadata is a standard object metadata
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
 
-	// spec defines the desired state of NodeReadinessGateRule
+	// spec defines the desired state of NodeReadinessRule
 	// +required
-	Spec NodeReadinessGateRuleSpec `json:"spec"`
+	Spec NodeReadinessRuleSpec `json:"spec"`
 
-	// status defines the observed state of NodeReadinessGateRule
+	// status defines the observed state of NodeReadinessRule
 	// +optional
-	Status NodeReadinessGateRuleStatus `json:"status,omitempty,omitzero"`
+	Status NodeReadinessRuleStatus `json:"status,omitempty,omitzero"`
 }
 
 // +kubebuilder:object:root=true
 
-// NodeReadinessGateRuleList contains a list of NodeReadinessGateRule
-type NodeReadinessGateRuleList struct {
+// NodeReadinessRuleList contains a list of NodeReadinessRule
+type NodeReadinessRuleList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []NodeReadinessGateRule `json:"items"`
+	Items           []NodeReadinessRule `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&NodeReadinessGateRule{}, &NodeReadinessGateRuleList{})
+	SchemeBuilder.Register(&NodeReadinessRule{}, &NodeReadinessRuleList{})
 }

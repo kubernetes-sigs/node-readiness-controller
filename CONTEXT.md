@@ -8,7 +8,7 @@ This project implements a Kubernetes controller that manages node taints based o
 
 ### Core Components
 
-1. **NodeReadinessGateRule CRD**: Defines rules mapping multiple node conditions to a single taint
+1. **NodeReadinessRule CRD**: Defines rules mapping multiple node conditions to a single taint
 2. **ReadinessGateController**: Main controller that processes rules and manages node taints  
 3. **NPD Integration**: Works with Node Problem Detector for condition monitoring
 4. **Validation Webhook**: Prevents conflicting rule configurations
@@ -26,20 +26,20 @@ This project implements a Kubernetes controller that manages node taints based o
 
 ```
 ├── api/v1alpha1/
-│   ├── nodereadinessgaterule_types.go  # CRD type definitions  
+│   ├── nodereadinessrule_types.go  # CRD type definitions  
 │   ├── groupversion_info.go            # API version info
 │   └── zz_generated.deepcopy.go        # Generated deep copy methods
 ├── internal/controller/
-│   ├── nodereadinessgaterule_controller.go  # Rule reconciler
+│   ├── nodereadinessrule_controller.go  # Rule reconciler
 │   ├── node_controller.go                   # Node reconciler  
-│   ├── nodereadinessgaterule_controller_test.go  # Rule controller tests
+│   ├── nodereadinessrule_controller_test.go  # Rule controller tests
 │   ├── node_controller_test.go              # Node controller tests
 │   └── suite_test.go                        # Test suite setup
 ├── cmd/
 │   └── main.go                         # Controller entrypoint
 ├── config/
 │   ├── crd/bases/
-│   │   └── readiness.node.x-k8s.io_nodereadinessgaterules.yaml  # Generated CRD
+│   │   └── readiness.node.x-k8s.io_nodereadinessrules.yaml  # Generated CRD
 │   ├── rbac/
 │   │   ├── role.yaml                   # Controller RBAC
 │   │   ├── role_binding.yaml           # RBAC binding
@@ -47,7 +47,7 @@ This project implements a Kubernetes controller that manages node taints based o
 │   ├── manager/
 │   │   └── manager.yaml                # Controller deployment
 │   ├── samples/
-│   │   └── v1alpha1_nodereadinessgaterule.yaml  # Example rule
+│   │   └── v1alpha1_nodereadinessrule.yaml  # Example rule
 │   └── default/
 │       └── kustomization.yaml          # Default kustomize config
 ├── test/
@@ -64,7 +64,7 @@ This project implements a Kubernetes controller that manages node taints based o
 
 ### Controller Implementation
 
-Files: internal/controller/nodereadinessgaterule_controller.go + internal/controller/node_controller.go
+Files: internal/controller/nodereadinessrule_controller.go + internal/controller/node_controller.go
 Content: Controller logic split into two files - rule reconciler and node reconciler
 
 ### Main Entry
@@ -73,7 +73,7 @@ Controller logic start here: cmd/main.go
 
 ### Generated CRD
 
-Kubebuilder generated schema: config/crd/bases/readiness.node.x-k8s.io_nodereadinessgaterules.yaml
+Kubebuilder generated schema: config/crd/bases/readiness.node.x-k8s.io_nodereadinessrules.yaml
 
 ### RBAC
 
@@ -102,7 +102,7 @@ generated: config/rbac/*.yaml (multiple files via kubebuilder)
 
 ### Development Workflow
 
-* Modify types in `api/v1alpha1/nodereadinessgaterule_types.go`
+* Modify types in `api/v1alpha1/nodereadinessrule_types.go`
 * Run `make generate manifests` to update generated files
 * Updated controller logic in `internal/controller/*.go`
 * Test with `make test`
@@ -110,10 +110,10 @@ generated: config/rbac/*.yaml (multiple files via kubebuilder)
 
 ## Key Types and Data Structures
 
-### NodeReadinessGateRule CRD
+### NodeReadinessRule CRD
 
 ```go
-type NodeReadinessGateRuleSpec struct {
+type NodeReadinessRuleSpec struct {
     // Multiple conditions that must ALL be satisfied
     Conditions []ConditionRequirement `json:"conditions"`
     
@@ -154,7 +154,7 @@ const (
 ### Status Tracking
 
 ```go
-type NodeReadinessGateRuleStatus struct {
+type NodeReadinessRuleStatus struct {
     ObservedGeneration int64              `json:"observedGeneration,omitempty"`
     Conditions         []metav1.Condition `json:"conditions,omitempty"`
     AppliedNodes       []string           `json:"appliedNodes,omitempty"`
@@ -186,7 +186,7 @@ type ConditionEvaluationResult struct {
 
 The controller uses multiple reconcilers:
 
-1. **RuleReconciler**: Handles NodeReadinessGateRule changes
+1. **RuleReconciler**: Handles NodeReadinessRule changes
    - Updates rule cache
    - Processes dry run evaluations
    - Re-evaluates all applicable nodes when rules change
@@ -247,7 +247,7 @@ if shouldRemoveTaint && currentlyHasTaint {
 ### CNI Readiness Rule
 ```yaml
 apiVersion: readiness.node.x-k8s.io/v1alpha1
-kind: NodeReadinessGateRule
+kind: NodeReadinessRule
 metadata:
   name: cni-readiness-rule
 spec:
@@ -269,7 +269,7 @@ spec:
 ### Storage Readiness Rule
 ```yaml
 apiVersion: readiness.node.x-k8s.io/v1alpha1
-kind: NodeReadinessGateRule
+kind: NodeReadinessRule
 metadata:
   name: storage-readiness-rule
 spec:

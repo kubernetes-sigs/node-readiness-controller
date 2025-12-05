@@ -219,7 +219,7 @@ func (r *ReadinessGateController) markBootstrapCompleted(ctx context.Context, no
 
 // recordNodeFailure records a failure for a specific node
 func (r *ReadinessGateController) recordNodeFailure(
-	rule *readinessv1alpha1.NodeReadinessGateRule,
+	rule *readinessv1alpha1.NodeReadinessRule,
 	nodeName, reason, message string,
 ) {
 	// Remove any existing failure for this node

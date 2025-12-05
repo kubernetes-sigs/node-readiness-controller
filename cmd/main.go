@@ -121,7 +121,7 @@ func main() {
 	// Setup controllers with manager
 	ctx := ctrl.SetupSignalHandler()
 	if err := ruleReconciler.SetupWithManager(ctx, mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "NodeReadinessGateRule")
+		setupLog.Error(err, "unable to create controller", "controller", "NodeReadinessRule")
 		os.Exit(1)
 	}
 	if err := nodeReconciler.SetupWithManager(ctx, mgr); err != nil {
@@ -131,9 +131,9 @@ func main() {
 
 	// Setup webhook (conditional based on flag)
 	if enableWebhook {
-		nodeReadinessWebhook := webhook.NewNodeReadinessGateRuleWebhook(mgr.GetClient())
+		nodeReadinessWebhook := webhook.NewNodeReadinessRuleWebhook(mgr.GetClient())
 		if err := nodeReadinessWebhook.SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "NodeReadinessGateRule")
+			setupLog.Error(err, "unable to create webhook", "webhook", "NodeReadinessRule")
 			os.Exit(1)
 		}
 		setupLog.Info("webhook enabled")

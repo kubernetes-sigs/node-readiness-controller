@@ -10,9 +10,9 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-nodereadiness-io-v1alpha1-nodereadinessgaterule
+      path: /validate-nodereadiness-io-v1alpha1-nodereadinessrule
   failurePolicy: Fail
-  name: vnodereadinessgaterule.kb.io
+  name: vnodereadinessrule.kb.io
   rules:
   - apiGroups:
     - readiness.node.x-k8s.io
@@ -22,5 +22,5 @@ webhooks:
     - CREATE
     - UPDATE
     resources:
-    - nodereadinessgaterules
+    - nodereadinessrules
   sideEffects: None

@@ -36,10 +36,10 @@ func TestWebhook(t *testing.T) {
 	RunSpecs(t, "Webhook Suite")
 }
 
-var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
+var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 	var (
 		ctx     context.Context
-		webhook *NodeReadinessGateRuleWebhook
+		webhook *NodeReadinessRuleWebhook
 		scheme  *runtime.Scheme
 	)
 
@@ -50,13 +50,13 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 
 		fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-		webhook = NewNodeReadinessGateRuleWebhook(fakeClient)
+		webhook = NewNodeReadinessRuleWebhook(fakeClient)
 	})
 
 	Context("Spec Validation", func() {
 		It("should validate required fields", func() {
-			rule := &readinessv1alpha1.NodeReadinessGateRule{
-				Spec: readinessv1alpha1.NodeReadinessGateRuleSpec{
+			rule := &readinessv1alpha1.NodeReadinessRule{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					// Missing conditions, taint, and enforcement mode
 				},
 			}
@@ -77,8 +77,8 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 		})
 
 		It("should validate condition requirements", func() {
-			rule := &readinessv1alpha1.NodeReadinessGateRule{
-				Spec: readinessv1alpha1.NodeReadinessGateRuleSpec{
+			rule := &readinessv1alpha1.NodeReadinessRule{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{
 							// Missing type and requiredStatus
@@ -105,8 +105,8 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 		})
 
 		It("should validate enforcement mode values", func() {
-			rule := &readinessv1alpha1.NodeReadinessGateRule{
-				Spec: readinessv1alpha1.NodeReadinessGateRuleSpec{
+			rule := &readinessv1alpha1.NodeReadinessRule{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
@@ -125,8 +125,8 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 		})
 
 		It("should pass validation for valid spec", func() {
-			rule := &readinessv1alpha1.NodeReadinessGateRule{
-				Spec: readinessv1alpha1.NodeReadinessGateRuleSpec{
+			rule := &readinessv1alpha1.NodeReadinessRule{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 						{Type: "NetworkReady", RequiredStatus: corev1.ConditionTrue},
@@ -153,9 +153,9 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 	Context("Taint Conflict Detection", func() {
 		It("should detect conflicting rules with same taint key", func() {
 			// Create existing rule
-			existingRule := &readinessv1alpha1.NodeReadinessGateRule{
+			existingRule := &readinessv1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "existing-rule"},
-				Spec: readinessv1alpha1.NodeReadinessGateRuleSpec{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
@@ -172,12 +172,12 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 				WithScheme(scheme).
 				WithObjects(existingRule).
 				Build()
-			webhook = NewNodeReadinessGateRuleWebhook(fakeClient)
+			webhook = NewNodeReadinessRuleWebhook(fakeClient)
 
 			// New rule with same taint key
-			newRule := &readinessv1alpha1.NodeReadinessGateRule{
+			newRule := &readinessv1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "new-rule"},
-				Spec: readinessv1alpha1.NodeReadinessGateRuleSpec{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "NetworkReady", RequiredStatus: corev1.ConditionTrue},
 					},
@@ -198,9 +198,9 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 
 		It("should allow same taint key with different effects", func() {
 			// Create existing rule
-			existingRule := &readinessv1alpha1.NodeReadinessGateRule{
+			existingRule := &readinessv1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "existing-rule"},
-				Spec: readinessv1alpha1.NodeReadinessGateRuleSpec{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
@@ -217,12 +217,12 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 				WithScheme(scheme).
 				WithObjects(existingRule).
 				Build()
-			webhook = NewNodeReadinessGateRuleWebhook(fakeClient)
+			webhook = NewNodeReadinessRuleWebhook(fakeClient)
 
 			// New rule with same key but different effect
-			newRule := &readinessv1alpha1.NodeReadinessGateRule{
+			newRule := &readinessv1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "new-rule"},
-				Spec: readinessv1alpha1.NodeReadinessGateRuleSpec{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "NetworkReady", RequiredStatus: corev1.ConditionTrue},
 					},
@@ -240,9 +240,9 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 
 		It("should allow updates to the same rule", func() {
 			// Create existing rule
-			existingRule := &readinessv1alpha1.NodeReadinessGateRule{
+			existingRule := &readinessv1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "update-rule"},
-				Spec: readinessv1alpha1.NodeReadinessGateRuleSpec{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
@@ -259,7 +259,7 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 				WithScheme(scheme).
 				WithObjects(existingRule).
 				Build()
-			webhook = NewNodeReadinessGateRuleWebhook(fakeClient)
+			webhook = NewNodeReadinessRuleWebhook(fakeClient)
 
 			// Update same rule (should not conflict with itself)
 			updatedRule := existingRule.DeepCopy()
@@ -329,9 +329,9 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 
 	Context("CustomValidator Interface", func() {
 		It("should validate create operations", func() {
-			rule := &readinessv1alpha1.NodeReadinessGateRule{
+			rule := &readinessv1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "create-test"},
-				Spec: readinessv1alpha1.NodeReadinessGateRuleSpec{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
@@ -349,9 +349,9 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 		})
 
 		It("should reject invalid create operations", func() {
-			rule := &readinessv1alpha1.NodeReadinessGateRule{
+			rule := &readinessv1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "invalid-create"},
-				Spec:       readinessv1alpha1.NodeReadinessGateRuleSpec{
+				Spec:       readinessv1alpha1.NodeReadinessRuleSpec{
 					// Missing required fields
 				},
 			}
@@ -363,9 +363,9 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 		})
 
 		It("should validate update operations", func() {
-			oldRule := &readinessv1alpha1.NodeReadinessGateRule{
+			oldRule := &readinessv1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "update-test"},
-				Spec: readinessv1alpha1.NodeReadinessGateRuleSpec{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
@@ -386,7 +386,7 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 		})
 
 		It("should allow delete operations", func() {
-			rule := &readinessv1alpha1.NodeReadinessGateRule{
+			rule := &readinessv1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "delete-test"},
 			}
 
@@ -403,16 +403,16 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 			warnings, err := webhook.ValidateCreate(ctx, wrongObject)
 			Expect(err).To(HaveOccurred())
 			Expect(warnings).To(BeNil())
-			Expect(err.Error()).To(ContainSubstring("expected NodeReadinessGateRule"))
+			Expect(err.Error()).To(ContainSubstring("expected NodeReadinessRule"))
 		})
 	})
 
 	Context("Full Validation Integration", func() {
 		It("should perform comprehensive validation", func() {
 			// Create existing rule to test conflict detection
-			existingRule := &readinessv1alpha1.NodeReadinessGateRule{
+			existingRule := &readinessv1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "existing-comprehensive"},
-				Spec: readinessv1alpha1.NodeReadinessGateRuleSpec{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
@@ -429,12 +429,12 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 				WithScheme(scheme).
 				WithObjects(existingRule).
 				Build()
-			webhook = NewNodeReadinessGateRuleWebhook(fakeClient)
+			webhook = NewNodeReadinessRuleWebhook(fakeClient)
 
 			// Test valid rule (no conflicts)
-			validRule := &readinessv1alpha1.NodeReadinessGateRule{
+			validRule := &readinessv1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "valid-comprehensive"},
-				Spec: readinessv1alpha1.NodeReadinessGateRuleSpec{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "NetworkReady", RequiredStatus: corev1.ConditionTrue},
 					},
@@ -446,13 +446,13 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 				},
 			}
 
-			allErrs := webhook.validateNodeReadinessGateRule(ctx, validRule, false)
+			allErrs := webhook.validateNodeReadinessRule(ctx, validRule, false)
 			Expect(allErrs).To(BeEmpty())
 
 			// Test conflicting rule
-			conflictingRule := &readinessv1alpha1.NodeReadinessGateRule{
+			conflictingRule := &readinessv1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "conflicting-comprehensive"},
-				Spec: readinessv1alpha1.NodeReadinessGateRuleSpec{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "StorageReady", RequiredStatus: corev1.ConditionTrue},
 					},
@@ -464,19 +464,19 @@ var _ = Describe("NodeReadinessGateRule Validation Webhook", func() {
 				},
 			}
 
-			allErrs = webhook.validateNodeReadinessGateRule(ctx, conflictingRule, false)
+			allErrs = webhook.validateNodeReadinessRule(ctx, conflictingRule, false)
 			Expect(allErrs).To(HaveLen(1))
 			Expect(allErrs[0].Field).To(Equal("spec.taint.key"))
 
 			// Test invalid spec
-			invalidRule := &readinessv1alpha1.NodeReadinessGateRule{
+			invalidRule := &readinessv1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "invalid-comprehensive"},
-				Spec:       readinessv1alpha1.NodeReadinessGateRuleSpec{
+				Spec:       readinessv1alpha1.NodeReadinessRuleSpec{
 					// Missing required fields
 				},
 			}
 
-			allErrs = webhook.validateNodeReadinessGateRule(ctx, invalidRule, false)
+			allErrs = webhook.validateNodeReadinessRule(ctx, invalidRule, false)
 			Expect(allErrs).To(HaveLen(4)) // Multiple validation failures
 		})
 	})

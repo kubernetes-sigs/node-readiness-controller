@@ -41,7 +41,7 @@ import (
 )
 
 const (
-	// finalizerName is the finalizer added to NodeReadinessGateRule to ensure cleanup
+	// finalizerName is the finalizer added to NodeReadinessRule to ensure cleanup
 	finalizerName = "readiness.node.x-k8s.io/cleanup-taints"
 )
 
@@ -53,7 +53,7 @@ type ReadinessGateController struct {
 
 	// Cache for efficient rule lookup
 	ruleCacheMutex sync.RWMutex
-	ruleCache      map[string]*readinessv1alpha1.NodeReadinessGateRule // ruleName -> rule
+	ruleCache      map[string]*readinessv1alpha1.NodeReadinessRule // ruleName -> rule
 
 	// Global dry run mode (emergency off-switch)
 	globalDryRun bool
@@ -65,27 +65,27 @@ func NewReadinessGateController(mgr ctrl.Manager, clientset kubernetes.Interface
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
 		clientset: clientset,
-		ruleCache: make(map[string]*readinessv1alpha1.NodeReadinessGateRule),
+		ruleCache: make(map[string]*readinessv1alpha1.NodeReadinessRule),
 	}
 }
 
-// RuleReconciler handles NodeReadinessGateRule reconciliation
+// RuleReconciler handles NodeReadinessRule reconciliation
 type RuleReconciler struct {
 	client.Client
 	Scheme     *runtime.Scheme
 	Controller *ReadinessGateController
 }
 
-// +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessgaterules,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessgaterules/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessgaterules/finalizers,verbs=update
+// +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules/finalizers,verbs=update
 
 func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Reconciling rule", "rule", req.Name)
 
 	// Fetch the rule
-	rule := &readinessv1alpha1.NodeReadinessGateRule{}
+	rule := &readinessv1alpha1.NodeReadinessRule{}
 	if err := r.Get(ctx, req.NamespacedName, rule); err != nil {
 		if client.IgnoreNotFound(err) == nil {
 			// Rule deleted, remove from cache
@@ -185,7 +185,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 }
 
 // cleanupDeletedNodes removes status entries for nodes that no longer exist
-func (r *ReadinessGateController) cleanupDeletedNodes(ctx context.Context, rule *readinessv1alpha1.NodeReadinessGateRule) error {
+func (r *ReadinessGateController) cleanupDeletedNodes(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	nodeList := &corev1.NodeList{}
@@ -218,7 +218,7 @@ func (r *ReadinessGateController) cleanupDeletedNodes(ctx context.Context, rule 
 
 	// Use retry on conflict to update status to avoid race conditions from node updates
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		fresh := &readinessv1alpha1.NodeReadinessGateRule{}
+		fresh := &readinessv1alpha1.NodeReadinessRule{}
 		if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, fresh); err != nil {
 			return err
 		}
@@ -240,7 +240,7 @@ func (r *ReadinessGateController) cleanupDeletedNodes(ctx context.Context, rule 
 }
 
 // processAllNodesForRule processes all nodes when a rule changes
-func (r *ReadinessGateController) processAllNodesForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessGateRule) error {
+func (r *ReadinessGateController) processAllNodesForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	nodeList := &corev1.NodeList{}
@@ -272,7 +272,7 @@ func (r *ReadinessGateController) processAllNodesForRule(ctx context.Context, ru
 }
 
 // evaluateRuleForNode evaluates a single rule against a single node
-func (r *ReadinessGateController) evaluateRuleForNode(ctx context.Context, rule *readinessv1alpha1.NodeReadinessGateRule, node *corev1.Node) error {
+func (r *ReadinessGateController) evaluateRuleForNode(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, node *corev1.Node) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Evaluate all conditions (ALL logic)
@@ -349,7 +349,7 @@ func (r *ReadinessGateController) evaluateRuleForNode(ctx context.Context, rule 
 
 // updateNodeEvaluationStatus updates the evaluation status for a specific node
 func (r *ReadinessGateController) updateNodeEvaluationStatus(
-	rule *readinessv1alpha1.NodeReadinessGateRule,
+	rule *readinessv1alpha1.NodeReadinessRule,
 	nodeName string,
 	conditionResults []readinessv1alpha1.ConditionEvaluationResult,
 	taintStatus string,
@@ -377,11 +377,11 @@ func (r *ReadinessGateController) updateNodeEvaluationStatus(
 }
 
 // getApplicableRulesForNode returns all rules applicable to a node
-func (r *ReadinessGateController) getApplicableRulesForNode(ctx context.Context, node *corev1.Node) []*readinessv1alpha1.NodeReadinessGateRule {
+func (r *ReadinessGateController) getApplicableRulesForNode(ctx context.Context, node *corev1.Node) []*readinessv1alpha1.NodeReadinessRule {
 	r.ruleCacheMutex.RLock()
 	defer r.ruleCacheMutex.RUnlock()
 
-	var applicableRules []*readinessv1alpha1.NodeReadinessGateRule
+	var applicableRules []*readinessv1alpha1.NodeReadinessRule
 
 	for _, rule := range r.ruleCache {
 		if r.ruleAppliesTo(ctx, rule, node) {
@@ -393,7 +393,7 @@ func (r *ReadinessGateController) getApplicableRulesForNode(ctx context.Context,
 }
 
 // ruleAppliesTo checks if a rule applies to a node
-func (r *ReadinessGateController) ruleAppliesTo(ctx context.Context, rule *readinessv1alpha1.NodeReadinessGateRule, node *corev1.Node) bool {
+func (r *ReadinessGateController) ruleAppliesTo(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, node *corev1.Node) bool {
 	log := ctrl.LoggerFrom(ctx)
 
 	if rule.Spec.NodeSelector == nil {
@@ -410,7 +410,7 @@ func (r *ReadinessGateController) ruleAppliesTo(ctx context.Context, rule *readi
 }
 
 // updateRuleCache updates the rule cache
-func (r *ReadinessGateController) updateRuleCache(ctx context.Context, rule *readinessv1alpha1.NodeReadinessGateRule) {
+func (r *ReadinessGateController) updateRuleCache(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) {
 	log := ctrl.LoggerFrom(ctx)
 	r.ruleCacheMutex.Lock()
 	defer r.ruleCacheMutex.Unlock()
@@ -424,7 +424,7 @@ func (r *ReadinessGateController) updateRuleCache(ctx context.Context, rule *rea
 }
 
 // getCachedRule retrieves a rule from cache
-func (r *ReadinessGateController) getCachedRule(ruleName string) *readinessv1alpha1.NodeReadinessGateRule {
+func (r *ReadinessGateController) getCachedRule(ruleName string) *readinessv1alpha1.NodeReadinessRule {
 	r.ruleCacheMutex.RLock()
 	defer r.ruleCacheMutex.RUnlock()
 
@@ -445,8 +445,8 @@ func (r *ReadinessGateController) removeRuleFromCache(ctx context.Context, ruleN
 	log.Info("Removed rule from cache", "rule", ruleName, "totalRules", len(r.ruleCache))
 }
 
-// updateRuleStatus updates the status of a NodeReadinessGateRule
-func (r *ReadinessGateController) updateRuleStatus(ctx context.Context, rule *readinessv1alpha1.NodeReadinessGateRule) error {
+// updateRuleStatus updates the status of a NodeReadinessRule
+func (r *ReadinessGateController) updateRuleStatus(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	log.V(1).Info("Updating rule status",
@@ -455,7 +455,7 @@ func (r *ReadinessGateController) updateRuleStatus(ctx context.Context, rule *re
 		"appliedNodes", len(rule.Status.AppliedNodes))
 
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		latestRule := &readinessv1alpha1.NodeReadinessGateRule{}
+		latestRule := &readinessv1alpha1.NodeReadinessRule{}
 		if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, latestRule); err != nil {
 			return err
 		}
@@ -481,7 +481,7 @@ func (r *ReadinessGateController) updateRuleStatus(ctx context.Context, rule *re
 }
 
 // processDryRun processes dry run for a rule
-func (r *ReadinessGateController) processDryRun(ctx context.Context, rule *readinessv1alpha1.NodeReadinessGateRule) error {
+func (r *ReadinessGateController) processDryRun(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
 	nodeList := &corev1.NodeList{}
 	if err := r.List(ctx, nodeList); err != nil {
 		return err
@@ -559,7 +559,7 @@ func (r *ReadinessGateController) SetGlobalDryRun(dryRun bool) {
 }
 
 // cleanupTaintsForRule removes taints managed by this rule from all applicable nodes
-func (r *ReadinessGateController) cleanupTaintsForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessGateRule) error {
+func (r *ReadinessGateController) cleanupTaintsForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Get all nodes that this rule applies to
@@ -595,7 +595,7 @@ func (r *ReadinessGateController) cleanupTaintsForRule(ctx context.Context, rule
 }
 
 // cleanupNodesAfterSelectorChange cleans up nodes that matched old selector but not new one
-func (r *ReadinessGateController) cleanupNodesAfterSelectorChange(ctx context.Context, oldRule, newRule *readinessv1alpha1.NodeReadinessGateRule) error {
+func (r *ReadinessGateController) cleanupNodesAfterSelectorChange(ctx context.Context, oldRule, newRule *readinessv1alpha1.NodeReadinessRule) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Get all nodes
@@ -711,7 +711,7 @@ func stringMapEqual(a, b map[string]string) bool {
 }
 
 // containsFinalizer checks if a finalizer exists in the rule
-func containsFinalizer(rule *readinessv1alpha1.NodeReadinessGateRule, finalizer string) bool {
+func containsFinalizer(rule *readinessv1alpha1.NodeReadinessRule, finalizer string) bool {
 	for _, f := range rule.Finalizers {
 		if f == finalizer {
 			return true
@@ -721,14 +721,14 @@ func containsFinalizer(rule *readinessv1alpha1.NodeReadinessGateRule, finalizer 
 }
 
 // addFinalizer adds a finalizer to the rule
-func addFinalizer(rule *readinessv1alpha1.NodeReadinessGateRule, finalizer string) {
+func addFinalizer(rule *readinessv1alpha1.NodeReadinessRule, finalizer string) {
 	if !containsFinalizer(rule, finalizer) {
 		rule.Finalizers = append(rule.Finalizers, finalizer)
 	}
 }
 
 // removeFinalizer removes a finalizer from the rule
-func removeFinalizer(rule *readinessv1alpha1.NodeReadinessGateRule, finalizer string) {
+func removeFinalizer(rule *readinessv1alpha1.NodeReadinessRule, finalizer string) {
 	var newFinalizers []string
 	for _, f := range rule.Finalizers {
 		if f != finalizer {
@@ -749,10 +749,10 @@ func (r *RuleReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager)
 	}
 
 	// Watch for changes to the primary resource NodeReadinessRule
-	err = c.Watch(source.Kind(mgr.GetCache(), &readinessv1alpha1.NodeReadinessGateRule{},
-		&handler.TypedEnqueueRequestForObject[*readinessv1alpha1.NodeReadinessGateRule]{},
-		predicate.TypedFuncs[*readinessv1alpha1.NodeReadinessGateRule]{
-			UpdateFunc: func(tue event.TypedUpdateEvent[*readinessv1alpha1.NodeReadinessGateRule]) bool {
+	err = c.Watch(source.Kind(mgr.GetCache(), &readinessv1alpha1.NodeReadinessRule{},
+		&handler.TypedEnqueueRequestForObject[*readinessv1alpha1.NodeReadinessRule]{},
+		predicate.TypedFuncs[*readinessv1alpha1.NodeReadinessRule]{
+			UpdateFunc: func(tue event.TypedUpdateEvent[*readinessv1alpha1.NodeReadinessRule]) bool {
 				return tue.ObjectOld.GetGeneration() != tue.ObjectNew.GetGeneration() // Only reconcile on spec changes
 			},
 		}))

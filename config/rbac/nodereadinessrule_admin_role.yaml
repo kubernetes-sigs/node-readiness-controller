@@ -11,17 +11,17 @@ metadata:
   labels:
     app.kubernetes.io/name: nrgcontroller
     app.kubernetes.io/managed-by: kustomize
-  name: nodereadinessgaterule-admin-role
+  name: nodereadinessrule-admin-role
 rules:
 - apiGroups:
   - readiness.node.x-k8s.io
   resources:
-  - nodereadinessgaterules
+  - nodereadinessrules
   verbs:
   - '*'
 - apiGroups:
   - readiness.node.x-k8s.io
   resources:
-  - nodereadinessgaterules/status
+  - nodereadinessrules/status
   verbs:
   - get

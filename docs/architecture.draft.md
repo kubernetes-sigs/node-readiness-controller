@@ -26,7 +26,7 @@ Detailed Flow:
 ```mermaid
 graph TB
     %% CRD and Rules
-    CRD[NodeReadinessGateRule CRD] --> RuleRec[RuleReconciler]
+    CRD[NodeReadinessRule CRD] --> RuleRec[RuleReconciler]
 
     %% Controller Components
     RuleRec --> Cache[Rule Cache]
@@ -70,7 +70,7 @@ graph TB
 
 ### Core Components
 
-#### 1. NodeReadinessGateRule CRD
+#### 1. NodeReadinessRule CRD
 - Defines rules mapping multiple node conditions to a single taint
 - Supports bootstrap-only and continuous enforcement modes
 - Allows node selector targeting and grace periods

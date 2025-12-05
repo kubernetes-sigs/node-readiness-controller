@@ -13,7 +13,7 @@ resources:
     crdVersion: v1
   controller: true
   domain: readiness.node.x-k8s.io
-  kind: NodeReadinessGateRule
+  kind: NodeReadinessRule
   path: sigs.k8s.io/node-readiness-controller/api/v1alpha1
   version: v1alpha1
 - controller: true

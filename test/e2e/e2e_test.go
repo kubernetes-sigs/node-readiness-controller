@@ -179,7 +179,7 @@ var _ = Describe("Manager", Ordered, func() {
 		// +kubebuilder:scaffold:e2e-webhooks-checks
 	})
 
-	Context("NodeReadinessGateRule", func() {
+	Context("NodeReadinessRule", func() {
 		It("should handle bootstrap-only mode correctly", func() {
 			nodeName := "bootstrap-test-node"
 
@@ -252,7 +252,7 @@ status:
 
 			By("cleaning up test resources")
 			exec.Command("kubectl", "delete", "node", nodeName).Run()
-			exec.Command("kubectl", "delete", "nodereadinessgaterule", "bootstrap-test-rule").Run()
+			exec.Command("kubectl", "delete", "nodereadinessrule", "bootstrap-test-rule").Run()
 		})
 
 		It("should handle continuous mode with add/remove cycle", func() {
@@ -322,7 +322,7 @@ status:
 
 			By("cleaning up test resources")
 			exec.Command("kubectl", "delete", "node", nodeName).Run()
-			exec.Command("kubectl", "delete", "nodereadinessgaterule", "continuous-test-rule").Run()
+			exec.Command("kubectl", "delete", "nodereadinessrule", "continuous-test-rule").Run()
 		})
 
 		It("should enforce multi-condition rules with ALL logic", func() {
@@ -397,7 +397,7 @@ status:
 
 			By("cleaning up test resources")
 			exec.Command("kubectl", "delete", "node", nodeName).Run()
-			exec.Command("kubectl", "delete", "nodereadinessgaterule", "multi-condition-rule").Run()
+			exec.Command("kubectl", "delete", "nodereadinessrule", "multi-condition-rule").Run()
 		})
 
 		It("should respect node selector matching", func() {
@@ -470,7 +470,7 @@ status:
 			By("cleaning up test resources")
 			exec.Command("kubectl", "delete", "node", nodeAName).Run()
 			exec.Command("kubectl", "delete", "node", nodeBName).Run()
-			exec.Command("kubectl", "delete", "nodereadinessgaterule", "node-selector-rule").Run()
+			exec.Command("kubectl", "delete", "nodereadinessrule", "node-selector-rule").Run()
 		})
 
 		It("should preview changes in dry-run mode without applying them", func() {
@@ -512,7 +512,7 @@ status:
 
 			By("verifying rule has dry-run results showing what would happen")
 			Eventually(func() bool {
-				cmd := exec.Command("kubectl", "get", "nodereadinessgaterule", "dryrun-test-rule", "-o", "jsonpath={.status.dryRunResults}")
+				cmd := exec.Command("kubectl", "get", "nodereadinessrule", "dryrun-test-rule", "-o", "jsonpath={.status.dryRunResults}")
 				output, err := utils.Run(cmd)
 				if err != nil {
 					return false
@@ -523,7 +523,7 @@ status:
 
 			By("cleaning up test resources")
 			exec.Command("kubectl", "delete", "node", nodeName).Run()
-			exec.Command("kubectl", "delete", "nodereadinessgaterule", "dryrun-test-rule").Run()
+			exec.Command("kubectl", "delete", "nodereadinessrule", "dryrun-test-rule").Run()
 		})
 	})
 })

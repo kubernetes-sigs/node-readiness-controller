@@ -112,8 +112,8 @@ var _ = AfterSuite(func() {
 	if k8sClient != nil {
 		cleanupCtx := context.Background()
 
-		// Delete all NodeReadinessGateRules (remove finalizers first)
-		ruleList := &nodereadinessiov1alpha1.NodeReadinessGateRuleList{}
+		// Delete all NodeReadinessRules (remove finalizers first)
+		ruleList := &nodereadinessiov1alpha1.NodeReadinessRuleList{}
 		if err := k8sClient.List(cleanupCtx, ruleList); err == nil {
 			for i := range ruleList.Items {
 				rule := &ruleList.Items[i]

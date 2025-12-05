@@ -31,22 +31,22 @@ import (
 	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 )
 
-// NodeReadinessGateRuleWebhook validates NodeReadinessGateRule resources
-type NodeReadinessGateRuleWebhook struct {
+// NodeReadinessRuleWebhook validates NodeReadinessRule resources
+type NodeReadinessRuleWebhook struct {
 	client.Client
 }
 
-// NewNodeReadinessGateRuleWebhook creates a new webhook
-func NewNodeReadinessGateRuleWebhook(c client.Client) *NodeReadinessGateRuleWebhook {
-	return &NodeReadinessGateRuleWebhook{
+// NewNodeReadinessRuleWebhook creates a new webhook
+func NewNodeReadinessRuleWebhook(c client.Client) *NodeReadinessRuleWebhook {
+	return &NodeReadinessRuleWebhook{
 		Client: c,
 	}
 }
 
-// +kubebuilder:webhook:path=/validate-nodereadiness-io-v1alpha1-nodereadinessgaterule,mutating=false,failurePolicy=fail,sideEffects=None,groups=readiness.node.x-k8s.io,resources=nodereadinessgaterules,verbs=create;update,versions=v1alpha1,name=vnodereadinessgaterule.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-nodereadiness-io-v1alpha1-nodereadinessrule,mutating=false,failurePolicy=fail,sideEffects=None,groups=readiness.node.x-k8s.io,resources=nodereadinessrules,verbs=create;update,versions=v1alpha1,name=vnodereadinessrule.kb.io,admissionReviewVersions=v1
 
-// validateNodeReadinessGateRule performs validation logic
-func (w *NodeReadinessGateRuleWebhook) validateNodeReadinessGateRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessGateRule, isUpdate bool) field.ErrorList {
+// validateNodeReadinessRule performs validation logic
+func (w *NodeReadinessRuleWebhook) validateNodeReadinessRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, isUpdate bool) field.ErrorList {
 	var allErrs field.ErrorList
 
 	// Validate basic fields
@@ -59,7 +59,7 @@ func (w *NodeReadinessGateRuleWebhook) validateNodeReadinessGateRule(ctx context
 }
 
 // validateSpec validates the spec fields
-func (w *NodeReadinessGateRuleWebhook) validateSpec(spec readinessv1alpha1.NodeReadinessGateRuleSpec) field.ErrorList {
+func (w *NodeReadinessRuleWebhook) validateSpec(spec readinessv1alpha1.NodeReadinessRuleSpec) field.ErrorList {
 	var allErrs field.ErrorList
 	specField := field.NewPath("spec")
 
@@ -101,11 +101,11 @@ func (w *NodeReadinessGateRuleWebhook) validateSpec(spec readinessv1alpha1.NodeR
 }
 
 // validateTaintConflicts checks for conflicting rules with the same taint key
-func (w *NodeReadinessGateRuleWebhook) validateTaintConflicts(ctx context.Context, rule *readinessv1alpha1.NodeReadinessGateRule, isUpdate bool) field.ErrorList {
+func (w *NodeReadinessRuleWebhook) validateTaintConflicts(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, isUpdate bool) field.ErrorList {
 	var allErrs field.ErrorList
 
 	// List all existing rules
-	ruleList := &readinessv1alpha1.NodeReadinessGateRuleList{}
+	ruleList := &readinessv1alpha1.NodeReadinessRuleList{}
 	if err := w.List(ctx, ruleList); err != nil {
 		// If we can't list rules, allow the operation but log the issue
 		ctrl.Log.Error(err, "Failed to list rules for conflict validation")
@@ -140,7 +140,7 @@ func (w *NodeReadinessGateRuleWebhook) validateTaintConflicts(ctx context.Contex
 }
 
 // nodeSelectorsOverlap checks if two node selectors overlap
-func (w *NodeReadinessGateRuleWebhook) nodSelectorsOverlap(selector1, selector2 *metav1.LabelSelector) bool {
+func (w *NodeReadinessRuleWebhook) nodSelectorsOverlap(selector1, selector2 *metav1.LabelSelector) bool {
 	// If either selector is nil, it matches all nodes - so they overlap
 	if selector1 == nil || selector2 == nil {
 		return true
@@ -161,41 +161,41 @@ func (w *NodeReadinessGateRuleWebhook) nodSelectorsOverlap(selector1, selector2 
 }
 
 // SetupWithManager sets up the webhook with the manager
-func (w *NodeReadinessGateRuleWebhook) SetupWithManager(mgr ctrl.Manager) error {
+func (w *NodeReadinessRuleWebhook) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(&readinessv1alpha1.NodeReadinessGateRule{}).
+		For(&readinessv1alpha1.NodeReadinessRule{}).
 		WithValidator(w).
 		Complete()
 }
 
 // Implement the admission.CustomValidator interface
-var _ webhook.CustomValidator = &NodeReadinessGateRuleWebhook{}
+var _ webhook.CustomValidator = &NodeReadinessRuleWebhook{}
 
-func (w *NodeReadinessGateRuleWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	rule, ok := obj.(*readinessv1alpha1.NodeReadinessGateRule)
+func (w *NodeReadinessRuleWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	rule, ok := obj.(*readinessv1alpha1.NodeReadinessRule)
 	if !ok {
-		return nil, fmt.Errorf("expected NodeReadinessGateRule, got %T", obj)
+		return nil, fmt.Errorf("expected NodeReadinessRule, got %T", obj)
 	}
 
-	if allErrs := w.validateNodeReadinessGateRule(ctx, rule, false); len(allErrs) > 0 {
+	if allErrs := w.validateNodeReadinessRule(ctx, rule, false); len(allErrs) > 0 {
 		return nil, fmt.Errorf("validation failed: %v", allErrs)
 	}
 	return nil, nil
 }
 
-func (w *NodeReadinessGateRuleWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	rule, ok := newObj.(*readinessv1alpha1.NodeReadinessGateRule)
+func (w *NodeReadinessRuleWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+	rule, ok := newObj.(*readinessv1alpha1.NodeReadinessRule)
 	if !ok {
-		return nil, fmt.Errorf("expected NodeReadinessGateRule, got %T", newObj)
+		return nil, fmt.Errorf("expected NodeReadinessRule, got %T", newObj)
 	}
 
-	if allErrs := w.validateNodeReadinessGateRule(ctx, rule, true); len(allErrs) > 0 {
+	if allErrs := w.validateNodeReadinessRule(ctx, rule, true); len(allErrs) > 0 {
 		return nil, fmt.Errorf("validation failed: %v", allErrs)
 	}
 	return nil, nil
 }
 
-func (w *NodeReadinessGateRuleWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (w *NodeReadinessRuleWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	// No validation needed for delete operations
 	return nil, nil
 }

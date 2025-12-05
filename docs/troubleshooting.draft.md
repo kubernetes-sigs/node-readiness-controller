@@ -14,7 +14,7 @@
    kubectl describe node <node-name> | grep Conditions -A 20
 
    # Check rule evaluation status
-   kubectl get nodereadinessgaterule <rule-name> -o yaml | grep nodeEvaluations -A 50
+   kubectl get nodereadinessrule <rule-name> -o yaml | grep nodeEvaluations -A 50
    ```
 
 3. **RBAC issues**: Controller can't update nodes or rules
@@ -49,7 +49,7 @@ kubectl logs -n nrgcontroller-system deployment/nrgcontroller-controller-manager
 Verify CRDs are installed:
 
 ```sh
-kubectl get crd nodereadinessgaterules.readiness.node.x-k8s.io
+kubectl get crd nodereadinessrules.readiness.node.x-k8s.io
 ```
 
 

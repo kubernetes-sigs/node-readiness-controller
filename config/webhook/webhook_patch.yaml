@@ -5,9 +5,9 @@ metadata:
   annotations:
     cert-manager.io/inject-ca-from: $(CERTIFICATE_NAMESPACE)/$(CERTIFICATE_NAME)
 webhooks:
-- name: vnodereadinessgaterule.kb.io
+- name: vnodereadinessrule.kb.io
   clientConfig:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-nodereadiness-io-v1alpha1-nodereadinessgaterule
+      path: /validate-nodereadiness-io-v1alpha1-nodereadinessrule

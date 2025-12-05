@@ -4,23 +4,22 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
-  name: nodereadinessgaterules.readiness.node.x-k8s.io
+  name: nodereadinessrules.readiness.node.x-k8s.io
 spec:
   group: readiness.node.x-k8s.io
   names:
-    kind: NodeReadinessGateRule
-    listKind: NodeReadinessGateRuleList
-    plural: nodereadinessgaterules
+    kind: NodeReadinessRule
+    listKind: NodeReadinessRuleList
+    plural: nodereadinessrules
     shortNames:
-    - nrgr
-    singular: nodereadinessgaterule
+    - nrr
+    singular: nodereadinessrule
   scope: Cluster
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: NodeReadinessGateRule is the Schema for the nodereadinessgaterules
-          API
+        description: NodeReadinessRule is the Schema for the NodeReadinessRules API
         properties:
           apiVersion:
             description: |-
@@ -40,7 +39,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of NodeReadinessGateRule
+            description: spec defines the desired state of NodeReadinessRule
             properties:
               conditions:
                 description: Replace single ConditionType with multiple conditions
@@ -130,7 +129,7 @@ spec:
             - taint
             type: object
           status:
-            description: status defines the observed state of NodeReadinessGateRule
+            description: status defines the observed state of NodeReadinessRule
             properties:
               appliedNodes:
                 items:

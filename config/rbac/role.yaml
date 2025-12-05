@@ -33,7 +33,7 @@ rules:
 - apiGroups:
   - readiness.node.x-k8s.io
   resources:
-  - nodereadinessgaterules
+  - nodereadinessrules
   verbs:
   - create
   - delete
@@ -45,13 +45,13 @@ rules:
 - apiGroups:
   - readiness.node.x-k8s.io
   resources:
-  - nodereadinessgaterules/finalizers
+  - nodereadinessrules/finalizers
   verbs:
   - update
 - apiGroups:
   - readiness.node.x-k8s.io
   resources:
-  - nodereadinessgaterules/status
+  - nodereadinessrules/status
   verbs:
   - get
   - patch

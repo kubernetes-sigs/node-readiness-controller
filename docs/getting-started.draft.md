@@ -9,7 +9,7 @@ This rule ensures nodes have working storage before removing the storage readine
 
 ```yaml
 apiVersion: readiness.node.x-k8s.io/v1alpha1
-kind: NodeReadinessGateRule
+kind: NodeReadinessRule
 metadata:
   name: storage-readiness-rule
 spec:
@@ -83,7 +83,7 @@ kubectl apply -f examples/network-readiness-rule.yaml
 
 ```sh
 # Delete all rule instances
-kubectl delete nodereadinessgaterules --all
+kubectl delete nodereadinessrules --all
 
 # Delete the controller
 make undeploy
@@ -100,13 +100,13 @@ View rule status and evaluation results:
 
 ```sh
 # List all rules
-kubectl get nodereadinessgaterules
+kubectl get nodereadinessrules
 
 # Detailed status of a specific rule
-kubectl describe nodereadinessgaterule network-readiness-rule
+kubectl describe nodereadinessrule network-readiness-rule
 
 # Check rule evaluation per node
-kubectl get nodereadinessgaterule network-readiness-rule -o yaml
+kubectl get nodereadinessrule network-readiness-rule -o yaml
 ```
 
 The status includes:
@@ -131,7 +131,7 @@ spec:
 Check dry run results:
 
 ```sh
-kubectl get nodereadinessgaterule <rule-name> -o jsonpath='{.status.dryRunResults}'
+kubectl get nodereadinessrule <rule-name> -o jsonpath='{.status.dryRunResults}'
 ```
 
 ### Enforcement Modes
@@ -154,7 +154,7 @@ kubectl get nodereadinessgaterule <rule-name> -o jsonpath='{.status.dryRunResult
 
 The controller requires the following RBAC permissions:
 - **Nodes**: `get`, `list`, `watch`, `patch`, `update` (for taint management)
-- **NodeReadinessGateRules**: Full CRUD access
+- **NodeReadinessRules**: Full CRUD access
 - **Events**: `create` (for status reporting)
 
 ### Performance and Scalability

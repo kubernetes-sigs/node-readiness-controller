@@ -2,5 +2,5 @@
 # since it depends on service name and namespace that are out of this kustomize package.
 # It should be run by config/default
 resources:
-- bases/readiness.node.x-k8s.io_nodereadinessgaterules.yaml
+- bases/readiness.node.x-k8s.io_nodereadinessrules.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
