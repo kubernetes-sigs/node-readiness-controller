@@ -16,7 +16,21 @@ spec:
     singular: nodereadinessrule
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Continuous, Bootstrap or Dryrun - shows if the rule is in enforcement
+        or dryrun mode.
+      jsonPath: .spec.enforcementMode
+      name: Mode
+      type: string
+    - description: The readiness taint applied by this rule.
+      jsonPath: .spec.taint.key
+      name: Taint
+      type: string
+    - description: The age of this resource
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: NodeReadinessRule is the Schema for the NodeReadinessRules API
