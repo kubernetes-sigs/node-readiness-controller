@@ -148,7 +148,7 @@ lint-config: $(GOLANGCI_LINT) ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
 .PHONY: verify
-verify: 
+verify: ## Run all verification scripts.
 	 ./hack/verify-all.sh
 
 ## --------------------------------------

@@ -1,4 +1,3 @@
-# Boilerplate utilities
+The boilerplate validation utilities have been copied and adapted from [Kubernetes boilerplate](https://git.k8s.io/kubernetes/hack/boilerplate).
 
-#### The boilerplate validation utilities have been copied and adapted from upstream Kubernetes, see https://github.com/kubernetes/kubernetes/blob/4dfd73940396730caf331e35cbb28235d233f2a0/hack/boilerplate.
-
+Note: If you notice any differences between the Kubernetes boilerplate content in the source and this repository, please create a PR to sync them so they match the source. Thank you!
