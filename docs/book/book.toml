@@ -1,0 +1,8 @@
+[book]
+authors = ["The Node Readiness Controller Maintainers"]
+src = "src"
+title = "Node Readiness Controller"
+
+[output.html]
+git-repository-url = "https://github.com/kubernetes-sigs/node-readiness-controller"
+edit-url-template = "https://github.com/kubernetes-sigs/node-readiness-controller/edit/main/docs/book/{path}"

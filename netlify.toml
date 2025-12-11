@@ -1,0 +1,16 @@
+[build]
+  base = "docs/book"
+  command = "mdbook build"
+  publish = "docs/book/book"
+
+
+[context.deploy-preview]
+  command = "mdbook build"
+
+[context.branch-deploy]
+  command = "mdbook build"
+
+[[redirects]]
+  from = "/*"
+  to = "/404.html"
+  status = 404
