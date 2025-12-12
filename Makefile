@@ -306,3 +306,23 @@ $(GOLANGCI_LINT): # Build golangci-lint from tools folder.
 
 $(GOLANGCI_LINT_KAL): $(GOLANGCI_LINT) # Build golangci-lint-kal from custom configuration.
 	cd $(TOOLS_DIR); $(GOLANGCI_LINT) custom
+
+
+## --------------------------------------
+## Documentation
+## --------------------------------------
+
+##@ docs
+
+MDBOOK_VERSION ?= 0.5.2
+GO_VERSION ?= 1.25.5
+MDBOOK_SCRIPT := $(ROOT_DIR)/docs/book/install-and-build-mdbook.sh
+
+
+.PHONY: docs
+docs: ## Build the mdBook locally using the same script Netlify uses.
+	GO_VERSION=$(GO_VERSION) MDBOOK_VERSION=$(MDBOOK_VERSION) $(MDBOOK_SCRIPT)
+
+.PHONY: docs-serve
+docs-serve: ## Serve mdBook locally (requires mdbook installed locally).
+	GO_VERSION=$(GO_VERSION) MDBOOK_VERSION=$(MDBOOK_VERSION) $(MDBOOK_SCRIPT) serve docs/book --open
