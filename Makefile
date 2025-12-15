@@ -324,5 +324,5 @@ docs: ## Build the mdBook locally using the same script Netlify uses.
 	GO_VERSION=$(GO_VERSION) MDBOOK_VERSION=$(MDBOOK_VERSION) $(MDBOOK_SCRIPT)
 
 .PHONY: docs-serve
-docs-serve: ## Serve mdBook locally (requires mdbook installed locally).
+docs-serve: ## Serve mdBook locally.
 	GO_VERSION=$(GO_VERSION) MDBOOK_VERSION=$(MDBOOK_VERSION) $(MDBOOK_SCRIPT) serve docs/book --open
