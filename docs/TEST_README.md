@@ -40,7 +40,7 @@ Build the controller image and load it into the Kind cluster nodes.
 
 ```bash
 # Build the image
-make docker-build IMG=controller:latest
+make docker-build IMG_PREFIX=controller IMG_TAG=latest
 
 # Load the image into the kind cluster
 kind load docker-image controller:latest --name nrr-test
@@ -50,7 +50,7 @@ kind load docker-image controller:latest --name nrr-test
 
 Deploy the controller image to nrr-test-worker
 ```bash
-make deploy IMG=controller:latest
+make deploy IMG_PREFIX=controller IMG_TAG=latest
 ```
 
 Verify the controller is running on the platform node (`nrr-test-worker`):
