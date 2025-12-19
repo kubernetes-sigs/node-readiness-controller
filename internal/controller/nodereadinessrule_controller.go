@@ -457,6 +457,11 @@ func (r *ReadinessGateController) updateRuleStatus(ctx context.Context, rule *re
 			return err
 		}
 
+		if latestRule.GetGeneration() != rule.GetGeneration() {
+			log.V(4).Info("Rule generation mismatch during status update, avoiding retry to let new reconciliation handle it")
+			return nil
+		}
+
 		// Merge our status updates into fresh version
 		// This ensures we're updating based on the latest resourceVersion
 		latestRule.Status.NodeEvaluations = rule.Status.NodeEvaluations
