@@ -65,7 +65,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 func (r *ReadinessGateController) processNodeAgainstAllRules(ctx context.Context, node *corev1.Node) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Get all applicable rules for this node
+	// Get all known (cached) applicable rules for this node
 	applicableRules := r.getApplicableRulesForNode(ctx, node)
 	log.Info("Processing node against rules", "node", node.Name, "ruleCount", len(applicableRules))
 
@@ -114,11 +114,19 @@ func (r *ReadinessGateController) processNodeAgainstAllRules(ctx context.Context
 				return err
 			}
 
-			// update only the specific node evaluation status
+			// update only this specific node evaluation status
+			currEval := readinessv1alpha1.NodeEvaluation{}
+			for _, eval := range rule.Status.NodeEvaluations {
+				if eval.NodeName == node.Name {
+					currEval = eval
+					break
+				}
+			}
+
 			found := false
 			for i := range latestRule.Status.NodeEvaluations {
 				if latestRule.Status.NodeEvaluations[i].NodeName == node.Name {
-					latestRule.Status.NodeEvaluations[i] = r.getNodeEvaluationFromRuleStatus(rule, node.Name)
+					latestRule.Status.NodeEvaluations[i] = currEval
 					found = true
 					break
 				}
@@ -126,8 +134,9 @@ func (r *ReadinessGateController) processNodeAgainstAllRules(ctx context.Context
 			if !found {
 				latestRule.Status.NodeEvaluations = append(
 					latestRule.Status.NodeEvaluations,
-					r.getNodeEvaluationFromRuleStatus(rule, node.Name),
+					currEval,
 				)
+				return nil
 			}
 
 			// handle status.FailedNodes for this node
@@ -143,9 +152,6 @@ func (r *ReadinessGateController) processNodeAgainstAllRules(ctx context.Context
 				}
 			}
 			latestRule.Status.FailedNodes = updatedFailedNodes
-
-			// Copy DryRunResults if present
-			latestRule.Status.DryRunResults = rule.Status.DryRunResults
 
 			return r.Status().Update(ctx, latestRule)
 		})
@@ -247,6 +253,7 @@ func (r *ReadinessGateController) markBootstrapCompleted(ctx context.Context, no
 		}
 
 		node.Annotations[annotationKey] = "true"
+		// TODO: consider replacing this with SSA
 		return r.Update(ctx, node)
 	})
 
