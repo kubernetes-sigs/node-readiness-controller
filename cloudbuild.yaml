@@ -2,6 +2,7 @@
 
 options:
   substitution_option: ALLOW_LOOSE
+  machineType: E2_HIGHCPU_32
 steps:
   - name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20251211-3eba3d0954
     entrypoint: ./scripts/build-and-publish-image.sh
