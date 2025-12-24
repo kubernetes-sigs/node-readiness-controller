@@ -26,7 +26,6 @@ spec:
   nodeSelector:
     matchLabels:
       storage-backend: "nfs"
-  gracePeriod: "60s"
   dryRun: true  # Preview mode
 ```
 
@@ -42,18 +41,35 @@ spec:
 | `taint.value` | Optional taint value | No |
 | `enforcementMode` | `bootstrap-only` or `continuous` | Yes |
 | `nodeSelector` | Label selector to target specific nodes | No |
-| `gracePeriod` | Grace period before applying taint changes | No |
 | `dryRun` | Preview changes without applying them | No |
 
 ### Deployment
+
+#### Option 1: Install official release images
+
+Node-Readiness Controller offers two variants of the container image to support different cluster architectures.
+
+Released container images are available for:
+* **x86_64** (AMD64)
+* **Arm64** (AArch64)
+
+The controller image is available in the Kubernetes staging registry:
+
+```sh
+REPO="us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/node-readiness-controller"
+
+TAG=$(skopeo list-tags docker://$REPO | jq .Tags[-1] | tr -d '"')
+
+docker pull $REPO:$TAG
+```
+
+#### Option 2: Deploy Using Make Commands
 
 **Build and push your image to the location specified by `IMG_PREFIX`:`IMG_TAG` :**
 
 ```sh
 make docker-build docker-push IMG_PREFIX=<some-registry>/nrr-controller IMG_TAG=tag
 ```
-
-#### Option 1: Deploy Using Make Commands
 
 ```sh
 # Install the CRDs
@@ -66,7 +82,7 @@ make deploy IMG_PREFIX=<some-registry>/nrr-controller IMG_TAG=tag
 kubectl apply -k examples/network-readiness-rule.yaml
 ```
 
-#### Option 2: Deploy Using Kustomize Directly
+#### Option 3: Deploy Using Kustomize Directly
 
 ```sh
 # Install CRDs
