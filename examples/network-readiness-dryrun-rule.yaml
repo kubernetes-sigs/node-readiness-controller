@@ -1,0 +1,18 @@
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: network-readiness-rule
+spec:
+  dryRun: true
+  conditions:
+    - type: "network.k8s.io/CalicoReady"
+      requiredStatus: "True"
+  taint:
+    key: "readiness.k8s.io/NetworkReady"
+    effect: "NoSchedule"
+    value: "pending"
+  enforcementMode: "continuous"
+  nodeSelector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: DoesNotExist
