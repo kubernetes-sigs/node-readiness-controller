@@ -97,15 +97,27 @@ kubectl apply -f examples/network-readiness-rule.yaml
 
 ### Uninstallation
 
+> **Important**: Follow this order to avoid stuck resources due to finalizers.
+
+The controller adds a finalizer (`readiness.node.x-k8s.io/cleanup-taints`) to each `NodeReadinessRule` to ensure node taints are cleaned up before the rule is deleted. This means you must delete CRs **while the controller is still running**.
+
 ```sh
-# Delete all rule instances
+# 1. Delete all rule instances first (while controller is running)
 kubectl delete nodereadinessrules --all
 
-# Delete the controller
+# 2. Delete the controller
 make undeploy
 
-# Delete the CRDs
+# 3. Delete the CRDs
 make uninstall
+```
+
+#### Recovering from Stuck Resources
+
+If you deleted the controller before removing the CRs, the finalizer will block CR deletion. To recover, manually remove the finalizer:
+
+```sh
+kubectl patch nodereadinessrule <rule-name> -p '{"metadata":{"finalizers":[]}}' --type=merge
 ```
 
 ## Operations
