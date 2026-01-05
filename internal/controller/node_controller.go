@@ -65,7 +65,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 func (r *ReadinessGateController) processNodeAgainstAllRules(ctx context.Context, node *corev1.Node) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Get all applicable rules for this node
+	// Get all known (cached) applicable rules for this node
 	applicableRules := r.getApplicableRulesForNode(ctx, node)
 	log.Info("Processing node against rules", "node", node.Name, "ruleCount", len(applicableRules))
 
@@ -108,7 +108,55 @@ func (r *ReadinessGateController) processNodeAgainstAllRules(ctx context.Context
 			"rule", rule.Name,
 			"resourceVersion", rule.ResourceVersion)
 
-		if err := r.updateRuleStatus(ctx, rule); err != nil {
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			latestRule := &readinessv1alpha1.NodeReadinessRule{}
+			if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, latestRule); err != nil {
+				return err
+			}
+
+			// update only this specific node evaluation status
+			currEval := readinessv1alpha1.NodeEvaluation{}
+			for _, eval := range rule.Status.NodeEvaluations {
+				if eval.NodeName == node.Name {
+					currEval = eval
+					break
+				}
+			}
+
+			found := false
+			for i := range latestRule.Status.NodeEvaluations {
+				if latestRule.Status.NodeEvaluations[i].NodeName == node.Name {
+					latestRule.Status.NodeEvaluations[i] = currEval
+					found = true
+					break
+				}
+			}
+			if !found {
+				latestRule.Status.NodeEvaluations = append(
+					latestRule.Status.NodeEvaluations,
+					currEval,
+				)
+				return nil
+			}
+
+			// handle status.FailedNodes for this node
+			var updatedFailedNodes []readinessv1alpha1.NodeFailure
+			for _, failure := range latestRule.Status.FailedNodes {
+				if failure.NodeName != node.Name {
+					updatedFailedNodes = append(updatedFailedNodes, failure)
+				}
+			}
+			for _, failure := range rule.Status.FailedNodes {
+				if failure.NodeName == node.Name {
+					updatedFailedNodes = append(updatedFailedNodes, failure)
+				}
+			}
+			latestRule.Status.FailedNodes = updatedFailedNodes
+
+			return r.Status().Update(ctx, latestRule)
+		})
+
+		if err != nil {
 			log.Error(err, "Failed to update rule status after node evaluation",
 				"node", node.Name,
 				"rule", rule.Name,
@@ -205,6 +253,7 @@ func (r *ReadinessGateController) markBootstrapCompleted(ctx context.Context, no
 		}
 
 		node.Annotations[annotationKey] = "true"
+		// TODO: consider replacing this with SSA
 		return r.Update(ctx, node)
 	})
 

@@ -264,6 +264,10 @@ func (r *ReadinessGateController) processAllNodesForRule(ctx context.Context, ru
 	rule.Status.ObservedGeneration = rule.Generation
 	rule.Status.AppliedNodes = appliedNodes
 
+	if !rule.Spec.DryRun {
+		rule.Status.DryRunResults = readinessv1alpha1.DryRunResults{}
+	}
+
 	log.Info("Completed processing nodes for rule", "rule", rule.Name, "processedCount", len(appliedNodes))
 	return nil
 }
