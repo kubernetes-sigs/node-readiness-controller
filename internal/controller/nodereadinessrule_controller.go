@@ -399,11 +399,7 @@ func (r *ReadinessGateController) getApplicableRulesForNode(ctx context.Context,
 func (r *ReadinessGateController) ruleAppliesTo(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, node *corev1.Node) bool {
 	log := ctrl.LoggerFrom(ctx)
 
-	if rule.Spec.NodeSelector == nil {
-		return true
-	}
-
-	selector, err := metav1.LabelSelectorAsSelector(rule.Spec.NodeSelector)
+	selector, err := metav1.LabelSelectorAsSelector(&rule.Spec.NodeSelector)
 	if err != nil {
 		log.Error(err, "Invalid node selector for rule", "rule", rule.Name)
 		return false
@@ -608,13 +604,9 @@ func (r *ReadinessGateController) cleanupNodesAfterSelectorChange(ctx context.Co
 	}
 
 	// Build old selector
-	var oldSelector labels.Selector
-	var err error
-	if oldRule.Spec.NodeSelector != nil {
-		oldSelector, err = metav1.LabelSelectorAsSelector(oldRule.Spec.NodeSelector)
-		if err != nil {
-			return fmt.Errorf("failed to parse old node selector: %w", err)
-		}
+	oldSelector, err := metav1.LabelSelectorAsSelector(&oldRule.Spec.NodeSelector)
+	if err != nil {
+		return fmt.Errorf("failed to parse old node selector: %w", err)
 	}
 
 	// Clean up nodes that matched old selector but not new selector
@@ -655,17 +647,7 @@ func (r *ReadinessGateController) cleanupNodesAfterSelectorChange(ctx context.Co
 }
 
 // nodeSelectorChanged checks if nodeSelector has changed.
-func nodeSelectorChanged(current, previous *metav1.LabelSelector) bool {
-	// Both nil - no change
-	if current == nil && previous == nil {
-		return false
-	}
-
-	// One is nil, other is not - changed
-	if (current == nil) != (previous == nil) {
-		return true
-	}
-
+func nodeSelectorChanged(current, previous metav1.LabelSelector) bool {
 	// Compare matchLabels
 	if !stringMapEqual(current.MatchLabels, previous.MatchLabels) {
 		return true

@@ -84,6 +84,11 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
 					Taint: corev1.Taint{
 						Key:    "test-taint",
 						Effect: corev1.TaintEffectNoSchedule,
@@ -120,6 +125,11 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
 					},
 					Taint: corev1.Taint{
 						Key:    "test-taint",
@@ -186,7 +196,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
-					NodeSelector: &metav1.LabelSelector{
+					NodeSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"immediate-test": "true",
 						},
@@ -236,6 +246,11 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
 					},
 					Taint: corev1.Taint{
 						Key:    "dry-run-taint",
@@ -311,7 +326,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
-					NodeSelector: &metav1.LabelSelector{
+					NodeSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"node-role.kubernetes.io/worker": "",
 						},
@@ -388,7 +403,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		It("should check rule applicability correctly", func() {
 			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
-					NodeSelector: &metav1.LabelSelector{
+					NodeSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"node-role.kubernetes.io/worker": "",
 						},
@@ -471,7 +486,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "DBReady", RequiredStatus: corev1.ConditionTrue}},
 					Taint:           corev1.Taint{Key: "db-unready", Effect: corev1.TaintEffectNoSchedule},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
-					NodeSelector:    &metav1.LabelSelector{MatchLabels: map[string]string{"app": "backend"}},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"app": "backend"}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
@@ -524,7 +539,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "TestReady", RequiredStatus: corev1.ConditionTrue}},
 					Taint:           corev1.Taint{Key: "test-unready", Effect: corev1.TaintEffectNoSchedule},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
-					NodeSelector:    &metav1.LabelSelector{MatchLabels: map[string]string{"node-group": "new-workers"}},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"node-group": "new-workers"}},
 				},
 			}
 			newNode = &corev1.Node{
@@ -588,7 +603,12 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 		BeforeEach(func() {
 			testNode = &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{Name: "cleanup-test-node"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cleanup-test-node",
+					Labels: map[string]string{
+						"kubernetes.io/hostname": "cleanup-test-node",
+					},
+				},
 				Spec: corev1.NodeSpec{
 					Taints: []corev1.Taint{
 						{Key: "cleanup-taint", Effect: corev1.TaintEffectNoSchedule, Value: "pending"},
@@ -602,6 +622,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: "cleanup-rule"},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "TestReady", RequiredStatus: corev1.ConditionTrue}},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"kubernetes.io/hostname": "cleanup-test-node"}},
 					Taint:           corev1.Taint{Key: "cleanup-taint", Effect: corev1.TaintEffectNoSchedule},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 				},
@@ -678,13 +699,22 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			rule = &nodereadinessiov1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "delete-node-rule"},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
-					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "Ready", RequiredStatus: corev1.ConditionTrue}},
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{{Type: "Ready", RequiredStatus: corev1.ConditionTrue}},
+					NodeSelector: metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "kubernetes.io/hostname",
+								Operator: metav1.LabelSelectorOpIn,
+								Values:   []string{"node1", "node2"},
+							},
+						},
+					},
 					Taint:           corev1.Taint{Key: "unready", Effect: corev1.TaintEffectNoSchedule},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 				},
 			}
-			node1 = &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}
-			node2 = &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node2"}}
+			node1 = &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1", Labels: map[string]string{"kubernetes.io/hostname": "node1"}}}
+			node2 = &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node2", Labels: map[string]string{"kubernetes.io/hostname": "node2"}}}
 
 			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
 			Expect(k8sClient.Create(ctx, node1)).To(Succeed())
@@ -779,7 +809,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 					},
 					Taint:           corev1.Taint{Key: selectorChangeTaintKey, Effect: corev1.TaintEffectNoSchedule},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
-					NodeSelector: &metav1.LabelSelector{
+					NodeSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{"env": "prod"},
 					},
 				},
@@ -832,7 +862,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			// Update rule to target dev nodes instead of prod nodes
 			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "selector-change-rule"}, updatedRule)).To(Succeed())
-			updatedRule.Spec.NodeSelector = &metav1.LabelSelector{
+			updatedRule.Spec.NodeSelector = metav1.LabelSelector{
 				MatchLabels: map[string]string{"env": "dev"},
 			}
 			Expect(k8sClient.Update(ctx, updatedRule)).To(Succeed())

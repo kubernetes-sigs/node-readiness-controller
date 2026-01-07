@@ -156,7 +156,7 @@ var _ = Describe("Node Controller", func() {
 						Key:    taintKey,
 						Effect: corev1.TaintEffectNoSchedule,
 					},
-					NodeSelector: &metav1.LabelSelector{
+					NodeSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{"env": "test"},
 					},
 				},

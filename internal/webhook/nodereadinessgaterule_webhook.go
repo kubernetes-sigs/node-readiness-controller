@@ -78,6 +78,17 @@ func (w *NodeReadinessRuleWebhook) validateSpec(spec readinessv1alpha1.NodeReadi
 		}
 	}
 
+	// Validate nodeSelector
+	selector, err := metav1.LabelSelectorAsSelector(&spec.NodeSelector)
+	if err != nil {
+		allErrs = append(allErrs, field.Invalid(specField.Child("nodeSelector"), spec.NodeSelector, err.Error()))
+	}
+
+	// Validate that the nodeSelector isn't empty.
+	if selector != nil && selector.Empty() {
+		allErrs = append(allErrs, field.Required(specField.Child("nodeSelector"), "nodeSelector must not be empty"))
+	}
+
 	// Validate taint
 	taintField := specField.Child("taint")
 	if spec.Taint.Key == "" {
@@ -139,15 +150,10 @@ func (w *NodeReadinessRuleWebhook) validateTaintConflicts(ctx context.Context, r
 }
 
 // nodeSelectorsOverlap checks if two node selectors overlap.
-func (w *NodeReadinessRuleWebhook) nodSelectorsOverlap(selector1, selector2 *metav1.LabelSelector) bool {
-	// If either selector is nil, it matches all nodes - so they overlap
-	if selector1 == nil || selector2 == nil {
-		return true
-	}
-
+func (w *NodeReadinessRuleWebhook) nodSelectorsOverlap(selector1, selector2 metav1.LabelSelector) bool {
 	// Convert to selectors
-	sel1, err1 := metav1.LabelSelectorAsSelector(selector1)
-	sel2, err2 := metav1.LabelSelectorAsSelector(selector2)
+	sel1, err1 := metav1.LabelSelectorAsSelector(&selector1)
+	sel2, err2 := metav1.LabelSelectorAsSelector(&selector2)
 
 	if err1 != nil || err2 != nil {
 		// If we can't parse selectors, assume they overlap for safety

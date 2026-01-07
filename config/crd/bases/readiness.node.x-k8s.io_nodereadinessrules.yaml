@@ -102,15 +102,13 @@ spec:
                   enforcementMode is one of bootstrap-only, continuous.
                   "bootstrap-only" applies the configuration once during initial setup.
                   "continuous" ensures the state is monitored and corrected throughout the resource lifecycle.
-                  When omitted, default value will be "continuous".
                 enum:
                 - bootstrap-only
                 - continuous
                 type: string
               nodeSelector:
-                description: |-
-                  nodeSelector limits the scope of this rule to a specific subset of Nodes.
-                  If unspecified, this rule applies to all Nodes in the cluster.
+                description: nodeSelector limits the scope of this rule to a specific
+                  subset of Nodes.
                 properties:
                   matchExpressions:
                     description: matchExpressions is a list of label selector requirements.
@@ -183,6 +181,7 @@ spec:
                 type: object
             required:
             - conditions
+            - nodeSelector
             - taint
             type: object
           status:

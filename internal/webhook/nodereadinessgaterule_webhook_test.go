@@ -62,7 +62,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			}
 
 			allErrs := webhook.validateSpec(rule.Spec)
-			Expect(allErrs).To(HaveLen(4)) // conditions, taint.key, taint.effect, enforcementMode
+			Expect(allErrs).To(HaveLen(5)) // conditions, nodeSelector, taint.key, taint.effect, enforcementMode
 
 			// Check specific errors
 			var foundErrors []string
@@ -71,6 +71,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			}
 
 			Expect(foundErrors).To(ContainElement("spec.conditions"))
+			Expect(foundErrors).To(ContainElement("spec.nodeSelector"))
 			Expect(foundErrors).To(ContainElement("spec.taint.key"))
 			Expect(foundErrors).To(ContainElement("spec.taint.effect"))
 			Expect(foundErrors).To(ContainElement("spec.enforcementMode"))
@@ -82,6 +83,11 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{
 							// Missing type and requiredStatus
+						},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
 						},
 					},
 					Taint: corev1.Taint{
@@ -104,11 +110,62 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			Expect(foundErrors).To(ContainElement("spec.conditions[0].requiredStatus"))
 		})
 
+		Context("Validate nodeSelector", func() {
+			It("nodeSelector should be set", func() {
+				rule := &readinessv1alpha1.NodeReadinessRule{
+					Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+						Conditions: []readinessv1alpha1.ConditionRequirement{
+							{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+						},
+						Taint: corev1.Taint{
+							Key:    "test-key",
+							Effect: corev1.TaintEffectNoSchedule,
+						},
+						EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
+					},
+				}
+
+				allErrs := webhook.validateSpec(rule.Spec)
+				Expect(allErrs).To(HaveLen(1))
+				Expect(allErrs[0].Field).To(Equal("spec.nodeSelector"))
+				Expect(allErrs[0].Type).To(Equal(field.ErrorTypeRequired))
+			})
+			It("with invalid nodeSelector", func() {
+				rule := &readinessv1alpha1.NodeReadinessRule{
+					Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+						Conditions: []readinessv1alpha1.ConditionRequirement{
+							{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+						},
+						NodeSelector: metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"-123-worker": "machine",
+							},
+						},
+						Taint: corev1.Taint{
+							Key:    "test-key",
+							Effect: corev1.TaintEffectNoSchedule,
+						},
+						EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
+					},
+				}
+
+				allErrs := webhook.validateSpec(rule.Spec)
+				Expect(allErrs).To(HaveLen(1))
+				Expect(allErrs[0].Field).To(Equal("spec.nodeSelector"))
+				Expect(allErrs[0].Type).To(Equal(field.ErrorTypeInvalid))
+			})
+		})
+
 		It("should validate enforcement mode values", func() {
 			rule := &readinessv1alpha1.NodeReadinessRule{
 				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
 					},
 					Taint: corev1.Taint{
 						Key:    "test-key",
@@ -137,7 +194,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						Value:  "pending",
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
-					NodeSelector: &metav1.LabelSelector{
+					NodeSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"node-role.kubernetes.io/worker": "",
 						},
@@ -274,32 +331,32 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 
 	Context("Node Selector Overlap Detection", func() {
 		It("should detect overlapping nil selectors", func() {
-			overlaps := webhook.nodSelectorsOverlap(nil, nil)
+			overlaps := webhook.nodSelectorsOverlap(metav1.LabelSelector{}, metav1.LabelSelector{})
 			Expect(overlaps).To(BeTrue()) // Both nil = both match all nodes
 		})
 
-		It("should detect overlap when one selector is nil", func() {
-			selector := &metav1.LabelSelector{
+		It("should not overlap when one selector is nil", func() {
+			selector := metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"node-role.kubernetes.io/worker": "",
 				},
 			}
 
-			overlaps := webhook.nodSelectorsOverlap(nil, selector)
-			Expect(overlaps).To(BeTrue()) // nil matches all, so overlaps
+			overlaps := webhook.nodSelectorsOverlap(metav1.LabelSelector{}, selector)
+			Expect(overlaps).To(BeFalse())
 
-			overlaps = webhook.nodSelectorsOverlap(selector, nil)
-			Expect(overlaps).To(BeTrue()) // nil matches all, so overlaps
+			overlaps = webhook.nodSelectorsOverlap(selector, metav1.LabelSelector{})
+			Expect(overlaps).To(BeFalse())
 		})
 
 		It("should detect identical selectors as overlapping", func() {
-			selector1 := &metav1.LabelSelector{
+			selector1 := metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"node-role.kubernetes.io/worker": "",
 				},
 			}
 
-			selector2 := &metav1.LabelSelector{
+			selector2 := metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"node-role.kubernetes.io/worker": "",
 				},
@@ -310,13 +367,13 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 		})
 
 		It("should not detect different selectors as overlapping", func() {
-			selector1 := &metav1.LabelSelector{
+			selector1 := metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"node-role.kubernetes.io/worker": "",
 				},
 			}
 
-			selector2 := &metav1.LabelSelector{
+			selector2 := metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"node-role.kubernetes.io/control-plane": "",
 				},
@@ -334,6 +391,11 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
 					},
 					Taint: corev1.Taint{
 						Key:    "create-test-key",
@@ -368,6 +430,11 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
 					},
 					Taint: corev1.Taint{
 						Key:    "update-test-key",
@@ -416,6 +483,11 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
 					Taint: corev1.Taint{
 						Key:    "comprehensive-key",
 						Effect: corev1.TaintEffectNoSchedule,
@@ -438,6 +510,11 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "NetworkReady", RequiredStatus: corev1.ConditionTrue},
 					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
 					Taint: corev1.Taint{
 						Key:    "different-key", // No conflict
 						Effect: corev1.TaintEffectNoSchedule,
@@ -455,6 +532,11 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "StorageReady", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
 					},
 					Taint: corev1.Taint{
 						Key:    "comprehensive-key", // Conflicts with existing
@@ -477,7 +559,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			}
 
 			allErrs = webhook.validateNodeReadinessRule(ctx, invalidRule, false)
-			Expect(allErrs).To(HaveLen(4)) // Multiple validation failures
+			Expect(allErrs).To(HaveLen(5)) // Multiple validation failures
 		})
 	})
 })

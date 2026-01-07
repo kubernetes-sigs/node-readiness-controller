@@ -62,7 +62,6 @@ type NodeReadinessRuleSpec struct {
 	// enforcementMode is one of bootstrap-only, continuous.
 	// "bootstrap-only" applies the configuration once during initial setup.
 	// "continuous" ensures the state is monitored and corrected throughout the resource lifecycle.
-	// When omitted, default value will be "continuous".
 	//
 	// +optional
 	EnforcementMode EnforcementMode `json:"enforcementMode,omitempty"`
@@ -71,13 +70,12 @@ type NodeReadinessRuleSpec struct {
 	// on Nodes that meet the defined condition criteria.
 	//
 	// +required
-	Taint corev1.Taint `json:"taint,omitempty"`
+	Taint corev1.Taint `json:"taint,omitempty,omitzero"`
 
 	// nodeSelector limits the scope of this rule to a specific subset of Nodes.
-	// If unspecified, this rule applies to all Nodes in the cluster.
 	//
-	// +optional
-	NodeSelector *metav1.LabelSelector `json:"nodeSelector,omitempty"`
+	// +required
+	NodeSelector metav1.LabelSelector `json:"nodeSelector,omitempty,omitzero"`
 
 	// dryRun when set to true, The controller will evaluate Node conditions and log intended taint modifications
 	// without persisting changes to the cluster. Proposed actions are reflected in the resource status.
