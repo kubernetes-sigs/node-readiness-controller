@@ -283,7 +283,6 @@ func (r *ReadinessGateController) evaluateRuleForNode(ctx context.Context, rule 
 	for _, condReq := range rule.Spec.Conditions {
 		currentStatus := r.getConditionStatus(node, condReq.Type)
 		satisfied := currentStatus == condReq.RequiredStatus
-		missing := currentStatus == corev1.ConditionUnknown
 
 		if !satisfied {
 			allConditionsSatisfied = false
@@ -293,13 +292,11 @@ func (r *ReadinessGateController) evaluateRuleForNode(ctx context.Context, rule 
 			Type:           condReq.Type,
 			CurrentStatus:  currentStatus,
 			RequiredStatus: condReq.RequiredStatus,
-			Satisfied:      satisfied,
-			Missing:        missing,
 		})
 
 		log.V(1).Info("Condition evaluation", "node", node.Name, "rule", rule.Name,
 			"conditionType", condReq.Type, "current", currentStatus, "required", condReq.RequiredStatus,
-			"satisfied", satisfied, "missing", missing)
+			"satisfied", satisfied)
 	}
 
 	// Determine taint action

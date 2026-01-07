@@ -181,6 +181,7 @@ spec:
                 type: object
             required:
             - conditions
+            - enforcementMode
             - nodeSelector
             - taint
             type: object
@@ -312,10 +313,6 @@ spec:
                             - "False"
                             - Unknown
                             type: string
-                          missing:
-                            description: missing indicates that the specified condition
-                              was not found on the Node.
-                            type: boolean
                           requiredStatus:
                             description: requiredStatus is the status value defined
                               in the rule that must be matched, one of True, False,
@@ -325,10 +322,6 @@ spec:
                             - "False"
                             - Unknown
                             type: string
-                          satisfied:
-                            description: satisfied indicates whether the CurrentStatus
-                              matches the RequiredStatus.
-                            type: boolean
                           type:
                             description: type corresponds to the Node condition type
                               being evaluated.
@@ -337,9 +330,7 @@ spec:
                             type: string
                         required:
                         - currentStatus
-                        - missing
                         - requiredStatus
-                        - satisfied
                         - type
                         type: object
                       maxItems: 5000

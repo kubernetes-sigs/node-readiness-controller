@@ -63,7 +63,7 @@ type NodeReadinessRuleSpec struct {
 	// "bootstrap-only" applies the configuration once during initial setup.
 	// "continuous" ensures the state is monitored and corrected throughout the resource lifecycle.
 	//
-	// +optional
+	// +required
 	EnforcementMode EnforcementMode `json:"enforcementMode,omitempty"`
 
 	// taint defines the specific Taint (Key, Value, and Effect) to be managed
@@ -233,16 +233,6 @@ type ConditionEvaluationResult struct {
 	// +required
 	// +kubebuilder:validation:Enum=True;False;Unknown
 	RequiredStatus corev1.ConditionStatus `json:"requiredStatus,omitempty"`
-
-	// satisfied indicates whether the CurrentStatus matches the RequiredStatus.
-	//
-	// +required
-	Satisfied bool `json:"satisfied"` //nolint:kubeapilinter
-
-	// missing indicates that the specified condition was not found on the Node.
-	//
-	// +required
-	Missing bool `json:"missing"` //nolint:kubeapilinter
 }
 
 // DryRunResults provides a summary of the actions the controller would perform if DryRun mode is enabled.

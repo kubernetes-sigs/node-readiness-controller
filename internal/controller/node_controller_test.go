@@ -159,6 +159,7 @@ var _ = Describe("Node Controller", func() {
 					NodeSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{"env": "test"},
 					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 				},
 			}
 		})
