@@ -4,28 +4,54 @@ run:
 linters:
   default: none
   enable:
-    - copyloopvar
-    - dupl
-    - errcheck
-    - ginkgolinter
-    - goconst
-    - gocyclo
-    - govet
-    - ineffassign
-    - lll
-    - misspell
-    - nakedret
-    - prealloc
-    - revive
-    - staticcheck
-    - unconvert
-    - unparam
-    - unused
+    - asasalint # warns about passing []any to func(...any) without expanding it
+    - asciicheck # non ascii symbols
+    - bidichk # dangerous unicode sequences
+    - bodyclose # unclosed http bodies
+    - containedctx # context.Context nested in a struct
+    - copyloopvar # copying loop variables
+    - dogsled # too many blank identifiers in assignments
+    - dupword # duplicate words
+    - durationcheck # multiplying two durations
+    - errcheck # unchecked errors
+    - errchkjson # invalid types passed to json encoder
+    - forbidigo # allows to block usage of funcs
+    - ginkgolinter # ginkgo and gomega
+    - gocritic # bugs, performance, style (we could add custom ones to this one)
+    - godot # checks that comments end in a period
+    - godox # block FIXMEs
+    - goprintffuncname # printft-like functions should be named with f at the end
+    - gosec # potential security problems
+    - govet # basically 'go vet'
+    - importas # consistent import aliases
+    - ineffassign # ineffectual assignments
+    - intrange # suggest using integer range in for loops
+    - loggercheck # check for even key/value pairs in logger calls
+    - misspell # spelling
+    - nakedret # naked returns (named return parameters and an empty return)
+    - nilerr # returning nil after checking err is not nil
+    - noctx # http requests without context.Context
+    - nolintlint # badly formatted nolint directives
+    - nosprintfhostport # using sprintf to construct host:port in a URL
+    - prealloc # suggest preallocating slices
+    - predeclared # shadowing predeclared identifiers
+    - revive # better version of golint
+    - staticcheck # some of staticcheck's rules
+    - thelper # test helpers not starting with t.Helper()
+    - unconvert # unnecessary type conversions
+    - unparam # unused function parameters
+    - unused # unused constants, variables,functions, types
+    - usestdlibvars # using variables/constants from the standard library
+    - usetesting # report function to be replaced by testing
+    - whitespace # unnecessary newlines
   settings:
     revive:
       rules:
         - name: comment-spacings
         - name: import-shadowing
+    godox:
+      keywords:
+        - FIXME # FIXME's should be removed before merging PRs
   exclusions:
     generated: lax
     rules:
@@ -36,10 +62,18 @@ linters:
           - dupl
           - lll
         path: internal/*
+      - linters:
+          - gosec
+        path: "test/utils/"
+        text: "G204"
+      - linters:
+          - noctx
+        path: "test/utils/"
     paths:
       - third_party$
       - builtin$
       - examples$
+
 formatters:
   enable:
     - gofmt
