@@ -340,3 +340,12 @@ docs: ## Build the mdBook locally using the same script Netlify uses.
 .PHONY: docs-serve
 docs-serve: ## Serve mdBook locally.
 	GO_VERSION=$(GO_VERSION) MDBOOK_VERSION=$(MDBOOK_VERSION) $(MDBOOK_SCRIPT) serve docs/book --open
+
+# generate CRD spec doc
+.PHONY: crd-ref-docs
+crd-ref-docs:
+	crd-ref-docs \
+		--source-path=${PWD}/api/v1alpha1/ \
+		--config=crd-ref-docs.yaml \
+		--renderer=markdown \
+		--output-path=${PWD}/docs/spec.md
