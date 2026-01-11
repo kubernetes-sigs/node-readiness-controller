@@ -43,4 +43,4 @@
 
 # Reference
 
-<!-- - [API Specification](./reference/api-spec.md) -->
+- [API Specification](./reference/api-spec.md)
