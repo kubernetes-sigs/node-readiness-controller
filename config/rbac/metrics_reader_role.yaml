@@ -3,7 +3,19 @@ kind: ClusterRole
 metadata:
   name: metrics-reader
 rules:
-- nonResourceURLs:
-  - "/metrics"
+- apiGroups: [""]
+  resources:
+  - services
+  - endpoints
+  - pods
   verbs:
   - get
+  - list
+  - watch
+- apiGroups: ["discovery.k8s.io"]
+  resources:
+  - endpointslices
+  verbs:
+  - get
+  - list
+  - watch

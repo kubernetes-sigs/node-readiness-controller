@@ -2,3 +2,9 @@
 - op: add
   path: /spec/template/spec/containers/0/args/0
   value: --metrics-bind-address=:8443
+- op: add
+  path: /spec/template/spec/containers/0/args/1
+  value: --metrics-secure
+- op: add
+  path: /spec/template/spec/containers/0/args/2
+  value: --metrics-cert-dir=/tmp/k8s-metrics-server/metrics-certs
