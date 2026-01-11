@@ -1,0 +1,110 @@
+# Installation
+
+Follow this guide to install the Node Readiness Controller in your Kubernetes cluster.
+
+## Deployment Options
+
+### Option 1: Install Official Release (Recommended)
+
+The easiest way to get started is by applying the official release manifest. This will deploy the controller into the `nrr-system` namespace.
+
+```sh
+# Replace with the desired version
+VERSION=v0.1.0
+kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/install.yaml
+```
+
+**Note on Placement**: The controller is configured to run on **Control Plane** nodes by default (using `node-role.kubernetes.io/control-plane` selector and toleration). If your cluster has separate platform node setup, the node-readiness-controller deployment need to be updated for taints/tolerations to run on these platform nodes.
+
+**Images**: The official releases use multi-arch images (AMD64, Arm64) hosted on the k8s-staging registry.
+
+### Option 2: Deploy Using Kustomize
+
+If you have cloned the repository and want to deploy from source, you can use Kustomize.
+
+```sh
+# 1. Install Custom Resource Definitions (CRDs)
+kubectl apply -k config/crd
+
+# 2. Deploy Controller and RBAC
+kubectl apply -k config/default
+```
+
+## Verification
+
+After installation, verify that the controller is running successfully.
+
+1.  **Check Pod Status**:
+    ```sh
+    kubectl get pods -n nrr-system
+    ```
+    You should see a pod named `nrr-controller-manager-...` in `Running` status.
+
+2.  **Check Logs**:
+    ```sh
+    kubectl logs -n nrr-system -l control-plane=controller-manager
+    ```
+    Look for "Starting EventSource" or "Starting Controller" messages indicating the manager is active.
+
+3.  **Verify CRDs**:
+    ```sh
+    kubectl get crd nodereadinessrules.readiness.node.x-k8s.io
+    ```
+
+## Uninstallation
+
+> **IMPORTANT**: Follow this order to avoid "stuck" resources.
+
+The controller uses a **finalizer** (`readiness.node.x-k8s.io/cleanup-taints`) on `NodeReadinessRule` resources to ensure taints are safely removed from nodes before a rule is deleted.
+
+**You must delete all rule objects *before* deleting the controller.**
+
+1.  **Delete all Rules**:
+    ```sh
+    kubectl delete nodereadinessrules --all
+    ```
+    *Wait for this command to complete.* This ensures the running controller removes its taints from your nodes.
+
+2.  **Uninstall Controller**:
+    ```sh
+    # If installed via release manifest
+    kubectl delete -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/install.yaml
+
+    # OR if using Kustomize
+    kubectl delete -k config/default
+    ```
+
+3.  **Uninstall CRDs** (Optional):
+    ```sh
+    make uninstall
+
+    # OR
+    kubectl delete -k config/crd
+    ```
+
+### Recovering from Stuck Resources
+
+If you accidentally deleted the controller *before* the rules, the `NodeReadinessRule` objects will get stuck in a `Terminating` state because the finalizer is waiting for the controller to clean up.
+
+To force-delete them (this will leave the managed taints on nodes):
+
+```sh
+# Patch the finalizer to remove it
+kubectl patch nodereadinessrule <rule-name> -p '{"metadata":{"finalizers":[]}}' --type=merge
+```
+
+## Troubleshooting Deployment
+
+**RBAC Permissions**
+If the controller logs show "Forbidden" errors, verify the ClusterRole bindings:
+```sh
+kubectl describe clusterrole nrr-manager-role
+```
+It requires `nodes` (update/patch) and `nodereadinessrules` (all) access.
+
+**Debug Logging**
+To enable verbose logging for deeper investigation:
+```sh
+kubectl patch deployment -n nrr-system nrr-controller-manager \
+  -p '{"spec":{"template":{"spec":{"containers":[{"name":"manager","args":["--zap-log-level=debug"]}]}}}}'
+```
