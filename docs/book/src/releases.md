@@ -6,7 +6,7 @@ This page details the official releases of the Node Readiness Controller.
 
 **Date:** 2026-01-12
 
-This is the first official alpha release of the Node Readiness Controller.
+This is the first official release of the Node Readiness Controller.
 
 ### Release Notes
 
