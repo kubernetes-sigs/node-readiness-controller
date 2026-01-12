@@ -19,10 +19,12 @@ This is the first official alpha release of the Node Readiness Controller.
 
 ### Images
 
+The following container images are published as part of this release.
+
  | Image Name | Repository | Tag |
  |---|---|---|
- | `node-readiness-controller` | `k8s-staging-node-readiness-controller/node-readiness-controller` | `v0.1.0` |
- | `node-readiness-reporter` | `k8s-staging-node-readiness-controller/node-readiness-reporter` | `v0.1.0` |
+ | `node-readiness-controller` | `gcr.io/k8s-staging-node-readiness-controller/node-readiness-controller` | `v0.1.0` |
+ | `node-readiness-reporter` | `gcr.io/k8s-staging-node-readiness-controller/node-readiness-reporter` | `v0.1.0` |
 
 ### Installation
 
@@ -41,6 +43,7 @@ This will deploy the controller into the `nrr-system` namespace in your cluster.
 - Priyankasaggu11929
 - sreeram-venkitesh
 - Hii-Himanshu
+- Serafeim-Katsaros
+- arnab-logs
 - Yuan-prog
 - AvineshTripathi
-- arnab-logs
