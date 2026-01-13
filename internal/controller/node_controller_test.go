@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
@@ -101,7 +102,7 @@ var _ = Describe("Node Controller", func() {
 	Context("when reconciling a node", func() {
 		var (
 			ctx                 context.Context
-			readinessController *ReadinessGateController
+			readinessController *RuleReadinessController
 			nodeReconciler      *NodeReconciler
 			fakeClientset       *fake.Clientset
 			node                *corev1.Node
@@ -113,7 +114,7 @@ var _ = Describe("Node Controller", func() {
 			ctx = context.Background()
 
 			fakeClientset = fake.NewSimpleClientset()
-			readinessController = &ReadinessGateController{
+			readinessController = &RuleReadinessController{
 				Client:    k8sClient,
 				Scheme:    k8sClient.Scheme(),
 				clientset: fakeClientset,
@@ -185,9 +186,10 @@ var _ = Describe("Node Controller", func() {
 			}
 
 			// Wait for deletion to complete before next test
-			Eventually(func() error {
-				return k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, &nodereadinessiov1alpha1.NodeReadinessRule{})
-			}, time.Second*10).ShouldNot(Succeed())
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, &nodereadinessiov1alpha1.NodeReadinessRule{})
+				return apierrors.IsNotFound(err)
+			}, time.Second*10).Should(BeTrue())
 
 			// Remove rule from cache
 			readinessController.removeRuleFromCache(ctx, ruleName)
@@ -354,6 +356,156 @@ var _ = Describe("Node Controller", func() {
 					return updatedNode.Spec.Taints
 				}, time.Second*2).ShouldNot(BeEmpty())
 			})
+		})
+	})
+
+	// Test for rule deletion race condition
+	Context("when processing nodes during rule deletion", func() {
+
+		var (
+			ctx                 context.Context
+			readinessController *RuleReadinessController
+			nodeReconciler      *NodeReconciler
+			fakeClientset       *fake.Clientset
+			node                *corev1.Node
+			rule                *nodereadinessiov1alpha1.NodeReadinessRule
+			namespacedName      types.NamespacedName
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+
+			fakeClientset = fake.NewSimpleClientset()
+			readinessController = &RuleReadinessController{
+				Client:    k8sClient,
+				Scheme:    k8sClient.Scheme(),
+				clientset: fakeClientset,
+				ruleCache: make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+			}
+
+			nodeReconciler = &NodeReconciler{
+				Client:     k8sClient,
+				Scheme:     k8sClient.Scheme(),
+				Controller: readinessController,
+			}
+			namespacedName = types.NamespacedName{Name: nodeName}
+
+			rule = &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: ruleName,
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: conditionType, RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    taintKey,
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"env": "test"},
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			node = &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{"env": "test"},
+				},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						// Set expected condition to False - would normally trigger to set taint if rule is active
+						{Type: conditionType, Status: corev1.ConditionFalse},
+					},
+				},
+			}
+		})
+
+		JustBeforeEach(func() {
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			// Delete node first
+			_ = k8sClient.Delete(ctx, node)
+
+			// Remove finalizers and delete rule
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, updatedRule); err == nil {
+				updatedRule.Finalizers = nil
+				_ = k8sClient.Update(ctx, updatedRule)
+				_ = k8sClient.Delete(ctx, updatedRule)
+			}
+
+			// Wait for deletion to complete before next test
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, &nodereadinessiov1alpha1.NodeReadinessRule{})
+				return apierrors.IsNotFound(err)
+			}, time.Second*10).Should(BeTrue())
+
+			// Remove rule from cache
+			readinessController.removeRuleFromCache(ctx, ruleName)
+		})
+
+		It("should not add taints when rule has DeletionTimestamp set", func() {
+			// mark rule for deletion
+			By("Creating rule with DeletionTimestamp")
+			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
+			deletingRule := rule.DeepCopy()
+			now := metav1.Now()
+			deletingRule.DeletionTimestamp = &now
+			readinessController.updateRuleCache(ctx, deletingRule)
+
+			By("Triggering NodeReconciler") // should skip because rule is being deleted
+			_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying no taint was added")
+			finalNode := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, namespacedName, finalNode)).To(Succeed())
+
+			hasTaint := false
+			for _, t := range finalNode.Spec.Taints {
+				if t.Key == taintKey {
+					hasTaint = true
+					break
+				}
+			}
+			Expect(hasTaint).To(BeFalse(),
+				"Taint should not be added when rule is being deleted")
+		})
+
+		It("should skip rule evaluation completely when DeletionTimestamp is set", func() {
+			By("Creating rule with DeletionTimestamp")
+			deletingRule := rule.DeepCopy()
+			now := metav1.Now()
+			deletingRule.DeletionTimestamp = &now
+			readinessController.updateRuleCache(ctx, deletingRule)
+
+			By("Triggering reconciliation")
+			_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying rule was not evaluated")
+			// Check that no NodeEvaluation was added for this node
+			checkRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, checkRule)).To(Succeed())
+
+			hasEval := false
+			for _, eval := range checkRule.Status.NodeEvaluations {
+				if eval.NodeName == nodeName {
+					hasEval = true
+					break
+				}
+			}
+			Expect(hasEval).To(BeFalse(),
+				"Rule with DeletionTimestamp should not create node evaluation")
 		})
 	})
 })

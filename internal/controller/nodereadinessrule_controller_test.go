@@ -40,7 +40,7 @@ const (
 var _ = Describe("NodeReadinessRule Controller", func() {
 	var (
 		ctx                 context.Context
-		readinessController *ReadinessGateController
+		readinessController *RuleReadinessController
 		ruleReconciler      *RuleReconciler
 		nodeReconciler      *NodeReconciler
 		scheme              *runtime.Scheme
@@ -54,7 +54,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 
 		fakeClientset = fake.NewSimpleClientset()
-		readinessController = &ReadinessGateController{
+		readinessController = &RuleReadinessController{
 			Client:    k8sClient,
 			Scheme:    scheme,
 			clientset: fakeClientset,
@@ -75,10 +75,53 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 	})
 
 	Context("Rule Reconciliation", func() {
+		It("should handle rule creation and add the finalizer to the rule", func() {
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-rule-finalizer",
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+					Taint: corev1.Taint{
+						Key:    "test-taint",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+
+			Eventually(func() error {
+				_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: types.NamespacedName{Name: "test-rule-finalizer"},
+				})
+				return err
+			}).Should(Succeed())
+
+			// Verify finalizer is added to the rule
+			Eventually(func() []string {
+				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: "test-rule-finalizer"}, updatedRule)
+				return updatedRule.Finalizers
+			}, time.Second*5).Should(ConsistOf(finalizerName))
+
+			// Cleanup
+			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
+		})
+
 		It("should handle rule creation and update cache", func() {
 			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-rule",
+					Name:       "test-rule",
+					Finalizers: []string{finalizerName},
 				},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
@@ -120,7 +163,8 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		It("should handle rule deletion and remove from cache", func() {
 			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-rule-delete",
+					Name:       "test-rule-delete",
+					Finalizers: []string{finalizerName},
 				},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
@@ -185,7 +229,8 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			// Now create a rule - this should immediately evaluate the existing node
 			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "immediate-test-rule",
+					Name:       "immediate-test-rule",
+					Finalizers: []string{finalizerName},
 				},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
@@ -241,7 +286,8 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		It("should handle dry run mode", func() {
 			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "dry-run-rule",
+					Name:       "dry-run-rule",
+					Finalizers: []string{finalizerName},
 				},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
@@ -315,7 +361,8 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		It("should process node changes", func() {
 			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "node-test-rule",
+					Name:       "node-test-rule",
+					Finalizers: []string{finalizerName},
 				},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
@@ -481,7 +528,10 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: "DBReady", Status: corev1.ConditionFalse}}},
 			}
 			rule = &nodereadinessiov1alpha1.NodeReadinessRule{
-				ObjectMeta: metav1.ObjectMeta{Name: "db-rule"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "db-rule",
+					Finalizers: []string{finalizerName},
+				},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "DBReady", RequiredStatus: corev1.ConditionTrue}},
 					Taint:           corev1.Taint{Key: "db-unready", Effect: corev1.TaintEffectNoSchedule},
@@ -534,7 +584,10 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 		BeforeEach(func() {
 			rule = &nodereadinessiov1alpha1.NodeReadinessRule{
-				ObjectMeta: metav1.ObjectMeta{Name: "new-node-rule"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "new-node-rule",
+					Finalizers: []string{finalizerName},
+				},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "TestReady", RequiredStatus: corev1.ConditionTrue}},
 					Taint:           corev1.Taint{Key: "test-unready", Effect: corev1.TaintEffectNoSchedule},
@@ -619,7 +672,10 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				},
 			}
 			rule = &nodereadinessiov1alpha1.NodeReadinessRule{
-				ObjectMeta: metav1.ObjectMeta{Name: "cleanup-rule"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "cleanup-rule",
+					Finalizers: []string{finalizerName},
+				},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "TestReady", RequiredStatus: corev1.ConditionTrue}},
 					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"kubernetes.io/hostname": "cleanup-test-node"}},
@@ -697,7 +753,9 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 		BeforeEach(func() {
 			rule = &nodereadinessiov1alpha1.NodeReadinessRule{
-				ObjectMeta: metav1.ObjectMeta{Name: "delete-node-rule"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "delete-node-rule",
+					Finalizers: []string{finalizerName}},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{{Type: "Ready", RequiredStatus: corev1.ConditionTrue}},
 					NodeSelector: metav1.LabelSelector{
@@ -802,7 +860,10 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			}
 
 			rule = &nodereadinessiov1alpha1.NodeReadinessRule{
-				ObjectMeta: metav1.ObjectMeta{Name: "selector-change-rule"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "selector-change-rule",
+					Finalizers: []string{finalizerName},
+				},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
 						{Type: "TestReady", RequiredStatus: corev1.ConditionTrue},

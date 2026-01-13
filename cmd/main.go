@@ -120,8 +120,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create the main ReadinessGateController
-	readinessController := controller.NewReadinessGateController(mgr, clientset)
+	// Create the main RuleReadinessController
+	readinessController := controller.NewRuleReadinessController(mgr, clientset)
 
 	// Create reconcilers linked to the main controller
 	ruleReconciler := &controller.RuleReconciler{

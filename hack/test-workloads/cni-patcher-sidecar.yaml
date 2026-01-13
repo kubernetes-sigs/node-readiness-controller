@@ -1,4 +1,5 @@
 name: cni-status-patcher
+# TODO: Update to use the new reporter image once published
 image: ghcr.io/ajaysundark/readiness-condition-reporter:0.1.1
 imagePullPolicy: IfNotPresent
 env:

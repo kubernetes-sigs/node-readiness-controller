@@ -1,4 +1,17 @@
 #!/usr/bin/env bash
+# Copyright The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 set -euo pipefail
 
 
@@ -20,9 +33,15 @@ if [[ -z ${IMG_TAG:-} ]]; then
 fi
 echo "Using IMG_TAG=${IMG_TAG}"
 
-IMG_TAG=${IMG_TAG} IMG_PREFIX=${IMG_PREFIX} make docker-buildx
+COMPONENT=${COMPONENT:-controller}
 
-# TODO(psaggu): remove once there's a end-to-end green run of docker-buildx
-# and tags are successfully published to our artifact registry repository
-#IMG_TAG=${IMG_TAG} IMG_PREFIX=${IMG_PREFIX} make docker-buildx
-#IMG_TAG=${IMG_TAG} IMG_PREFIX=${IMG_PREFIX} make docker-push
+if [[ "$COMPONENT" == "controller" ]]; then
+  echo "Building controller..."
+  IMG_TAG=${IMG_TAG} IMG_PREFIX=${IMG_PREFIX}/node-readiness-controller make docker-buildx
+elif [[ "$COMPONENT" == "reporter" ]]; then
+  echo "Building reporter..."
+  IMG_TAG=${IMG_TAG} IMG_PREFIX=${IMG_PREFIX}/node-readiness-reporter make docker-buildx-reporter
+else
+  echo "Unknown component: $COMPONENT"
+  exit 1
+fi

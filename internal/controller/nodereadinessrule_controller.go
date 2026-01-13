@@ -25,6 +25,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -34,7 +35,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
 	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 	"sigs.k8s.io/node-readiness-controller/internal/metrics"
 )
@@ -44,8 +47,8 @@ const (
 	finalizerName = "readiness.node.x-k8s.io/cleanup-taints"
 )
 
-// ReadinessGateController manages node taints based on readiness gate rules.
-type ReadinessGateController struct {
+// RuleReadinessController manages node taints based on readiness rules.
+type RuleReadinessController struct {
 	client.Client
 	Scheme    *runtime.Scheme
 	clientset kubernetes.Interface
@@ -58,9 +61,16 @@ type ReadinessGateController struct {
 	globalDryRun bool
 }
 
-// NewReadinessGateController creates a new controller.
-func NewReadinessGateController(mgr ctrl.Manager, clientset kubernetes.Interface) *ReadinessGateController {
-	return &ReadinessGateController{
+// RuleReconciler handles NodeReadinessRule reconciliation.
+type RuleReconciler struct {
+	client.Client
+	Scheme     *runtime.Scheme
+	Controller *RuleReadinessController
+}
+
+// NewRuleReadinessController creates a new controller.
+func NewRuleReadinessController(mgr ctrl.Manager, clientset kubernetes.Interface) *RuleReadinessController {
+	return &RuleReadinessController{
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
 		clientset: clientset,
@@ -68,11 +78,13 @@ func NewReadinessGateController(mgr ctrl.Manager, clientset kubernetes.Interface
 	}
 }
 
-// RuleReconciler handles NodeReadinessRule reconciliation.
-type RuleReconciler struct {
-	client.Client
-	Scheme     *runtime.Scheme
-	Controller *ReadinessGateController
+// SetupWithManager sets up the controller with the Manager.
+func (r *RuleReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		Named("nodereadiness-controller").
+		WithOptions(controller.Options{MaxConcurrentReconciles: 1}).
+		For(&readinessv1alpha1.NodeReadinessRule{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Complete(r)
 }
 
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules,verbs=get;list;watch;create;update;patch;delete
@@ -86,8 +98,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// Fetch the rule
 	rule := &readinessv1alpha1.NodeReadinessRule{}
 	if err := r.Get(ctx, req.NamespacedName, rule); err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			// Rule deleted, remove from cache
+		if apierrors.IsNotFound(err) {
 			log.Info("Rule not found, removing from cache", "rule", req.Name)
 			r.Controller.removeRuleFromCache(ctx, req.Name)
 			return ctrl.Result{}, nil
@@ -95,43 +106,22 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, err
 	}
 
-	// Handle deletion with finalizer
-	if rule.DeletionTimestamp != nil {
-		if containsFinalizer(rule, finalizerName) {
-			// Rule is being deleted, clean up taints before removing finalizer
-			log.Info("Cleaning up taints for deleted rule", "rule", rule.Name)
-			if err := r.Controller.cleanupTaintsForRule(ctx, rule); err != nil {
-				log.Error(err, "Failed to cleanup taints for rule", "rule", rule.Name)
-				return ctrl.Result{RequeueAfter: time.Minute}, err
-			}
+	log = log.WithValues("ruleName", rule.Name)
+	ctx = ctrl.LoggerInto(ctx, log)
 
-			// Remove finalizer
-			removeFinalizer(rule, finalizerName)
-			if err := r.Update(ctx, rule); err != nil {
-				log.Error(err, "Failed to remove finalizer", "rule", rule.Name)
-				return ctrl.Result{}, err
-			}
-
-			// Remove from cache after successful cleanup
-			r.Controller.removeRuleFromCache(ctx, rule.Name)
-		}
-		return ctrl.Result{}, nil
+	// Add finalizer first if not set to avoid the race condition between init and delete.
+	if finalizerAdded, err := r.ensureFinalizer(ctx, rule, finalizerName); err != nil {
+		return ctrl.Result{}, err
+	} else if finalizerAdded {
+		// Adding a finalizer modifies Metadata, not Spec, so the Generation is unchanged.
+		// GenerationChangedPredicate prevents triggering a new reconcile, we must explicitly requeue to proceed.
+		log.V(3).Info("Finalizer added, requeuing")
+		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 
-	// Add finalizer if not present
-	finalizerAdded := false
-	if !containsFinalizer(rule, finalizerName) {
-		addFinalizer(rule, finalizerName)
-		if err := r.Update(ctx, rule); err != nil {
-			log.Error(err, "Failed to add finalizer", "rule", rule.Name)
-			return ctrl.Result{}, err
-		}
-		finalizerAdded = true
-
-		// Refresh rule after update to get latest version
-		if err := r.Get(ctx, req.NamespacedName, rule); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Handle deletion reconciliation loop.
+	if !rule.DeletionTimestamp.IsZero() {
+		return r.reconcileDelete(ctx, rule)
 	}
 
 	// Detect nodeSelector changes and cleanup old nodes
@@ -146,10 +136,6 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	// Update rule cache (after cleanup)
 	r.Controller.updateRuleCache(ctx, rule)
-
-	if finalizerAdded {
-		log.V(4).Info("Finalizer added to rule", "rule", rule.Name)
-	}
 
 	// Handle dry run
 	if rule.Spec.DryRun {
@@ -183,8 +169,34 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	return ctrl.Result{}, nil
 }
 
+// reconcileDelete handles the rules deletion, It performs following actions
+// 1. Deletes the taints associated with the rule.
+// 2. Remove the rule from the cache.
+// 3. Remove the finalizer from the rule.
+func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	log.Info("Cleaning up taints for deleted rule", "rule", rule.Name)
+	if err := r.Controller.cleanupTaintsForRule(ctx, rule); err != nil {
+		log.Error(err, "Failed to cleanup taints for rule", "rule", rule.Name)
+		return ctrl.Result{RequeueAfter: time.Minute}, err
+	}
+
+	log.V(3).Info("Removing the rule from cache")
+	r.Controller.removeRuleFromCache(ctx, rule.Name)
+
+	log.V(3).Info("Removing the finalizer from the rule")
+	patch := client.MergeFrom(rule.DeepCopy())
+	controllerutil.RemoveFinalizer(rule, finalizerName)
+	err := r.Patch(ctx, rule, patch)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
+}
+
 // cleanupDeletedNodes removes status entries for nodes that no longer exist.
-func (r *ReadinessGateController) cleanupDeletedNodes(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
+func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	nodeList := &corev1.NodeList{}
@@ -239,7 +251,7 @@ func (r *ReadinessGateController) cleanupDeletedNodes(ctx context.Context, rule 
 }
 
 // processAllNodesForRule processes all nodes when a rule changes.
-func (r *ReadinessGateController) processAllNodesForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
+func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	nodeList := &corev1.NodeList{}
@@ -276,10 +288,9 @@ func (r *ReadinessGateController) processAllNodesForRule(ctx context.Context, ru
 }
 
 // evaluateRuleForNode evaluates a single rule against a single node.
-func (r *ReadinessGateController) evaluateRuleForNode(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, node *corev1.Node) error {
+func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, node *corev1.Node) error {
 	timer := prometheus.NewTimer(metrics.EvaluationDuration)
 	defer timer.ObserveDuration()
-
 	log := ctrl.LoggerFrom(ctx)
 
 	// Evaluate all conditions (ALL logic)
@@ -358,7 +369,7 @@ func (r *ReadinessGateController) evaluateRuleForNode(ctx context.Context, rule 
 }
 
 // updateNodeEvaluationStatus updates the evaluation status for a specific node.
-func (r *ReadinessGateController) updateNodeEvaluationStatus(
+func (r *RuleReadinessController) updateNodeEvaluationStatus(
 	rule *readinessv1alpha1.NodeReadinessRule,
 	nodeName string,
 	conditionResults []readinessv1alpha1.ConditionEvaluationResult,
@@ -387,7 +398,7 @@ func (r *ReadinessGateController) updateNodeEvaluationStatus(
 }
 
 // getApplicableRulesForNode returns all rules applicable to a node.
-func (r *ReadinessGateController) getApplicableRulesForNode(ctx context.Context, node *corev1.Node) []*readinessv1alpha1.NodeReadinessRule {
+func (r *RuleReadinessController) getApplicableRulesForNode(ctx context.Context, node *corev1.Node) []*readinessv1alpha1.NodeReadinessRule {
 	r.ruleCacheMutex.RLock()
 	defer r.ruleCacheMutex.RUnlock()
 
@@ -403,7 +414,7 @@ func (r *ReadinessGateController) getApplicableRulesForNode(ctx context.Context,
 }
 
 // ruleAppliesTo checks if a rule applies to a node.
-func (r *ReadinessGateController) ruleAppliesTo(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, node *corev1.Node) bool {
+func (r *RuleReadinessController) ruleAppliesTo(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, node *corev1.Node) bool {
 	log := ctrl.LoggerFrom(ctx)
 
 	selector, err := metav1.LabelSelectorAsSelector(&rule.Spec.NodeSelector)
@@ -416,7 +427,7 @@ func (r *ReadinessGateController) ruleAppliesTo(ctx context.Context, rule *readi
 }
 
 // updateRuleCache updates the rule cache.
-func (r *ReadinessGateController) updateRuleCache(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) {
+func (r *RuleReadinessController) updateRuleCache(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) {
 	log := ctrl.LoggerFrom(ctx)
 	r.ruleCacheMutex.Lock()
 	defer r.ruleCacheMutex.Unlock()
@@ -431,7 +442,7 @@ func (r *ReadinessGateController) updateRuleCache(ctx context.Context, rule *rea
 }
 
 // getCachedRule retrieves a rule from cache.
-func (r *ReadinessGateController) getCachedRule(ruleName string) *readinessv1alpha1.NodeReadinessRule {
+func (r *RuleReadinessController) getCachedRule(ruleName string) *readinessv1alpha1.NodeReadinessRule {
 	r.ruleCacheMutex.RLock()
 	defer r.ruleCacheMutex.RUnlock()
 
@@ -443,7 +454,7 @@ func (r *ReadinessGateController) getCachedRule(ruleName string) *readinessv1alp
 }
 
 // removeRuleFromCache removes a rule from cache.
-func (r *ReadinessGateController) removeRuleFromCache(ctx context.Context, ruleName string) {
+func (r *RuleReadinessController) removeRuleFromCache(ctx context.Context, ruleName string) {
 	log := ctrl.LoggerFrom(ctx)
 	r.ruleCacheMutex.Lock()
 	defer r.ruleCacheMutex.Unlock()
@@ -454,7 +465,7 @@ func (r *ReadinessGateController) removeRuleFromCache(ctx context.Context, ruleN
 }
 
 // updateRuleStatus updates the status of a NodeReadinessRule.
-func (r *ReadinessGateController) updateRuleStatus(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
+func (r *RuleReadinessController) updateRuleStatus(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	log.V(1).Info("Updating rule status",
@@ -489,7 +500,7 @@ func (r *ReadinessGateController) updateRuleStatus(ctx context.Context, rule *re
 }
 
 // processDryRun processes dry run for a rule.
-func (r *ReadinessGateController) processDryRun(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
+func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
 	nodeList := &corev1.NodeList{}
 	if err := r.List(ctx, nodeList); err != nil {
 		return err
@@ -562,12 +573,12 @@ func (r *ReadinessGateController) processDryRun(ctx context.Context, rule *readi
 }
 
 // SetGlobalDryRun sets the global dry run mode (emergency off-switch).
-func (r *ReadinessGateController) SetGlobalDryRun(dryRun bool) {
+func (r *RuleReadinessController) SetGlobalDryRun(dryRun bool) {
 	r.globalDryRun = dryRun
 }
 
 // cleanupTaintsForRule removes taints managed by this rule from all applicable nodes.
-func (r *ReadinessGateController) cleanupTaintsForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
+func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Get all nodes that this rule applies to
@@ -603,7 +614,7 @@ func (r *ReadinessGateController) cleanupTaintsForRule(ctx context.Context, rule
 }
 
 // cleanupNodesAfterSelectorChange cleans up nodes that matched old selector but not new one.
-func (r *ReadinessGateController) cleanupNodesAfterSelectorChange(ctx context.Context, oldRule, newRule *readinessv1alpha1.NodeReadinessRule) error {
+func (r *RuleReadinessController) cleanupNodesAfterSelectorChange(ctx context.Context, oldRule, newRule *readinessv1alpha1.NodeReadinessRule) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Get all nodes
@@ -655,88 +666,20 @@ func (r *ReadinessGateController) cleanupNodesAfterSelectorChange(ctx context.Co
 	return nil
 }
 
-// nodeSelectorChanged checks if nodeSelector has changed.
-func nodeSelectorChanged(current, previous metav1.LabelSelector) bool {
-	// Compare matchLabels
-	if !stringMapEqual(current.MatchLabels, previous.MatchLabels) {
-		return true
+func (r *RuleReconciler) ensureFinalizer(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, finalizer string) (finalizerAdded bool, err error) {
+	// Finalizers can only be added when the deletionTimestamp is not set.
+	if !rule.GetDeletionTimestamp().IsZero() {
+		return false, nil
+	}
+	if controllerutil.ContainsFinalizer(rule, finalizer) {
+		return false, nil
 	}
 
-	// Compare matchExpressions
-	if len(current.MatchExpressions) != len(previous.MatchExpressions) {
-		return true
+	patch := client.MergeFrom(rule.DeepCopy())
+	controllerutil.AddFinalizer(rule, finalizer)
+	err = r.Patch(ctx, rule, patch)
+	if err != nil {
+		return false, err
 	}
-
-	// Create maps for comparison
-	currentExprs := make(map[string]metav1.LabelSelectorRequirement)
-	for _, expr := range current.MatchExpressions {
-		key := fmt.Sprintf("%s-%s-%v", expr.Key, expr.Operator, expr.Values)
-		currentExprs[key] = expr
-	}
-
-	previousExprs := make(map[string]metav1.LabelSelectorRequirement)
-	for _, expr := range previous.MatchExpressions {
-		key := fmt.Sprintf("%s-%s-%v", expr.Key, expr.Operator, expr.Values)
-		previousExprs[key] = expr
-	}
-
-	for key := range currentExprs {
-		if _, exists := previousExprs[key]; !exists {
-			return true
-		}
-	}
-
-	return false
-}
-
-// stringMapEqual checks if two string maps are equal.
-func stringMapEqual(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-
-	for k, v := range a {
-		if b[k] != v {
-			return false
-		}
-	}
-
-	return true
-}
-
-// containsFinalizer checks if a finalizer exists in the rule.
-func containsFinalizer(rule *readinessv1alpha1.NodeReadinessRule, finalizer string) bool {
-	for _, f := range rule.Finalizers {
-		if f == finalizer {
-			return true
-		}
-	}
-	return false
-}
-
-// addFinalizer adds a finalizer to the rule.
-func addFinalizer(rule *readinessv1alpha1.NodeReadinessRule, finalizer string) {
-	if !containsFinalizer(rule, finalizer) {
-		rule.Finalizers = append(rule.Finalizers, finalizer)
-	}
-}
-
-// removeFinalizer removes a finalizer from the rule.
-func removeFinalizer(rule *readinessv1alpha1.NodeReadinessRule, finalizer string) {
-	var newFinalizers []string
-	for _, f := range rule.Finalizers {
-		if f != finalizer {
-			newFinalizers = append(newFinalizers, f)
-		}
-	}
-	rule.Finalizers = newFinalizers
-}
-
-// SetupWithManager sets up the controller with the Manager.
-func (r *RuleReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		Named("nodereadiness-controller").
-		WithOptions(controller.Options{MaxConcurrentReconciles: 1}).
-		For(&readinessv1alpha1.NodeReadinessRule{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Complete(r)
+	return true, nil
 }

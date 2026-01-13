@@ -6,4 +6,11 @@ steps:
   - name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20251211-3eba3d0954
     entrypoint: ./scripts/build-and-publish-image.sh
     env:
-    - IMG_PREFIX=us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/node-readiness-controller
+    - IMG_PREFIX=us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller
+    - COMPONENT=controller
+
+  - name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20251211-3eba3d0954
+    entrypoint: ./scripts/build-and-publish-image.sh
+    env:
+    - IMG_PREFIX=us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller
+    - COMPONENT=reporter

@@ -46,7 +46,7 @@ metadata:
   name: network-readiness-rule
 spec:
   conditions:
-    - type: "tigera.io/CalicoReady"
+    - type: "example.com/CNIReady"
       requiredStatus: "True"
   taint:
     key: "readiness.k8s.io/NetworkReady"

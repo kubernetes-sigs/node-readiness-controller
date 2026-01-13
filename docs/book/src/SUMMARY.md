@@ -44,4 +44,4 @@
 <!--  - [Rule Events](./reference/controller-internals/rule-events.md) -->
 <!--  - [Evaluation Logic](./reference/controller-internals/evaluation-logic.md) -->
 <!--  - [Status Updates](./reference/controller-internals/status-updates.md) -->
-<!-- - [API Specification](./reference/api-spec.md) -->
+- [API Specification](./reference/api-spec.md)
