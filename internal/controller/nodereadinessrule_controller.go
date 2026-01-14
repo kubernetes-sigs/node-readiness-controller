@@ -174,6 +174,10 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
+	// Update cache with deletion-marked rule before cleanup.
+	log.V(3).Info("Updating cache with deletion-marked rule before cleanup")
+	r.Controller.updateRuleCache(ctx, rule)
+
 	log.Info("Cleaning up taints for deleted rule", "rule", rule.Name)
 	if err := r.Controller.cleanupTaintsForRule(ctx, rule); err != nil {
 		log.Error(err, "Failed to cleanup taints for rule", "rule", rule.Name)
