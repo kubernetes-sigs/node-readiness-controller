@@ -184,7 +184,6 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 					latestRule.Status.NodeEvaluations,
 					currEval,
 				)
-				return nil
 			}
 
 			// handle status.FailedNodes for this node

@@ -508,4 +508,181 @@ var _ = Describe("Node Controller", func() {
 				"Rule with DeletionTimestamp should not create node evaluation")
 		})
 	})
+
+	// Test for status updates
+	Context("when NodeReconciler processes a node for the first time", func() {
+		var (
+			ctx                 context.Context
+			readinessController *RuleReadinessController
+			nodeReconciler      *NodeReconciler
+			fakeClientset       *fake.Clientset
+			node                *corev1.Node
+			rule                *nodereadinessiov1alpha1.NodeReadinessRule
+			namespacedName      types.NamespacedName
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+
+			fakeClientset = fake.NewSimpleClientset()
+			readinessController = &RuleReadinessController{
+				Client:    k8sClient,
+				Scheme:    k8sClient.Scheme(),
+				clientset: fakeClientset,
+				ruleCache: make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+			}
+
+			nodeReconciler = &NodeReconciler{
+				Client:     k8sClient,
+				Scheme:     k8sClient.Scheme(),
+				Controller: readinessController,
+			}
+
+			namespacedName = types.NamespacedName{Name: "status-test-node"}
+
+			node = &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "status-test-node",
+					Labels: map[string]string{"test-group": "status"},
+				},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: "status-test-taint", Effect: corev1.TaintEffectNoSchedule, Value: "pending"},
+					},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "StatusTestCondition", Status: corev1.ConditionFalse},
+					},
+				},
+			}
+
+			rule = &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "status-test-rule",
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "StatusTestCondition", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "status-test-taint",
+						Effect: corev1.TaintEffectNoSchedule,
+						Value:  "pending",
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"test-group": "status"},
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+		})
+
+		JustBeforeEach(func() {
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+
+			// Add rule to cache to simulate RuleReconciler having processed it
+			readinessController.updateRuleCache(ctx, rule)
+		})
+
+		AfterEach(func() {
+			_ = k8sClient.Delete(ctx, node)
+
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "status-test-rule"}, updatedRule); err == nil {
+				updatedRule.Finalizers = nil
+				_ = k8sClient.Update(ctx, updatedRule)
+				_ = k8sClient.Delete(ctx, updatedRule)
+			}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: "status-test-rule"}, &nodereadinessiov1alpha1.NodeReadinessRule{})
+				return apierrors.IsNotFound(err)
+			}, time.Second*10).Should(BeTrue())
+
+			readinessController.removeRuleFromCache(ctx, "status-test-rule")
+		})
+
+		It("should persist NodeEvaluation with expected structure to rule.status", func() {
+			By("Triggering NodeReconciler")
+			_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying NodeEvaluation is persisted in rule status")
+			Eventually(func() bool {
+				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "status-test-rule"}, updatedRule); err != nil {
+					return false
+				}
+
+				for _, eval := range updatedRule.Status.NodeEvaluations {
+					if eval.NodeName == "status-test-node" {
+						return true
+					}
+				}
+				return false
+			}, time.Second*5).Should(BeTrue(), "NodeEvaluation should be persisted for the node")
+
+			By("Verifying NodeEvaluation has all expected fields")
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "status-test-rule"}, updatedRule)).To(Succeed())
+
+			var nodeEval *nodereadinessiov1alpha1.NodeEvaluation
+			for i := range updatedRule.Status.NodeEvaluations {
+				if updatedRule.Status.NodeEvaluations[i].NodeName == "status-test-node" {
+					nodeEval = &updatedRule.Status.NodeEvaluations[i]
+					break
+				}
+			}
+
+			Expect(nodeEval).NotTo(BeNil(), "NodeEvaluation should exist")
+			Expect(nodeEval.ConditionResults).To(HaveLen(1), "Should have evaluation for 1 condition")
+			Expect(nodeEval.ConditionResults[0].Type).To(Equal("StatusTestCondition"))
+			Expect(nodeEval.ConditionResults[0].CurrentStatus).To(Equal(corev1.ConditionFalse))
+			Expect(nodeEval.ConditionResults[0].RequiredStatus).To(Equal(corev1.ConditionTrue))
+			Expect(nodeEval.TaintStatus).To(Equal(nodereadinessiov1alpha1.TaintStatusPresent))
+			Expect(nodeEval.LastEvaluationTime.IsZero()).To(BeFalse(), "LastEvaluationTime should be set")
+		})
+
+		It("should update existing NodeEvaluation when node is re-evaluated", func() {
+			By("First reconciliation - create initial evaluation")
+			_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func() int {
+				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "status-test-rule"}, updatedRule); err != nil {
+					return 0
+				}
+				return len(updatedRule.Status.NodeEvaluations)
+			}, time.Second*5).Should(Equal(1))
+
+			By("Updating node condition to satisfy rule")
+			updatedNode := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, namespacedName, updatedNode)).To(Succeed())
+			updatedNode.Status.Conditions[0].Status = corev1.ConditionTrue
+			Expect(k8sClient.Status().Update(ctx, updatedNode)).To(Succeed())
+
+			By("Second reconciliation - update existing evaluation")
+			_, err = nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying NodeEvaluation was updated")
+			Eventually(func() bool {
+				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "status-test-rule"}, updatedRule); err != nil {
+					return false
+				}
+
+				if len(updatedRule.Status.NodeEvaluations) != 1 {
+					return false
+				}
+
+				nodeEval := updatedRule.Status.NodeEvaluations[0]
+				return nodeEval.ConditionResults[0].CurrentStatus == corev1.ConditionTrue &&
+					nodeEval.TaintStatus == nodereadinessiov1alpha1.TaintStatusAbsent
+			}, time.Second*5).Should(BeTrue(), "NodeEvaluation should be updated with new condition and taint status")
+		})
+	})
 })
