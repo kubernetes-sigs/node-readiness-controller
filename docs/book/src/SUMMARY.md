@@ -20,7 +20,7 @@
 
 # Releases
 
-<!-- - [Release Notes](./releases.md) -- [TODO] v0.1.0 -->
+- [Release Notes](./releases.md)
 
 # Operations
 
