@@ -4,7 +4,7 @@ This page details the official releases of the Node Readiness Controller.
 
 ## v0.1.0
 
-**Date:** 2026-01-12
+**Date:** 2026-01-14
 
 This is the first official release of the Node Readiness Controller.
 
@@ -21,12 +21,22 @@ This is the first official release of the Node Readiness Controller.
 
 The following container images are published as part of this release.
 
- | Image Name | Repository | Tag |
- |---|---|---|
- | `node-readiness-controller` | `gcr.io/k8s-staging-node-readiness-controller/node-readiness-controller` | `v0.1.0` |
- | `node-readiness-reporter` | `gcr.io/k8s-staging-node-readiness-controller/node-readiness-reporter` | `v0.1.0` |
+```
+// Node readiness controller
+registry.k8s.io/node-readiness-controller/node-readiness-controller:v0.1.0
+
+// Report component readiness condition from the node
+registry.k8s.io/node-readiness-controller/node-readiness-reporter:v0.1.0
+
+```
 
 ### Installation
+
+To install the CRDs, apply the `crds.yaml` manifest for this version:
+
+```sh
+kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/v0.1.0/crds.yaml
+```
 
 To install the controller, apply the `install.yaml` manifest for this version:
 
@@ -34,7 +44,7 @@ To install the controller, apply the `install.yaml` manifest for this version:
 kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/v0.1.0/install.yaml
 ```
 
-This will deploy the controller into the `nrr-system` namespace in your cluster.
+This will deploy the controller into any available node in the `nrr-system` namespace in your cluster. Check [here](https://node-readiness-controller.sigs.k8s.io/user-guide/installation.html) for more installation instructions.
 
 ### Contributors
 
