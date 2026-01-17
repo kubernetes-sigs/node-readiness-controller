@@ -17,3 +17,9 @@
     keySecret:
       name: metrics-server-cert
       key: tls.key
+- op: replace
+  path: /spec/endpoints/0/port
+  value: https
+- op: replace
+  path: /spec/endpoints/0/scheme
+  value: https
