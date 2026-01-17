@@ -1,0 +1,10 @@
+# This patch adds the args to allow exposing the metrics endpoint using HTTPS
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --metrics-bind-address=:8443
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --metrics-secure
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --metrics-cert-dir=/tmp/k8s-metrics-server/metrics-certs

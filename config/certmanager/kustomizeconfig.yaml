@@ -1,0 +1,19 @@
+nameReference:
+- kind: Issuer
+  group: cert-manager.io
+  fieldSpecs:
+  - kind: Certificate
+    group: cert-manager.io
+    path: spec/issuerRef/name
+
+- kind: Secret
+  version: v1
+  fieldSpecs:
+  - kind: Certificate
+    group: cert-manager.io
+    path: spec/secretName
+
+varReference:
+- kind: Certificate
+  group: cert-manager.io
+  path: spec/dnsNames

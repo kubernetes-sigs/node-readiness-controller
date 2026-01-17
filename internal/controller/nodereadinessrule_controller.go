@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
+	"sigs.k8s.io/node-readiness-controller/internal/metrics"
 )
 
 const (
@@ -272,6 +274,7 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 				// Log error but continue with other nodes
 				log.Error(err, "Failed to evaluate node for rule", "rule", rule.Name, "node", node.Name)
 				r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
+				metrics.Failures.WithLabelValues(rule.Name, "EvaluationError").Inc()
 			}
 		}
 	}
@@ -290,6 +293,8 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 
 // evaluateRuleForNode evaluates a single rule against a single node.
 func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, node *corev1.Node) error {
+	timer := prometheus.NewTimer(metrics.EvaluationDuration)
+	defer timer.ObserveDuration()
 	log := ctrl.LoggerFrom(ctx)
 
 	// Evaluate all conditions (ALL logic)
@@ -329,8 +334,10 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		log.Info("Removing taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
 
 		if err = r.removeTaintBySpec(ctx, node, rule.Spec.Taint); err != nil {
+			metrics.Failures.WithLabelValues(rule.Name, "RemoveTaintError").Inc()
 			return fmt.Errorf("failed to remove taint: %w", err)
 		}
+		metrics.TaintOperations.WithLabelValues(rule.Name, "remove").Inc()
 
 		// Mark bootstrap completed if bootstrap-only mode
 		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
@@ -341,8 +348,10 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		log.Info("Adding taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
 
 		if err = r.addTaintBySpec(ctx, node, rule.Spec.Taint); err != nil {
+			metrics.Failures.WithLabelValues(rule.Name, "AddTaintError").Inc()
 			return fmt.Errorf("failed to add taint: %w", err)
 		}
+		metrics.TaintOperations.WithLabelValues(rule.Name, "add").Inc()
 
 	default:
 		log.Info("No taint action needed", "node", node.Name, "rule", rule.Name,
@@ -429,6 +438,7 @@ func (r *RuleReadinessController) updateRuleCache(ctx context.Context, rule *rea
 
 	ruleCopy := rule.DeepCopy()
 	r.ruleCache[rule.Name] = ruleCopy
+	metrics.ActiveRules.Set(float64(len(r.ruleCache)))
 	log.V(4).Info("Updated rule cache",
 		"rule", rule.Name,
 		"totalRules", len(r.ruleCache),
@@ -454,6 +464,7 @@ func (r *RuleReadinessController) removeRuleFromCache(ctx context.Context, ruleN
 	defer r.ruleCacheMutex.Unlock()
 
 	delete(r.ruleCache, ruleName)
+	metrics.ActiveRules.Set(float64(len(r.ruleCache)))
 	log.Info("Removed rule from cache", "rule", ruleName, "totalRules", len(r.ruleCache))
 }
 
