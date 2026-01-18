@@ -5,8 +5,7 @@
 # User Guide
 
 - [Core Concepts](./user-guide/concepts.md)
-<!-- - [Installation](./user-guide/installation.md) -- [TODO] Install options: 1. kubectl apply install.yaml 2. helm chart details (once available);
-        Run controller with replicas to avoid risk; platform node selectors; cert-manager -->
+- [Installation](./user-guide/installation.md)
 <!-- - [Creating Rules](./user-guide/creating-rules.md) -->
 <!-- - [Quickstart](./user-guide/quickstart.md) -- [TODO] How to run the Calico example in KIND cluster -->
 

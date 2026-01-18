@@ -6,17 +6,27 @@ Follow this guide to install the Node Readiness Controller in your Kubernetes cl
 
 ### Option 1: Install Official Release (Recommended)
 
-The easiest way to get started is by applying the official release manifest. This will deploy the controller into the `nrr-system` namespace.
+The easiest way to get started is by applying the official release manifests.
+
+First, to install the CRDs, apply the `crds.yaml` manifest:
 
 ```sh
 # Replace with the desired version
-VERSION=v0.1.0
+VERSION=v0.1.1
+kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/crds.yaml
+kubectl wait --for condition=established --timeout=30s crd/nodereadinessrules.readiness.node.x-k8s.io
+
+```
+
+To install the controller, apply the `install.yaml` manifest:
+
+```sh
 kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/install.yaml
 ```
 
-**Note on Placement**: The controller is configured to run on **Control Plane** nodes by default (using `node-role.kubernetes.io/control-plane` selector and toleration). If your cluster has separate platform node setup, the node-readiness-controller deployment need to be updated for taints/tolerations to run on these platform nodes.
+This will deploy the controller into the `nrr-system` namespace on any available node in your cluster.
 
-**Images**: The official releases use multi-arch images (AMD64, Arm64) hosted on the k8s-staging registry.
+**Images**: The official releases use multi-arch images (AMD64, Arm64).
 
 ### Option 2: Deploy Using Kustomize
 
@@ -76,17 +86,14 @@ The controller uses a **finalizer** (`readiness.node.x-k8s.io/cleanup-taints`) o
 
 3.  **Uninstall CRDs** (Optional):
     ```sh
-    make uninstall
-
-    # OR
     kubectl delete -k config/crd
     ```
 
 ### Recovering from Stuck Resources
 
-If you accidentally deleted the controller *before* the rules, the `NodeReadinessRule` objects will get stuck in a `Terminating` state because the finalizer is waiting for the controller to clean up.
+If you accidentally deleted the controller *before* the rules, the `NodeReadinessRule` objects will get stuck in a `Terminating` state because the controller is needed to cleanup the taints and finalizers.
 
-To force-delete them (this will leave the managed taints on nodes):
+To force-delete them (this will require you to manually clean up the managed taints if any on your nodes):
 
 ```sh
 # Patch the finalizer to remove it
