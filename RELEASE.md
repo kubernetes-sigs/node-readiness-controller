@@ -46,7 +46,7 @@ Once the release branch is ready and has been approved by maintainers:
 - Generate the release manifest locally for this version:
 
   ```sh
-  make build-installer IMG_TAG=vX.Y.Z
+  make build-installer IMG_PREFIX=registry.k8s.io/node-readiness-controller/node-readiness-controller IMG_TAG=vX.Y.Z
   ```
 - Upload the generated `dist/install.yaml` file as a release artifact.
 - Publish the release.
