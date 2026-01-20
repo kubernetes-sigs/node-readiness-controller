@@ -212,9 +212,9 @@ docker-buildx-reporter: ## Build and push docker image for the reporter for cros
 	- $(CONTAINER_TOOL) buildx rm reporter-builder
 
 .PHONY: build-installer
-build-installer: ## Generate a consolidated YAML with CRDs and deployment.
+build-installer: build-manifests-temp ## Generate a consolidated YAML with CRDs and deployment.
 	mkdir -p dist
-	$(MAKE) -s build-manifests-temp > dist/install.yaml
+	cp $(BUILD_DIR)/manifests.yaml dist/install.yaml
 
 ## --------------------------------------
 ## Deployment
@@ -248,7 +248,7 @@ build-manifests-temp: manifests $(KUSTOMIZE)
 			cd $(BUILD_DIR)/config/prometheus && $(KUSTOMIZE) edit add patch --path manager_prometheus_metrics.yaml --kind Deployment --name controller-manager; \
 		fi; \
 	fi
-	@$(KUSTOMIZE) build $(BUILD_DIR)/config/default
+	@$(KUSTOMIZE) build $(BUILD_DIR)/config/default > $(BUILD_DIR)/manifests.yaml
 	@rm -rf $(BUILD_DIR)/config
 
 
@@ -263,16 +263,16 @@ uninstall: manifests $(KUSTOMIZE) ## Uninstall CRDs from the K8s cluster specifi
 	if [ -n "$$out" ]; then echo "$$out" | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -; else echo "No CRDs to delete; skipping."; fi
 
 .PHONY: deploy
-deploy: ## Deploy controller to the K8s cluster. Use ENABLE_METRICS=true and ENABLE_TLS=true to enable features.
-	$(MAKE) -s build-manifests-temp | $(KUBECTL) apply -f -
+deploy: build-manifests-temp ## Deploy controller to the K8s cluster. Use ENABLE_METRICS=true and ENABLE_TLS=true to enable features.
+	$(KUBECTL) apply -f $(BUILD_DIR)/manifests.yaml
 
 .PHONY: undeploy
-undeploy: ## Undeploy controller from the K8s cluster. Use ENABLE_METRICS=true and ENABLE_TLS=true if they were enabled during deploy.
-	$(MAKE) -s build-manifests-temp | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+undeploy: build-manifests-temp ## Undeploy controller from the K8s cluster. Use ENABLE_METRICS=true and ENABLE_TLS=true if they were enabled during deploy.
+	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f $(BUILD_DIR)/manifests.yaml
 
 .PHONY: debug-deploy
-debug-deploy: ## Build and save manifests to debug_manifests.yaml for inspection. Use ENABLE_METRICS=true and ENABLE_TLS=true to enable features.
-	$(MAKE) -s build-manifests-temp > debug_manifests.yaml
+debug-deploy: build-manifests-temp ## Build and save manifests to debug_manifests.yaml for inspection. Use ENABLE_METRICS=true and ENABLE_TLS=true to enable features.
+	cp $(BUILD_DIR)/manifests.yaml debug_manifests.yaml
 	@echo "Manifests generated in debug_manifests.yaml"
 
 ## --------------------------------------
