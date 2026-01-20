@@ -384,6 +384,7 @@ docs-serve: ## Serve mdBook locally.
 .PHONY: crd-ref-docs
 crd-ref-docs:
 	crd-ref-docs \
+		--source-path=${PWD}/api/v1alpha1/ \
 		--config=crd-ref-docs.yaml \
 		--renderer=markdown \
 		--output-path=${PWD}/docs/book/src/reference/api-spec.md
