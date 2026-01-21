@@ -6,11 +6,11 @@ import (
 )
 
 var (
-	// ActiveRules tracks the number of currently active NodeReadinessRules.
-	ActiveRules = prometheus.NewGauge(
+	// RulesTotal tracks the number of NodeReadinessRules .
+	RulesTotal = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Name: "node_readiness_active_rules",
-			Help: "Number of active NodeReadinessRules",
+			Name: "node_readiness_rules_total",
+			Help: "Number of NodeReadinessRules",
 		},
 	)
 
@@ -53,7 +53,7 @@ var (
 
 func init() {
 	// Register custom metrics with the global prometheus registry
-	metrics.Registry.MustRegister(ActiveRules)
+	metrics.Registry.MustRegister(RulesTotal)
 	metrics.Registry.MustRegister(TaintOperations)
 	metrics.Registry.MustRegister(EvaluationDuration)
 	metrics.Registry.MustRegister(Failures)

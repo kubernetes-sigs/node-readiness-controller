@@ -438,7 +438,7 @@ func (r *RuleReadinessController) updateRuleCache(ctx context.Context, rule *rea
 
 	ruleCopy := rule.DeepCopy()
 	r.ruleCache[rule.Name] = ruleCopy
-	metrics.ActiveRules.Set(float64(len(r.ruleCache)))
+	metrics.RulesTotal.Set(float64(len(r.ruleCache)))
 	log.V(4).Info("Updated rule cache",
 		"rule", rule.Name,
 		"totalRules", len(r.ruleCache),
@@ -464,7 +464,7 @@ func (r *RuleReadinessController) removeRuleFromCache(ctx context.Context, ruleN
 	defer r.ruleCacheMutex.Unlock()
 
 	delete(r.ruleCache, ruleName)
-	metrics.ActiveRules.Set(float64(len(r.ruleCache)))
+	metrics.RulesTotal.Set(float64(len(r.ruleCache)))
 	log.Info("Removed rule from cache", "rule", ruleName, "totalRules", len(r.ruleCache))
 }
 
