@@ -27,12 +27,12 @@
 <!-- - [Troubleshooting](./operations/troubleshooting.md) -->
 <!-- - [Security](./operations/security.md) -->
 
-# Development
+<!-- # Development -->
 
 <!-- - [Architecture](./development/architecture.md) [TODO] high level components involved -->
 <!-- - [Testing](./development/testing.md) --  [TODO] Migrate TEST_README.md here -->
 
-# Design
+<!-- # Design -->
 
 <!--  - [Controller Internals](./design/controller-internals/overview.md) -->
 <!--  - [Node Events](./design/controller-internals/node-events.md) -->
