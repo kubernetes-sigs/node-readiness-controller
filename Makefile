@@ -276,11 +276,6 @@ deploy: build-manifests-temp ## Deploy controller to the K8s cluster. Use ENABLE
 undeploy: build-manifests-temp ## Undeploy controller from the K8s cluster. Use ENABLE_METRICS=true and ENABLE_TLS=true if they were enabled during deploy.
 	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f $(BUILD_DIR)/manifests.yaml
 
-.PHONY: debug-deploy
-debug-deploy: build-manifests-temp ## Build and save manifests to debug_manifests.yaml for inspection. Use ENABLE_METRICS=true and ENABLE_TLS=true to enable features.
-	cp $(BUILD_DIR)/manifests.yaml debug_manifests.yaml
-	@echo "Manifests generated in debug_manifests.yaml"
-
 ## --------------------------------------
 ## Testing
 ## --------------------------------------
