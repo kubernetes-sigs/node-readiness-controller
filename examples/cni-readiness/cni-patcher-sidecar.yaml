@@ -1,5 +1,5 @@
 name: cni-status-patcher
-image: registry.k8s.io/node-readiness-controller/node-readiness-reporter:v0.1.0
+image: registry.k8s.io/node-readiness-controller/node-readiness-reporter:0.1.1
 imagePullPolicy: IfNotPresent
 env:
   - name: NODE_NAME
