@@ -13,7 +13,7 @@
 
 - [CNI Installation](./examples/cni-readiness.md)
 <!-- - [Storage Drivers](./examples/storage-readiness.md) -->
-[Security Agent](./examples/security-agent-readiness.md)
+- [Security Agent](./examples/security-agent-readiness.md)
 <!-- - [Device Drivers](./examples/dra-readiness.md) -->
 
 # Releases
