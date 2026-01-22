@@ -11,8 +11,7 @@
 
 # Examples
 
-<!-- - [Integration Patterns](./examples/integration-patterns.md) -->
-<!-- - [CNI Installation](./examples/cni-readiness.md) -->
+- [CNI Installation](./examples/cni-readiness.md)
 <!-- - [Storage Drivers](./examples/storage-readiness.md) -->
 <!-- - [Security Agent](./examples/security-agent-readiness.md) -->
 <!-- - [Device Drivers](./examples/dra-readiness.md) -->
@@ -21,18 +20,18 @@
 
 - [Release Notes](./releases.md)
 
-# Operations
+<!-- # Operations -->
 
 <!-- - [Monitoring](./operations/monitoring.md) -->
 <!-- - [Troubleshooting](./operations/troubleshooting.md) -->
 <!-- - [Security](./operations/security.md) -->
 
-# Development
+<!-- # Development -->
 
 <!-- - [Architecture](./development/architecture.md) [TODO] high level components involved -->
 <!-- - [Testing](./development/testing.md) --  [TODO] Migrate TEST_README.md here -->
 
-# Design
+<!-- # Design -->
 
 <!--  - [Controller Internals](./design/controller-internals/overview.md) -->
 <!--  - [Node Events](./design/controller-internals/node-events.md) -->

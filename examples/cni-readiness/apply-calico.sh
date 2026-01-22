@@ -55,4 +55,4 @@ kubectl apply $KUBECTL_ARGS -f calico.yaml || true
 kubectl apply $KUBECTL_ARGS -f calico.yaml
 
 # Apply the RBAC rules
-kubectl apply $KUBECTL_ARGS -f hack/test-workloads/calico-rbac-node-status-patch-role.yaml
+kubectl apply $KUBECTL_ARGS -f ./calico-rbac-node-status-patch-role.yaml
