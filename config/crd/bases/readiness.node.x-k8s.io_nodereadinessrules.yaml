@@ -183,6 +183,16 @@ spec:
                 - effect
                 - key
                 type: object
+                x-kubernetes-validations:
+                - message: taint key must start with 'readiness.k8s.io/'
+                  rule: self.key.startsWith('readiness.k8s.io/')
+                - message: taint key length must be at most 253 characters
+                  rule: self.key.size() <= 253
+                - message: taint value length must be at most 63 characters
+                  rule: '!has(self.value) || self.value.size() <= 63'
+                - message: taint effect must be one of 'NoSchedule', 'PreferNoSchedule',
+                    'NoExecute'
+                  rule: self.effect in ['NoSchedule', 'PreferNoSchedule', 'NoExecute']
             required:
             - conditions
             - enforcementMode

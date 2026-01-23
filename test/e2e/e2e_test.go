@@ -454,7 +454,7 @@ status:
 				if err != nil {
 					return false
 				}
-				return strings.Contains(output, "test-taint")
+				return strings.Contains(output, "readiness.k8s.io/test-taint")
 			}, 30*time.Second, 2*time.Second).Should(BeTrue())
 
 			By("verifying control-plane node is unaffected")
@@ -464,7 +464,7 @@ status:
 				if err != nil {
 					return false
 				}
-				return !strings.Contains(output, "test-taint")
+				return !strings.Contains(output, "readiness.k8s.io/test-taint")
 			}, 10*time.Second, 2*time.Second).Should(BeTrue())
 
 			By("cleaning up test resources")
@@ -507,7 +507,7 @@ status:
 				if err != nil {
 					return false
 				}
-				return !strings.Contains(output, "test-taint")
+				return !strings.Contains(output, "readiness.k8s.io/test-taint")
 			}, 10*time.Second, 2*time.Second).Should(BeTrue())
 
 			By("verifying rule has dry-run results showing what would happen")

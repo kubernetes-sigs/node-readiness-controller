@@ -36,7 +36,7 @@ var _ = Describe("Node Controller", func() {
 	const (
 		nodeName      = "node-controller-test-node"
 		ruleName      = "node-controller-test-rule"
-		taintKey      = "test-taint"
+		taintKey      = "readiness.k8s.io/test-taint"
 		conditionType = "TestCondition"
 	)
 
@@ -66,19 +66,19 @@ var _ = Describe("Node Controller", func() {
 
 		It("should correctly compare node taints", func() {
 			taint1 := []corev1.Taint{
-				{Key: "key1", Effect: corev1.TaintEffectNoSchedule, Value: "value1"},
-				{Key: "key2", Effect: corev1.TaintEffectNoExecute, Value: "value2"},
+				{Key: "readiness.k8s.io/key1", Effect: corev1.TaintEffectNoSchedule, Value: "value1"},
+				{Key: "readiness.k8s.io/key2", Effect: corev1.TaintEffectNoExecute, Value: "value2"},
 			}
 			taint2 := []corev1.Taint{
-				{Key: "key1", Effect: corev1.TaintEffectNoSchedule, Value: "value1"},
-				{Key: "key2", Effect: corev1.TaintEffectNoExecute, Value: "value2"},
+				{Key: "readiness.k8s.io/key1", Effect: corev1.TaintEffectNoSchedule, Value: "value1"},
+				{Key: "readiness.k8s.io/key2", Effect: corev1.TaintEffectNoExecute, Value: "value2"},
 			}
 			taint3 := []corev1.Taint{
-				{Key: "key1", Effect: corev1.TaintEffectNoSchedule, Value: "different"},
-				{Key: "key2", Effect: corev1.TaintEffectNoExecute, Value: "value2"},
+				{Key: "readiness.k8s.io/key1", Effect: corev1.TaintEffectNoSchedule, Value: "different"},
+				{Key: "readiness.k8s.io/key2", Effect: corev1.TaintEffectNoExecute, Value: "value2"},
 			}
 			taint4 := []corev1.Taint{
-				{Key: "key1", Effect: corev1.TaintEffectNoSchedule, Value: "value1"},
+				{Key: "readiness.k8s.io/key1", Effect: corev1.TaintEffectNoSchedule, Value: "value1"},
 			}
 
 			Expect(taintsEqual(taint1, taint2)).To(BeTrue(), "identical taints should be equal")
@@ -547,7 +547,7 @@ var _ = Describe("Node Controller", func() {
 				},
 				Spec: corev1.NodeSpec{
 					Taints: []corev1.Taint{
-						{Key: "status-test-taint", Effect: corev1.TaintEffectNoSchedule, Value: "pending"},
+						{Key: "readiness.k8s.io/status-test-taint", Effect: corev1.TaintEffectNoSchedule, Value: "pending"},
 					},
 				},
 				Status: corev1.NodeStatus{
@@ -566,7 +566,7 @@ var _ = Describe("Node Controller", func() {
 						{Type: "StatusTestCondition", RequiredStatus: corev1.ConditionTrue},
 					},
 					Taint: corev1.Taint{
-						Key:    "status-test-taint",
+						Key:    "readiness.k8s.io/status-test-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 						Value:  "pending",
 					},
