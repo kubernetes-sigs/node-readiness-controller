@@ -70,6 +70,10 @@ type NodeReadinessRuleSpec struct {
 	// on Nodes that meet the defined condition criteria.
 	//
 	// +required
+	// +kubebuilder:validation:XValidation:rule="self.key.startsWith('readiness.k8s.io/')",message="taint key must start with 'readiness.k8s.io/'"
+	// +kubebuilder:validation:XValidation:rule="self.key.size() >= 17 && self.key.size() <= 253",message="taint key length must be between 17 and 253 characters"
+	// +kubebuilder:validation:XValidation:rule="!has(self.value) || self.value.size() <= 63",message="taint value length must be at most 63 characters"
+	// +kubebuilder:validation:XValidation:rule="self.effect in ['NoSchedule', 'PreferNoSchedule', 'NoExecute']",message="taint effect must be one of 'NoSchedule', 'PreferNoSchedule', 'NoExecute'"
 	Taint corev1.Taint `json:"taint,omitempty,omitzero"`
 
 	// nodeSelector limits the scope of this rule to a specific subset of Nodes.
