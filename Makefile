@@ -276,6 +276,24 @@ deploy: build-manifests-temp ## Deploy controller to the K8s cluster. Use ENABLE
 undeploy: build-manifests-temp ## Undeploy controller from the K8s cluster. Use ENABLE_METRICS=true and ENABLE_TLS=true if they were enabled during deploy.
 	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f $(BUILD_DIR)/manifests.yaml
 
+.PHONY: deploy-with-metrics
+deploy-with-metrics: ENABLE_METRICS=true
+deploy-with-metrics: deploy ## Deploy with metrics enabled.
+
+.PHONY: undeploy-with-metrics
+undeploy-with-metrics: ENABLE_METRICS=true
+undeploy-with-metrics: undeploy ## Undeploy with metrics enabled.
+
+.PHONY: deploy-with-metrics-tls-enabled
+deploy-with-metrics-tls-enabled: ENABLE_TLS=true
+deploy-with-metrics-tls-enabled: ENABLE_METRICS=true
+deploy-with-metrics-tls-enabled: deploy ## Deploy with metrics and TLS enabled.
+
+.PHONY: undeploy-with-metrics-tls-enabled
+undeploy-with-metrics-tls-enabled: ENABLE_TLS=true
+undeploy-with-metrics-tls-enabled: ENABLE_METRICS=true
+undeploy-with-metrics-tls-enabled: undeploy ## Undeploy with metrics and TLS enabled.
+
 ## --------------------------------------
 ## Testing
 ## --------------------------------------
