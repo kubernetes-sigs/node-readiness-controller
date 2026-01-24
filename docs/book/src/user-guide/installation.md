@@ -32,7 +32,7 @@ The controller is deployed with `system-cluster-critical` priority to prevent ev
 
 If it gets evicted during resource pressure, nodes can't transition to Ready state, blocking all workload scheduling cluster-wide.
 
-This is the priority class used by kube-proxy, CoreDNS, and other critical cluster components.
+This is the priority class used by other critical cluster components (eg: core-dns).
 
 **Images**: The official releases use multi-arch images (AMD64, Arm64).
 
