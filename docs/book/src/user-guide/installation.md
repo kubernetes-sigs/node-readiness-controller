@@ -26,7 +26,7 @@ kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/re
 
 This will deploy the controller into the `nrr-system` namespace on any available node in your cluster.
 
-### Controller priority
+#### Controller priority
 
 The controller is deployed with `system-cluster-critical` priority to prevent eviction during node resource pressure.
 
