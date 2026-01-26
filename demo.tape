@@ -1,18 +1,34 @@
 # Run `vhs demo.tape` from rootdir to recreate demo
 # Output file
-Output docs/demo.gif
+# Output docs/demo.gif
+
+# record a video demo
+Output demo.mp4
 
 # Terminal styling
-Set FontSize 16
-Set Width 1200
-Set Height 600
+# Set FontSize 16
+# Set Width 1200
+# Set Height 600
+# Set Theme "GitHub Dark"
+
+# optimal dimensions for better YT quality
+Set Width 1920
+Set Height 1080
+Set FontSize 22
 Set Theme "GitHub Dark"
+Set FontFamily "Fira Code"
+Set LetterSpacing 0
+Set LineHeight 1.2
+Set Framerate 30
+Set Padding 60
 
 # Typing speed configuration
 Set TypingSpeed 35ms
 
 # --- SETUP ---
 Hide
+Type "export PS1='\[\e[32m\]admin\$\[\e[0m\] '"
+Enter
 # Expect the kind cluster is already created following docs/TEST_README.md
 Type "kubectl config use-context kind-nrr-test"
 Enter
@@ -52,17 +68,20 @@ Show
 Sleep 2s
 Enter
 Type@15ms `kubectl get node nrr-test-worker -o custom-columns="NAME:.metadata.name,STATUS:.status.conditions[?(@.type=='network.k8s.io/CalicoReady')].status,TAINTS:.spec.taints[*].key"`
-Enter 1
+Enter 2
 Sleep 3s
 
 # 3. Show the Rule enforcing this
 Hide
-Enter 2
+Type "clear"
+Enter
+Show
+Enter 1
 Type "# 2. Why? The NodeReadinessRule requires 'network.k8s.io/CalicoReady'"
 Show
 Sleep 2s
 Enter
-Type "cat examples/network-readiness-rule.yaml"
+Type "cat examples/cni-readiness/network-readiness-rule.yaml"
 Enter 1
 Sleep 5s
 
