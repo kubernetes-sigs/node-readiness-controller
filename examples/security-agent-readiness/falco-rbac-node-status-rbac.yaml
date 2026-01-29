@@ -1,0 +1,22 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-status-patch-role
+rules:
+- apiGroups: [""]
+  resources: ["nodes/status"]
+  verbs: ["patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: falco-node-status-patch-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: node-status-patch-role
+subjects:
+# Bind to security agent's ServiceAccount
+- kind: ServiceAccount
+  name: falco-node
+  namespace: kube-system
