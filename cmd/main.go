@@ -19,12 +19,14 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	"go.uber.org/zap/zapcore"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/client-go/rest"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -33,6 +35,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	nodereadinessiov1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
@@ -60,8 +63,15 @@ func main() {
 	var enableLeaderElection bool
 	var probeAddr string
 	var enableWebhook bool
+	var metricsSecure bool
+	var metricsCertDir string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
+	flag.BoolVar(&metricsSecure, "metrics-secure", false,
+		"If set, the metrics endpoint is served securely via HTTPS. "+
+			"Requires certificate and key.")
+	flag.StringVar(&metricsCertDir, "metrics-cert-dir", "",
+		"The directory where the certificates for metrics are located.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
@@ -80,7 +90,15 @@ func main() {
 	ctrl.Log.Info(fmt.Sprintf("version: %s", info.GetVersionString()))
 
 	metricsServerOptions := metricsserver.Options{
-		BindAddress: metricsAddr,
+		BindAddress:   metricsAddr,
+		CertDir:       metricsCertDir,
+		SecureServing: metricsSecure,
+		FilterProvider: func() func(c *rest.Config, httpClient *http.Client) (metricsserver.Filter, error) {
+			if metricsSecure {
+				return filters.WithAuthenticationAndAuthorization
+			}
+			return nil
+		}(),
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{

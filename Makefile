@@ -62,6 +62,10 @@ CONTROLLER_GEN_PKG := sigs.k8s.io/controller-tools/cmd/controller-gen
 IMG_PREFIX ?= controller
 IMG_TAG ?= latest
 
+# ENABLE_METRICS: If set to true, includes Prometheus Service and ServiceMonitor resources.
+ENABLE_METRICS ?= false
+# ENABLE_TLS: If set to true (and ENABLE_METRICS is true), configures metrics to use HTTPS with CertManager.
+ENABLE_TLS ?= false
 
 # Default value for ignore-not-found flag in undeploy target
 ignore-not-found ?= true
@@ -208,14 +212,13 @@ docker-buildx-reporter: ## Build and push docker image for the reporter for cros
 	- $(CONTAINER_TOOL) buildx rm reporter-builder
 
 .PHONY: build-installer
-build-installer: manifests generate $(KUSTOMIZE) ## Generate CRDs and deployment manifests for release.
+build-installer: build-manifests-temp ## Generate CRDs and deployment manifests for release.
 	mkdir -p dist
 	# Generate CRDs only
 	$(KUSTOMIZE) build config/crd > dist/crds.yaml
 	@echo "Generated dist/crds.yaml"
 	# Generate controller deployment without CRDs
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG_PREFIX}:${IMG_TAG}
-	$(KUSTOMIZE) build config/default > dist/install.yaml
+	cp $(BUILD_DIR)/manifests.yaml dist/install.yaml
 	@echo "Generated dist/install.yaml with image ${IMG_PREFIX}:${IMG_TAG}"
 	@echo "NOTE: Install crds.yaml first, then install.yaml. Deployment runs on any available node by default."
 
@@ -229,6 +232,32 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
+# Temporary directory for building manifests
+BUILD_DIR := $(ROOT_DIR)/bin/build
+
+# Internal target to build manifests in a temporary directory to keep the source config clean.
+# This prevents 'kustomize edit' from modifying your local git state.
+# Features (Metrics, TLS) are enabled by adding Kustomize Components to the temporary copy.
+# TODO: we can do better for prometheus metrics ports that are added by manager_prometheus_metrics.yaml
+.PHONY: build-manifests-temp
+build-manifests-temp: manifests $(KUSTOMIZE)
+	@mkdir -p $(BUILD_DIR)
+	@rm -rf $(BUILD_DIR)/config
+	@cp -r config $(BUILD_DIR)/
+	@cd $(BUILD_DIR)/config/manager && $(KUSTOMIZE) edit set image controller=${IMG_PREFIX}:${IMG_TAG}
+	@if [ "$(ENABLE_METRICS)" = "true" ]; then \
+		cd $(BUILD_DIR)/config/default && $(KUSTOMIZE) edit add component ../prometheus; \
+		if [ "$(ENABLE_TLS)" = "true" ]; then \
+			cd $(BUILD_DIR)/config/default && $(KUSTOMIZE) edit add component ../certmanager && \
+			$(KUSTOMIZE) edit add component ../prometheus/tls; \
+		else \
+			cd $(BUILD_DIR)/config/prometheus && $(KUSTOMIZE) edit add patch --path manager_prometheus_metrics.yaml --kind Deployment --name controller-manager; \
+		fi; \
+	fi
+	@$(KUSTOMIZE) build $(BUILD_DIR)/config/default > $(BUILD_DIR)/manifests.yaml
+	@rm -rf $(BUILD_DIR)/config
+
+
 .PHONY: install
 install: manifests $(KUSTOMIZE) ## Install CRDs into the K8s cluster specified in ~/.kube/config.
 	@out="$$( $(KUSTOMIZE) build config/crd 2>/dev/null || true )"; \
@@ -240,13 +269,30 @@ uninstall: manifests $(KUSTOMIZE) ## Uninstall CRDs from the K8s cluster specifi
 	if [ -n "$$out" ]; then echo "$$out" | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -; else echo "No CRDs to delete; skipping."; fi
 
 .PHONY: deploy
-deploy: manifests $(KUSTOMIZE) ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG_PREFIX}:${IMG_TAG}
-	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
+deploy: build-manifests-temp ## Deploy controller to the K8s cluster. Use ENABLE_METRICS=true and ENABLE_TLS=true to enable features.
+	$(KUBECTL) apply -f $(BUILD_DIR)/manifests.yaml
 
 .PHONY: undeploy
-undeploy: $(KUSTOMIZE) ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+undeploy: build-manifests-temp ## Undeploy controller from the K8s cluster. Use ENABLE_METRICS=true and ENABLE_TLS=true if they were enabled during deploy.
+	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f $(BUILD_DIR)/manifests.yaml
+
+.PHONY: deploy-with-metrics
+deploy-with-metrics: ENABLE_METRICS=true
+deploy-with-metrics: deploy ## Deploy with metrics enabled.
+
+.PHONY: undeploy-with-metrics
+undeploy-with-metrics: ENABLE_METRICS=true
+undeploy-with-metrics: undeploy ## Undeploy with metrics enabled.
+
+.PHONY: deploy-with-metrics-tls-enabled
+deploy-with-metrics-tls-enabled: ENABLE_TLS=true
+deploy-with-metrics-tls-enabled: ENABLE_METRICS=true
+deploy-with-metrics-tls-enabled: deploy ## Deploy with metrics and TLS enabled.
+
+.PHONY: undeploy-with-metrics-tls-enabled
+undeploy-with-metrics-tls-enabled: ENABLE_TLS=true
+undeploy-with-metrics-tls-enabled: ENABLE_METRICS=true
+undeploy-with-metrics-tls-enabled: undeploy ## Undeploy with metrics and TLS enabled.
 
 ## --------------------------------------
 ## Testing

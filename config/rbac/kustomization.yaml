@@ -25,4 +25,3 @@ resources:
 - nodereadinessrule_admin_role.yaml
 - nodereadinessrule_editor_role.yaml
 - nodereadinessrule_viewer_role.yaml
-

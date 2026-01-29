@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
+	"sigs.k8s.io/node-readiness-controller/internal/metrics"
 )
 
 // NodeReconciler reconciles a Node object.
@@ -310,6 +311,7 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 		log.Error(err, "Failed to mark bootstrap completed", "node", nodeName, "rule", ruleName)
 	} else {
 		log.Info("Marked bootstrap completed", "node", nodeName, "rule", ruleName)
+		metrics.BootstrapCompleted.WithLabelValues(ruleName).Inc()
 	}
 }
 
