@@ -19,7 +19,9 @@ package webhook
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -93,9 +95,36 @@ func (w *NodeReadinessRuleWebhook) validateSpec(spec readinessv1alpha1.NodeReadi
 	taintField := specField.Child("taint")
 	if spec.Taint.Key == "" {
 		allErrs = append(allErrs, field.Required(taintField.Child("key"), "taint key cannot be empty"))
+	} else {
+		// Validate key prefix
+		if !strings.HasPrefix(spec.Taint.Key, "readiness.k8s.io/") {
+			allErrs = append(allErrs, field.Invalid(taintField.Child("key"), spec.Taint.Key, "taint key must start with 'readiness.k8s.io/'"))
+		}
+		// Validate key length
+		if len(spec.Taint.Key) < 17 || len(spec.Taint.Key) > 253 {
+			allErrs = append(allErrs, field.Invalid(taintField.Child("key"), spec.Taint.Key, "taint key length must be between 17 and 253 characters"))
+		}
 	}
+
 	if spec.Taint.Effect == "" {
 		allErrs = append(allErrs, field.Required(taintField.Child("effect"), "taint effect cannot be empty"))
+	} else {
+		// Validate effect
+		switch spec.Taint.Effect {
+		case corev1.TaintEffectNoSchedule, corev1.TaintEffectPreferNoSchedule, corev1.TaintEffectNoExecute:
+			// valid
+		default:
+			allErrs = append(allErrs, field.NotSupported(taintField.Child("effect"), spec.Taint.Effect, []string{
+				string(corev1.TaintEffectNoSchedule),
+				string(corev1.TaintEffectPreferNoSchedule),
+				string(corev1.TaintEffectNoExecute),
+			}))
+		}
+	}
+
+	// Validate value length
+	if len(spec.Taint.Value) > 63 {
+		allErrs = append(allErrs, field.Invalid(taintField.Child("value"), spec.Taint.Value, "taint value length must be at most 63 characters"))
 	}
 
 	// Validate enforcement mode

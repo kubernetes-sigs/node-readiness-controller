@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	selectorChangeTaintKey = "selector-change-taint"
+	selectorChangeTaintKey = "readiness.k8s.io/selector-change-taint"
 )
 
 var _ = Describe("NodeReadinessRule Controller", func() {
@@ -91,7 +91,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "test-taint",
+						Key:    "readiness.k8s.io/test-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
@@ -134,7 +134,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "test-taint",
+						Key:    "readiness.k8s.io/test-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
@@ -155,7 +155,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			cachedRule, exists := readinessController.ruleCache["test-rule"]
 			readinessController.ruleCacheMutex.RUnlock()
 			Expect(exists).To(BeTrue())
-			Expect(cachedRule.Spec.Taint.Key).To(Equal("test-taint"))
+			Expect(cachedRule.Spec.Taint.Key).To(Equal("readiness.k8s.io/test-taint"))
 
 			// Cleanup
 			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
@@ -177,7 +177,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "test-taint",
+						Key:    "readiness.k8s.io/test-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
@@ -238,7 +238,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						{Type: "TestCondition", RequiredStatus: corev1.ConditionTrue},
 					},
 					Taint: corev1.Taint{
-						Key:    "immediate-test-taint",
+						Key:    "readiness.k8s.io/immediate-test-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
@@ -266,7 +266,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 					return false
 				}
 				for _, taint := range updatedNode.Spec.Taints {
-					if taint.Key == "immediate-test-taint" && taint.Effect == corev1.TaintEffectNoSchedule {
+					if taint.Key == "readiness.k8s.io/immediate-test-taint" && taint.Effect == corev1.TaintEffectNoSchedule {
 						return true
 					}
 				}
@@ -300,7 +300,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "dry-run-taint",
+						Key:    "readiness.k8s.io/dry-run-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
@@ -370,7 +370,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
 					Taint: corev1.Taint{
-						Key:    "node-test-taint",
+						Key:    "readiness.k8s.io/node-test-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
@@ -424,14 +424,14 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			node := &corev1.Node{
 				Spec: corev1.NodeSpec{
 					Taints: []corev1.Taint{
-						{Key: "test-key", Effect: corev1.TaintEffectNoSchedule, Value: "test-value"},
-						{Key: "another-key", Effect: corev1.TaintEffectNoExecute},
+						{Key: "readiness.k8s.io/test-key", Effect: corev1.TaintEffectNoSchedule, Value: "test-value"},
+						{Key: "readiness.k8s.io/another-key", Effect: corev1.TaintEffectNoExecute},
 					},
 				},
 			}
 
 			taintSpec := corev1.Taint{
-				Key:    "test-key",
+				Key:    "readiness.k8s.io/test-key",
 				Effect: corev1.TaintEffectNoSchedule,
 			}
 
@@ -440,7 +440,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			// Test non-existent taint
 			nonExistentTaint := corev1.Taint{
-				Key:    "missing-key",
+				Key:    "readiness.k8s.io/missing-key",
 				Effect: corev1.TaintEffectNoSchedule,
 			}
 
@@ -535,7 +535,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "DBReady", RequiredStatus: corev1.ConditionTrue}},
-					Taint:           corev1.Taint{Key: "db-unready", Effect: corev1.TaintEffectNoSchedule},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/db-unready", Effect: corev1.TaintEffectNoSchedule},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"app": "backend"}},
 				},
@@ -591,7 +591,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "TestReady", RequiredStatus: corev1.ConditionTrue}},
-					Taint:           corev1.Taint{Key: "test-unready", Effect: corev1.TaintEffectNoSchedule},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/test-unready", Effect: corev1.TaintEffectNoSchedule},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"node-group": "new-workers"}},
 				},
@@ -665,7 +665,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				},
 				Spec: corev1.NodeSpec{
 					Taints: []corev1.Taint{
-						{Key: "cleanup-taint", Effect: corev1.TaintEffectNoSchedule, Value: "pending"},
+						{Key: "readiness.k8s.io/cleanup-taint", Effect: corev1.TaintEffectNoSchedule, Value: "pending"},
 					},
 				},
 				Status: corev1.NodeStatus{
@@ -680,7 +680,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "TestReady", RequiredStatus: corev1.ConditionTrue}},
 					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"kubernetes.io/hostname": "cleanup-test-node"}},
-					Taint:           corev1.Taint{Key: "cleanup-taint", Effect: corev1.TaintEffectNoSchedule},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/cleanup-taint", Effect: corev1.TaintEffectNoSchedule},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 				},
 			}
@@ -711,7 +711,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cleanup-test-node"}, updatedNode)).To(Succeed())
 			hasTaint := false
 			for _, taint := range updatedNode.Spec.Taints {
-				if taint.Key == "cleanup-taint" {
+				if taint.Key == "readiness.k8s.io/cleanup-taint" {
 					hasTaint = true
 					break
 				}
@@ -732,7 +732,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 					return false
 				}
 				for _, taint := range updatedNode.Spec.Taints {
-					if taint.Key == "cleanup-taint" {
+					if taint.Key == "readiness.k8s.io/cleanup-taint" {
 						return false // Taint still exists
 					}
 				}
@@ -768,7 +768,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 							},
 						},
 					},
-					Taint:           corev1.Taint{Key: "unready", Effect: corev1.TaintEffectNoSchedule},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/unready", Effect: corev1.TaintEffectNoSchedule},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 				},
 			}

@@ -7,7 +7,7 @@ spec:
     - type: "TestReady"
       requiredStatus: "True"
   taint:
-    key: "test-taint"
+    key: "readiness.k8s.io/test-taint"
     effect: "NoSchedule"
     value: "pending"
   enforcementMode: "continuous"
