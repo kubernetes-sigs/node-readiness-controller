@@ -4,6 +4,9 @@ metadata:
   name: node-status-patch-role
 rules:
 - apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get"]
+- apiGroups: [""]
   resources: ["nodes/status"]
   verbs: ["patch", "update"]
 ---
