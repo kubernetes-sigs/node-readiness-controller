@@ -88,7 +88,8 @@ hack/test-workloads/apply-calico.sh
 
 1.  **Check for the new node condition on the application node:**
     ```bash
-    # Look for 'network.k8s.io/CalicoReady   True'
+    kubectl get node $NODE -o json | jq '.status.conditions[] | select(.type=="projectcalico.org/CalicoReady")'
+# Look for 'projectcalico.org/CalicoReady   True'
     kubectl get node nrr-test-worker2 -o jsonpath='Conditions:{"\n"}{range .status.conditions[*]}{.type}{"\t"}{.status}{"\n"}{end}'
     ```
 

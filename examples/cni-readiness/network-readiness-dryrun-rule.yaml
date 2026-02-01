@@ -5,7 +5,7 @@ metadata:
 spec:
   dryRun: true
   conditions:
-    - type: "network.k8s.io/CalicoReady"
+    - type: "projectcalico.org/CalicoReady"
       requiredStatus: "True"
   taint:
     key: "readiness.k8s.io/NetworkReady"

@@ -36,7 +36,7 @@ spec:
           - name: CHECK_ENDPOINT
             value: "http://localhost:9099/readiness"
           - name: CONDITION_TYPE
-            value: "network.k8s.io/CalicoReady"
+            value: "projectcalico.org/CalicoReady"
           - name: CHECK_INTERVAL
             value: "5s"
         resources:

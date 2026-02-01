@@ -9,7 +9,7 @@ This guide demonstrates how to use the Node Readiness Controller to prevent pods
 
 The high-level steps are:
 1.  Node is bootstrapped with a [startup taint](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/) `readiness.k8s.io/NetworkReady=pending:NoSchedule` immediately upon joining.
-2.  A reporter DaemonSet is deployed to monitor the CNI's health and report it to the API server as node-condition (`network.k8s.io/CalicoReady`). 
+2.  A reporter DaemonSet is deployed to monitor the CNI's health and report it to the API server as node-condition (`projectcalico.org/CalicoReady`). 
 3. Node Readiness Controller will untaint the node only when the CNI reports it is ready.
 
 ## Step-by-Step Guide
@@ -22,7 +22,7 @@ This example uses **Calico**, but the pattern applies to any CNI.
 
 We need to bridge Calico's internal health status to a Kubernetes Node Condition. We will deploy a **reporter DaemonSet** that runs on every node.
 
-This reporter checks Calico's local health endpoint (`http://localhost:9099/readiness`) and updates a node condition `network.k8s.io/CalicoReady`.
+This reporter checks Calico's local health endpoint (`http://localhost:9099/readiness`) and updates a node condition `projectcalico.org/CalicoReady`.
 
 Using a separate DaemonSet instead of a sidecar ensures that readiness reporting works even if the CNI pod is crashlooping or failing to start containers.
 
@@ -50,7 +50,7 @@ spec:
           - name: CHECK_ENDPOINT
             value: "http://localhost:9099/readiness"
           - name: CONDITION_TYPE
-            value: "network.k8s.io/CalicoReady"
+            value: "projectcalico.org/CalicoReady"
 ```
 
 ### 2. Grant Permissions (RBAC)
@@ -85,7 +85,7 @@ subjects:
 
 ### 3. Create the Node Readiness Rule
 
-Now define the rule that enforces the requirement. This tells the controller: *"Keep the `readiness.k8s.io/NetworkReady` taint on the node until `network.k8s.io/CalicoReady` is True."*
+Now define the rule that enforces the requirement. This tells the controller: *"Keep the `readiness.k8s.io/NetworkReady` taint on the node until `projectcalico.org/CalicoReady` is True."*
 
 ```yaml
 # network-readiness-rule.yaml
@@ -96,7 +96,7 @@ metadata:
 spec:
   # The condition(s) to monitor
   conditions:
-    - type: "network.k8s.io/CalicoReady"
+    - type: "projectcalico.org/CalicoReady"
       requiredStatus: "True"
   
   # The taint to manage
@@ -138,7 +138,7 @@ To test this, add a new node to the cluster.
     `readiness.k8s.io/NetworkReady=pending:NoSchedule`.
 
 2.  **Check Node Conditions**:
-    Watch the node conditions. You will initially see `network.k8s.io/CalicoReady` as `False` or missing.
+    Watch the node conditions. You will initially see `projectcalico.org/CalicoReady` as `False` or missing.
     Once Calico starts, the reporter will update it to `True`.
 
 3.  **Check Taint Removal**:
