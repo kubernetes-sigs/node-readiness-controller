@@ -1,0 +1,15 @@
+---
+# MutatingAdmissionPolicyBinding binds the policy to the ConfigMap parameter
+apiVersion: admissionregistration.k8s.io/v1beta1
+kind: MutatingAdmissionPolicyBinding
+metadata:
+  name: inject-daemonset-readiness-tolerations-binding
+spec:
+  policyName: inject-daemonset-readiness-tolerations
+  # Reference the ConfigMap containing toleration data
+  paramRef:
+    name: readiness-taints
+    namespace: nrr-system
+    parameterNotFoundAction: Deny
+  matchResources:
+    namespaceSelector: {}

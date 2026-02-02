@@ -9,6 +9,23 @@ rules:
   resources:
   - nodes
   verbs:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - nodes
+  verbs:
   - get
   - list
   - patch
