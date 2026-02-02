@@ -63,7 +63,7 @@ kubectl get pods -n nrr-system -o wide
 Apply the network readiness rule. This will be validated by the webhook.
 
 ```bash
-kubectl apply -f examples/network-readiness-rule.yaml
+kubectl apply -f examples/cni-readiness/network-readiness-rule.yaml
 ```
 
 ### Step 6: Verify Initial State
@@ -80,8 +80,8 @@ kubectl get node nrr-test-worker2 -o jsonpath='Taints:{"\n"}{range .spec.taints[
 This script injects the readiness sidecar into the Calico deployment.
 
 ```bash
-chmod +x hack/test-workloads/apply-calico.sh
-hack/test-workloads/apply-calico.sh
+chmod +x examples/cni-readiness/apply-calico.sh
+examples/cni-readiness/apply-calico.sh
 ```
 
 ### Step 8: Monitor and Verify Final State

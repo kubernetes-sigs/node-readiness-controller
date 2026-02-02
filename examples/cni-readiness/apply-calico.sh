@@ -27,7 +27,7 @@ kubectl apply $KUBECTL_ARGS -f calico.yaml || true
 kubectl apply $KUBECTL_ARGS -f calico.yaml
 
 # Apply the CNI readiness reporter DaemonSet
-kubectl apply $KUBECTL_ARGS -f ./cni-reporter-ds.yaml
+kubectl apply $KUBECTL_ARGS -f ./examples/cni-readiness/cni-reporter-ds.yaml
 
 # Apply the RBAC rules
-kubectl apply $KUBECTL_ARGS -f ./calico-rbac-node-status-patch-role.yaml
+kubectl apply $KUBECTL_ARGS -f ./examples/cni-readiness/calico-rbac-node-status-patch-role.yaml
