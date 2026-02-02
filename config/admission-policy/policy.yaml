@@ -1,0 +1,71 @@
+---
+# MutatingAdmissionPolicy for automatic DaemonSet toleration injection
+# Reads taint keys from a ConfigMap parameter resource
+# Requires: MutatingAdmissionPolicy feature enabled in the cluster
+apiVersion: admissionregistration.k8s.io/v1alpha1
+kind: MutatingAdmissionPolicy
+metadata:
+  name: inject-daemonset-readiness-tolerations
+spec:
+  failurePolicy: Fail
+  
+  # Define what this policy watches
+  matchConstraints:
+    resourceRules:
+    - apiGroups: ["apps"]
+      apiVersions: ["v1"]
+      operations: ["CREATE", "UPDATE"]
+      resources: ["daemonsets"]
+  
+  # Reference the ConfigMap that contains toleration data
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  
+  # Variables for CEL expressions
+  variables:
+  # Check if opt-out annotation is set
+  - name: optedOut
+    expression: |
+      has(object.metadata.annotations) && 
+      object.metadata.annotations.exists(k, k == "readiness.k8s.io/auto-tolerate" && object.metadata.annotations[k] == "false")
+  
+  # Get existing tolerations (empty array if none)
+  - name: existingTolerations
+    expression: |
+      has(object.spec.template.spec.tolerations) ? 
+        object.spec.template.spec.tolerations : []
+  
+  # Get taint keys from ConfigMap and parse to array
+  - name: taintKeys
+    expression: |
+      ("taint-keys" in params.data) && params.data["taint-keys"] != "" ?
+        params.data["taint-keys"].split(",") : []
+  
+  # Create tolerations from taint keys (as plain maps since CEL has issues with complex types)
+  - name: tolerationsToInject
+    expression: |
+      variables.taintKeys
+        .filter(key, !variables.existingTolerations.exists(t, t.key == key))
+        .map(key, {
+          "key": key,
+          "operator": "Exists",
+          "effect": "NoSchedule"
+        })
+  
+  # Apply mutations
+  mutations:
+  - patchType: JSONPatch
+    jsonPatch:
+      expression: |
+        !variables.optedOut && size(variables.tolerationsToInject) > 0 ?
+        [
+          JSONPatch{
+            op: has(object.spec.template.spec.tolerations) ? "replace" : "add",
+            path: "/spec/template/spec/tolerations",
+            value: variables.existingTolerations + variables.tolerationsToInject
+          }
+        ] : []
+  
+  # Never reinvoke this policy
+  reinvocationPolicy: Never
