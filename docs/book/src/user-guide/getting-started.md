@@ -1,6 +1,10 @@
 
 ## Getting Started
 
+This guide covers creating and configuring `NodeReadinessRule` resources.
+
+> **Prerequisites**: Node Readiness Controller must be installed. See [Installation](./installation.md).
+
 ### API Spec
 
 #### Example: Storage Readiness Rule (Bootstrap-only)
@@ -43,82 +47,19 @@ spec:
 | `nodeSelector` | Label selector to target specific nodes | No |
 | `dryRun` | Preview changes without applying them | No |
 
-### Deployment
+### Enforcement Modes
 
-#### Option 1: Install official release images
+#### Bootstrap-only Mode
+- Removes bootstrap taint when conditions are first satisfied
+- Marks completion with node annotation
+- Stops monitoring after successful removal (fail-safe)
+- Ideal for one-time setup conditions (storage, installing node daemons e.g: security agent or kernel-module update)
 
-Node-Readiness Controller offers two variants of the container image to support different cluster architectures.
-
-Released container images are available for:
-* **x86_64** (AMD64)
-* **Arm64** (AArch64)
-
-The controller image is available in the Kubernetes staging registry:
-
-```sh
-REPO="us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/node-readiness-controller"
-
-TAG=$(skopeo list-tags docker://$REPO | jq .Tags[-1] | tr -d '"')
-
-docker pull $REPO:$TAG
-```
-
-#### Option 2: Deploy Using Make Commands
-
-**Build and push your image to the location specified by `IMG_PREFIX`:`IMG_TAG` :**
-
-```sh
-make docker-build docker-push IMG_PREFIX=<some-registry>/nrr-controller IMG_TAG=tag
-```
-
-```sh
-# Install the CRDs
-make install
-
-# Deploy the controller
-make deploy IMG_PREFIX=<some-registry>/nrr-controller IMG_TAG=tag
-
-# Create sample rules
-kubectl apply -k examples/network-readiness-rule.yaml
-```
-
-#### Option 3: Deploy Using Kustomize Directly
-
-```sh
-# Install CRDs
-kubectl apply -k config/crd
-
-# Deploy controller and RBAC
-kubectl apply -k config/default
-
-# Create sample rules
-kubectl apply -f examples/network-readiness-rule.yaml
-```
-
-### Uninstallation
-
-> **Important**: Follow this order to avoid stuck resources due to finalizers.
-
-The controller adds a finalizer (`readiness.node.x-k8s.io/cleanup-taints`) to each `NodeReadinessRule` to ensure node taints are cleaned up before the rule is deleted. This means you must delete CRs **while the controller is still running**.
-
-```sh
-# 1. Delete all rule instances first (while controller is running)
-kubectl delete nodereadinessrules --all
-
-# 2. Delete the controller
-make undeploy
-
-# 3. Delete the CRDs
-make uninstall
-```
-
-#### Recovering from Stuck Resources
-
-If you deleted the controller before removing the CRs, the finalizer will block CR deletion. To recover, manually remove the finalizer:
-
-```sh
-kubectl patch nodereadinessrule <rule-name> -p '{"metadata":{"finalizers":[]}}' --type=merge
-```
+#### Continuous Mode
+- Continuously monitors conditions
+- Adds taint when any condition becomes unsatisfied
+- Removes taint when all conditions become satisfied
+- Ideal for ongoing health monitoring (network connectivity, resource availability)
 
 ## Operations
 
@@ -162,19 +103,65 @@ Check dry run results:
 kubectl get nodereadinessrule <rule-name> -o jsonpath='{.status.dryRunResults}'
 ```
 
-### Enforcement Modes
+### Rule Validation and Constraints
 
-#### Bootstrap-only Mode
-- Removes bootstrap taint when conditions are first satisfied
-- Marks completion with node annotation
-- Stops monitoring after successful removal (fail-safe)
-- Ideal for one-time setup conditions (storage, installing node daemons e.g: security agent or kernel-module update)
+#### NoExecute Taint Effect Warning
 
-#### Continuous Mode
-- Continuously monitors conditions
-- Adds taint when any condition becomes unsatisfied
-- Removes taint when all conditions become satisfied
-- Ideal for ongoing health monitoring (network connectivity, resource availability)
+**`NoExecute` with `continuous` enforcement mode will evict existing workloads when conditions fail.**
+
+If a critical component becomes temporarily unavailable (e.g., CNI daemon restart), all pods without matching tolerations are immediately evicted from the node. Use `NoSchedule` to prevent new scheduling without disrupting running workloads.
+
+The admission webhook warns when using `NoExecute`. 
+
+See [Kubernetes taints documentation](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/) for taint behavior details.
+
+#### Avoiding Taint Key Conflicts
+
+The admission webhook prevents multiple rules from using the same `taint.key` and `taint.effect` on overlapping node selectors.
+
+**Example conflict:**
+```yaml
+# Rule 1
+spec:
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/worker: ""
+  taint:
+    key: "readiness.k8s.io/network"
+    effect: "NoSchedule"
+
+# Rule 2 - This will be REJECTED
+spec:
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/worker: ""
+  taint:
+    key: "readiness.k8s.io/network"  # Same key + effect = conflict
+    effect: "NoSchedule"
+```
+
+Use unique, descriptive taint keys for different readiness checks.
+
+#### Taint Key Naming
+
+Follow [Kubernetes naming conventions](https://kubernetes.io/docs/concepts/overview/working-with-objects/names/).
+
+Taint keys must have the `readiness.k8s.io/` prefix to clearly identify readiness-related taints and avoid conflicts with other controllers
+
+**Valid:**
+```yaml
+taint:
+  key: "readiness.k8s.io/NetworkReady"
+  key: "readiness.k8s.io/StorageReady"
+```
+
+**Invalid:**
+```yaml
+taint:
+  key: "network-ready"              # Missing prefix
+  key: "node.kubernetes.io/ready"   # Wrong prefix
+```
+
 
 ## Configuration
 

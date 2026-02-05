@@ -4,9 +4,7 @@ Follow this guide to install the Node Readiness Controller in your Kubernetes cl
 
 ## Deployment Options
 
-### Option 1: Install Official Release (Recommended)
-
-The easiest way to get started is by applying the official release manifests.
+### Install Official Release
 
 First, to install the CRDs, apply the `crds.yaml` manifest:
 
@@ -36,16 +34,10 @@ This is the priority class used by other critical cluster components (eg: core-d
 
 **Images**: The official releases use multi-arch images (AMD64, Arm64).
 
-### Option 2: Deploy Using Kustomize
-
-If you have cloned the repository and want to deploy from source, you can use Kustomize.
-
 ```sh
-# 1. Install Custom Resource Definitions (CRDs)
-kubectl apply -k config/crd
-
-# 2. Deploy Controller and RBAC
-kubectl apply -k config/default
+REPO="registry.k8s.io/node-readiness-controller/node-readiness-reporter"
+TAG=$(skopeo list-tags docker://$REPO | jq .'Tags[-1]' | tr -d '"')
+docker pull $REPO:$TAG
 ```
 
 ## Verification
