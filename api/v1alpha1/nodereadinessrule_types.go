@@ -69,6 +69,10 @@ type NodeReadinessRuleSpec struct {
 	// taint defines the specific Taint (Key, Value, and Effect) to be managed
 	// on Nodes that meet the defined condition criteria.
 	//
+	// Supported effects: NoSchedule, PreferNoSchedule, NoExecute.
+	// Caution: NoExecute evicts existing pods and can cause significant disruption
+	// when combined with continuous enforcement mode. Prefer NoSchedule for most use cases.
+	//
 	// +required
 	Taint corev1.Taint `json:"taint,omitempty,omitzero"`
 
