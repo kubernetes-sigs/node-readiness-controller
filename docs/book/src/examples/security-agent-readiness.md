@@ -1,6 +1,6 @@
 # Security Agent Readiness Guardrail
 
-This guide demonstrates how to use the Node Readiness Controller to prevent workloads from being scheduled on a node until a security agent (for example, Falco) is fully initialized and actively monitoring the node.
+This guide demonstrates how to use the Node Readiness Controller to prevent workloads from being scheduled on a node until a security agent (for example, [Falco](https://github.com/falcosecurity/falco)) is fully initialized and actively monitoring the node.
 
 ## The Problem
 
