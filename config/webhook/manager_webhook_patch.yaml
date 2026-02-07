@@ -1,0 +1,29 @@
+# Enable webhook
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --enable-webhook=true
+
+# Add webhook port
+- op: add
+  path: /spec/template/spec/containers/0/ports/-
+  value:
+    containerPort: 9443
+    name: webhook-server
+    protocol: TCP
+
+# Add volume mount
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/-
+  value:
+    mountPath: /tmp/k8s-webhook-server/serving-certs
+    name: cert
+    readOnly: true
+
+# Add volume
+- op: add
+  path: /spec/template/spec/volumes/-
+  value:
+    name: cert
+    secret:
+      defaultMode: 420
+      secretName: webhook-server-certs

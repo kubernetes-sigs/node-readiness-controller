@@ -1,15 +1,14 @@
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 
+resources:
+- certificate.yaml
+
 patches:
 # Enable HTTPS args in Deployment
 - path: manager_prometheus_metrics_tls.yaml
   target:
     kind: Deployment
-# Configure ServiceMonitor for TLS
-- path: monitor_tls_patch.yaml
-  target:
-    kind: ServiceMonitor
 # Mount CertManager secrets in Deployment
 - path: cert_metrics_manager_patch.yaml
   target:
@@ -18,63 +17,3 @@ patches:
 - path: metrics_service_tls_patch.yaml
   target:
     kind: Service
-
-replacements:
-  - source:
-      kind: Service
-      version: v1
-      name: controller-manager-metrics-service
-      fieldPath: metadata.name
-    targets:
-      - select:
-          kind: Certificate
-          group: cert-manager.io
-          version: v1
-          name: metrics-certs
-        fieldPaths:
-          - spec.dnsNames.0
-          - spec.dnsNames.1
-        options:
-          delimiter: '.'
-          index: 0
-          create: true
-      - select:
-          kind: ServiceMonitor
-          group: monitoring.coreos.com
-          version: v1
-          name: controller-manager-metrics-monitor
-        fieldPaths:
-          - spec.endpoints.0.tlsConfig.serverName
-        options:
-          delimiter: '.'
-          index: 0
-          create: true
-  - source:
-      kind: Service
-      version: v1
-      name: controller-manager-metrics-service
-      fieldPath: metadata.namespace
-    targets:
-      - select:
-          kind: Certificate
-          group: cert-manager.io
-          version: v1
-          name: metrics-certs
-        fieldPaths:
-          - spec.dnsNames.0
-          - spec.dnsNames.1
-        options:
-          delimiter: '.'
-          index: 1
-          create: true
-      - select:
-          kind: ServiceMonitor
-          group: monitoring.coreos.com
-          version: v1
-          name: controller-manager-metrics-monitor
-        fieldPaths:
-          - spec.endpoints.0.tlsConfig.serverName
-        options:
-          delimiter: '.'
-          index: 1
-          create: true

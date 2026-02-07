@@ -64,8 +64,9 @@ IMG_TAG ?= latest
 
 # ENABLE_METRICS: If set to true, includes Prometheus Service and ServiceMonitor resources.
 ENABLE_METRICS ?= false
-# ENABLE_TLS: If set to true (and ENABLE_METRICS is true), configures metrics to use HTTPS with CertManager.
 ENABLE_TLS ?= false
+# ENABLE_WEBHOOK: If set to true, includes validating webhook. Requires ENABLE_TLS=true.
+ENABLE_WEBHOOK ?= false
 
 # Default value for ignore-not-found flag in undeploy target
 ignore-not-found ?= true
@@ -235,21 +236,30 @@ endif
 # Temporary directory for building manifests
 BUILD_DIR := $(ROOT_DIR)/bin/build
 
-# Internal target to build manifests in a temporary directory to keep the source config clean.
-# This prevents 'kustomize edit' from modifying your local git state.
-# Features (Metrics, TLS) are enabled by adding Kustomize Components to the temporary copy.
-# TODO: we can do better for prometheus metrics ports that are added by manager_prometheus_metrics.yaml
+# Build manifests in a temp directory to keep source config clean.
+# Features are enabled by adding Kustomize Components.
 .PHONY: build-manifests-temp
 build-manifests-temp: manifests $(KUSTOMIZE)
 	@mkdir -p $(BUILD_DIR)
 	@rm -rf $(BUILD_DIR)/config
 	@cp -r config $(BUILD_DIR)/
 	@cd $(BUILD_DIR)/config/manager && $(KUSTOMIZE) edit set image controller=${IMG_PREFIX}:${IMG_TAG}
+	@# TLS: Add certmanager component for certificates
+	@if [ "$(ENABLE_TLS)" = "true" ]; then \
+		cd $(BUILD_DIR)/config/default && $(KUSTOMIZE) edit add component ../certmanager; \
+	fi
+	@# Webhook: Requires TLS for certificates
+	@if [ "$(ENABLE_WEBHOOK)" = "true" ]; then \
+		if [ "$(ENABLE_TLS)" != "true" ]; then \
+			echo "ERROR: ENABLE_WEBHOOK=true requires ENABLE_TLS=true"; exit 1; \
+		fi; \
+		cd $(BUILD_DIR)/config/default && $(KUSTOMIZE) edit add component ../webhook; \
+	fi
+	@# Metrics: Add prometheus, with TLS config if enabled
 	@if [ "$(ENABLE_METRICS)" = "true" ]; then \
 		cd $(BUILD_DIR)/config/default && $(KUSTOMIZE) edit add component ../prometheus; \
 		if [ "$(ENABLE_TLS)" = "true" ]; then \
-			cd $(BUILD_DIR)/config/default && $(KUSTOMIZE) edit add component ../certmanager && \
-			$(KUSTOMIZE) edit add component ../prometheus/tls; \
+			cd $(BUILD_DIR)/config/default && $(KUSTOMIZE) edit add component ../prometheus/tls; \
 		else \
 			cd $(BUILD_DIR)/config/prometheus && $(KUSTOMIZE) edit add patch --path manager_prometheus_metrics.yaml --kind Deployment --name controller-manager; \
 		fi; \
@@ -278,21 +288,52 @@ undeploy: build-manifests-temp ## Undeploy controller from the K8s cluster. Use 
 
 .PHONY: deploy-with-metrics
 deploy-with-metrics: ENABLE_METRICS=true
-deploy-with-metrics: deploy ## Deploy with metrics enabled.
+deploy-with-metrics: deploy ## Deploy with metrics (HTTP).
 
 .PHONY: undeploy-with-metrics
 undeploy-with-metrics: ENABLE_METRICS=true
-undeploy-with-metrics: undeploy ## Undeploy with metrics enabled.
+undeploy-with-metrics: undeploy ## Undeploy with metrics.
 
-.PHONY: deploy-with-metrics-tls-enabled
-deploy-with-metrics-tls-enabled: ENABLE_TLS=true
-deploy-with-metrics-tls-enabled: ENABLE_METRICS=true
-deploy-with-metrics-tls-enabled: deploy ## Deploy with metrics and TLS enabled.
+.PHONY: deploy-with-metrics-and-tls
+deploy-with-metrics-and-tls: ENABLE_METRICS=true
+deploy-with-metrics-and-tls: ENABLE_TLS=true
+deploy-with-metrics-and-tls: deploy ## Deploy with metrics and TLS.
 
-.PHONY: undeploy-with-metrics-tls-enabled
-undeploy-with-metrics-tls-enabled: ENABLE_TLS=true
-undeploy-with-metrics-tls-enabled: ENABLE_METRICS=true
-undeploy-with-metrics-tls-enabled: undeploy ## Undeploy with metrics and TLS enabled.
+.PHONY: undeploy-with-metrics-and-tls
+undeploy-with-metrics-and-tls: ENABLE_METRICS=true
+undeploy-with-metrics-and-tls: ENABLE_TLS=true
+undeploy-with-metrics-and-tls: undeploy ## Undeploy with metrics and TLS.
+
+.PHONY: deploy-with-tls
+deploy-with-tls: ENABLE_TLS=true
+deploy-with-tls: deploy ## Deploy with TLS (cert-manager).
+
+.PHONY: undeploy-with-tls
+undeploy-with-tls: ENABLE_TLS=true
+undeploy-with-tls: undeploy ## Undeploy with TLS.
+
+.PHONY: deploy-with-webhook
+deploy-with-webhook: ENABLE_TLS=true
+deploy-with-webhook: ENABLE_WEBHOOK=true
+deploy-with-webhook: deploy ## Deploy with webhook (includes TLS).
+
+.PHONY: undeploy-with-webhook
+undeploy-with-webhook: ENABLE_TLS=true
+undeploy-with-webhook: ENABLE_WEBHOOK=true
+undeploy-with-webhook: undeploy ## Undeploy with webhook.
+
+# Deploy with all features: metrics, TLS, webhook.
+.PHONY: deploy-full
+deploy-full: ENABLE_METRICS=true
+deploy-full: ENABLE_TLS=true
+deploy-full: ENABLE_WEBHOOK=true
+deploy-full: deploy ## Deploy with all features: metrics, TLS, webhook.
+
+.PHONY: undeploy-full
+undeploy-full: ENABLE_METRICS=true
+undeploy-full: ENABLE_TLS=true
+undeploy-full: ENABLE_WEBHOOK=true
+undeploy-full: undeploy ## Undeploy with all features.
 
 ## --------------------------------------
 ## Testing

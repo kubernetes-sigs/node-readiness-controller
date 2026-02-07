@@ -1,22 +1,5 @@
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 resources:
-- monitor.yaml
 - metrics_service.yaml
 
-patches:
-# Bind metrics to port 8080 for HTTP. 
-# This matches the Service and ServiceMonitor configuration in this directory.
-# - path: manager_prometheus_metrics.yaml
-#   target:
-#     kind: Deployment
-#     name: controller-manager
-
-# By default, metrics are disabled in the manager (default : "0").
-# This component adds the Service and ServiceMonitor for Prometheus,
-# and applies the patch to bind the manager to port :8080(it is done in Makefile for now).
-
-# Patches for TLS are in the 'tls' component which will:
-# 1. Overlay the HTTPS args (:8443) and security flags
-# 2. Add ServiceMonitor TLS config
-# 3. Mount CertManager secrets
