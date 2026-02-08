@@ -90,6 +90,8 @@ func (r *RuleReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager)
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;create;update;patch;delete
 
 func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -179,6 +181,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 // 1. Deletes the taints associated with the rule.
 // 2. Remove the rule from the cache.
 // 3. Remove the finalizer from the rule.
+// 4. Sync the Taints ConfigMap
 func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -202,6 +205,13 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+
+	// Sync taints to ConfigMap for MutatingAdmissionPolicy
+	if err := r.Controller.syncTaintsConfigMap(ctx); err != nil {
+		log.Error(err, "Failed to sync taints configmap", "rule", rule.Name)
+		// Don't fail reconciliation for this - log and continue
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -690,6 +700,10 @@ func (r *RuleReadinessController) syncTaintsConfigMap(ctx context.Context) error
 	// Extract unique taint keys with readiness.k8s.io/ prefix and NoSchedule effect
 	taintKeysSet := make(map[string]struct{})
 	for _, rule := range ruleList.Items {
+		// Skip rules that are being deleted
+		if !rule.DeletionTimestamp.IsZero() {
+			continue
+		}
 		if rule.Spec.Taint.Key != "" &&
 			strings.HasPrefix(rule.Spec.Taint.Key, "readiness.k8s.io/") &&
 			rule.Spec.Taint.Effect == corev1.TaintEffectNoSchedule {
@@ -733,7 +747,7 @@ func (r *RuleReadinessController) syncTaintsConfigMap(ctx context.Context) error
 	} else {
 		// Update existing ConfigMap
 		log.V(1).Info("Updating readiness-taints ConfigMap", "taintCount", len(taintKeys))
-		patch := client.MergeFrom(existingCM)
+		patch := client.MergeFrom(existingCM.DeepCopy())
 		existingCM.Data = cm.Data
 		if err := r.Patch(ctx, existingCM, patch); err != nil {
 			return fmt.Errorf("failed to update configmap: %w", err)

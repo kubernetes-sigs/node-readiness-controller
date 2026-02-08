@@ -12,7 +12,7 @@ The MutatingAdmissionPolicy approach uses Kubernetes's native admission control 
 > MutatingAdmissionPolicy is needed to be enabled in the cluster.
 
 - Feature gate: `MutatingAdmissionPolicy=true`
-- Runtime config: `admissionregistration.k8s.io/v1alpha1=true`
+- Runtime config: `admissionregistration.k8s.io/v1beta1=true`
 - `kubectl` configured to access your cluster
 - NodeReadinessRule CRDs installed
 

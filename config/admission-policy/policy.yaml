@@ -2,7 +2,7 @@
 # MutatingAdmissionPolicy for automatic DaemonSet toleration injection
 # Reads taint keys from a ConfigMap parameter resource
 # Requires: MutatingAdmissionPolicy feature enabled in the cluster
-apiVersion: admissionregistration.k8s.io/v1alpha1
+apiVersion: admissionregistration.k8s.io/v1beta1
 kind: MutatingAdmissionPolicy
 metadata:
   name: inject-daemonset-readiness-tolerations
