@@ -181,7 +181,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 // 1. Deletes the taints associated with the rule.
 // 2. Remove the rule from the cache.
 // 3. Remove the finalizer from the rule.
-// 4. Sync the Taints ConfigMap
+// 4. Sync the Taints ConfigMap.
 func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
