@@ -89,16 +89,16 @@ livenessProbe:
   httpGet:
     path: /healthz
     port: http
-    initialDelaySeconds: 15
-    periodSeconds: 20
+  initialDelaySeconds: 15
+  periodSeconds: 20
   
 # readinessProbe -- This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
 readinessProbe:
   httpGet:
     path: /healthz
     port: http
-    initialDelaySeconds: 5
-    periodSeconds: 10
+  initialDelaySeconds: 5
+  periodSeconds: 10
 
 
 # volumes -- Additional volumes on the output Deployment definition.

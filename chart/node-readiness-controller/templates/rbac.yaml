@@ -209,7 +209,7 @@ metadata:
   labels:
     {{- include "node-readiness-controller.labels" . | nindent 4 }}
   name: {{ include "node-readiness-controller.shortname" . }}-leader-election-rolebinding
-  namespace: {{ include "node-readiness-controller.shortname" . }}-system
+  namespace: {{ .Release.Namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -217,7 +217,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: {{ include "node-readiness-controller.shortname" . }}-controller-manager
-  namespace: {{ include "node-readiness-controller.shortname" . }}-system
+  namespace: {{ .Release.Namespace }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -232,7 +232,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: {{ include "node-readiness-controller.shortname" . }}-controller-manager
-  namespace: {{ include "node-readiness-controller.shortname" . }}-system
+  namespace: {{ .Release.Namespace }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -247,5 +247,5 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: {{ include "node-readiness-controller.shortname" . }}-controller-manager
-  namespace: {{ include "node-readiness-controller.shortname" . }}-system
+  namespace: {{ .Release.Namespace }}
 {{- end }}

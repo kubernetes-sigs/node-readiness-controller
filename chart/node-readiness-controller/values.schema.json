@@ -40,19 +40,19 @@
                 "httpGet": {
                     "type": "object",
                     "properties": {
-                        "initialDelaySeconds": {
-                            "type": "integer"
-                        },
                         "path": {
                             "type": "string"
-                        },
-                        "periodSeconds": {
-                            "type": "integer"
                         },
                         "port": {
                             "type": "string"
                         }
                     }
+                },
+                "initialDelaySeconds": {
+                    "type": "integer"
+                },
+                "periodSeconds": {
+                    "type": "integer"
                 }
             }
         },
@@ -101,19 +101,19 @@
                 "httpGet": {
                     "type": "object",
                     "properties": {
-                        "initialDelaySeconds": {
-                            "type": "integer"
-                        },
                         "path": {
                             "type": "string"
-                        },
-                        "periodSeconds": {
-                            "type": "integer"
                         },
                         "port": {
                             "type": "string"
                         }
                     }
+                },
+                "initialDelaySeconds": {
+                    "type": "integer"
+                },
+                "periodSeconds": {
+                    "type": "integer"
                 }
             }
         },

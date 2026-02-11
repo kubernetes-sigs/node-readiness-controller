@@ -17,7 +17,7 @@ A Helm chart for Kubernetes
 | image.pullPolicy | string | `"IfNotPresent"` | This sets the pull policy for images. |
 | image.tag | string | `""` | Overrides the image tag whose default is the chart appVersion. |
 | imagePullSecrets | list | `[]` | This is for the secrets for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/ |
-| livenessProbe | object | `{"httpGet":{"initialDelaySeconds":15,"path":"/healthz","periodSeconds":20,"port":"http"}}` | This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/ |
+| livenessProbe | object | `{"httpGet":{"path":"/healthz","port":"http"},"initialDelaySeconds":15,"periodSeconds":20}` | This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/ |
 | nameOverride | string | `""` | This is to override the chart name. |
 | nodeSelector | object | `{}` | This is for setting the node selector for the controller. More information can be found here: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector |
 | podAnnotations | object | `{}` | This is for setting Kubernetes Annotations to a Pod. For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/ |
@@ -26,7 +26,7 @@ A Helm chart for Kubernetes
 | priorityClassName | string | `"system-cluster-critical"` | This is for setting the priority class name for the controller. More information can be found here: https://kubernetes.io/docs/concepts/configuration/pod-priority-preemption/ |
 | rbac | object | `{"create":true}` | Configures Roles, ClusterRoles, RoleBindings and ClusterRoleBindings required for node-readiness-controller to operate.  |
 | rbac.create | bool | `true` | Specifies whether RBAC resources should be created. |
-| readinessProbe | object | `{"httpGet":{"initialDelaySeconds":5,"path":"/healthz","periodSeconds":10,"port":"http"}}` | This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/ |
+| readinessProbe | object | `{"httpGet":{"path":"/healthz","port":"http"},"initialDelaySeconds":5,"periodSeconds":10}` | This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/ |
 | replicaCount | int | `1` | This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/ |
 | resources | object | `{}` | This is for setting the resource requests and limits for the container. A reeasonable default is commented out for guidance. More information can be found here: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/ |
 | securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true}` | This is for setting the security context for the container. Set to a reasonable default. More information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/ |
