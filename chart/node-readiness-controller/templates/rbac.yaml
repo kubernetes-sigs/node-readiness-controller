@@ -1,0 +1,251 @@
+{{- if .Values.rbac.create -}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+  name: {{ include "node-readiness-controller.shortname" . }}-leader-election-role
+  namespace: {{ .Release.Namespace }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+...
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+  name: {{ include "node-readiness-controller.shortname" . }}-manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - nodes/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - nodes/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - readiness.node.x-k8s.io
+  resources:
+  - nodereadinessrules
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - readiness.node.x-k8s.io
+  resources:
+  - nodereadinessrules/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - readiness.node.x-k8s.io
+  resources:
+  - nodereadinessrules/status
+  verbs:
+  - get
+  - patch
+  - update
+...
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+  name: {{ include "node-readiness-controller.shortname" . }}-metrics-auth-role
+rules:
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+...
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+  name: {{ include "node-readiness-controller.shortname" . }}-metrics-reader
+rules:
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+  name: {{ include "node-readiness-controller.shortname" . }}-nodereadinessrule-admin-role
+rules:
+- apiGroups:
+  - readiness.node.x-k8s.io
+  resources:
+  - nodereadinessrules
+  verbs:
+  - '*'
+- apiGroups:
+  - readiness.node.x-k8s.io
+  resources:
+  - nodereadinessrules/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+  name: {{ include "node-readiness-controller.shortname" . }}-nodereadinessrule-editor-role
+rules:
+- apiGroups:
+  - readiness.node.x-k8s.io
+  resources:
+  - nodereadinessrules
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - readiness.node.x-k8s.io
+  resources:
+  - nodereadinessrules/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+  name: {{ include "node-readiness-controller.shortname" . }}-nodereadinessrule-viewer-role
+rules:
+- apiGroups:
+  - readiness.node.x-k8s.io
+  resources:
+  - nodereadinessrules
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - readiness.node.x-k8s.io
+  resources:
+  - nodereadinessrules/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+  name: {{ include "node-readiness-controller.shortname" . }}-leader-election-rolebinding
+  namespace: {{ include "node-readiness-controller.shortname" . }}-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "node-readiness-controller.shortname" . }}-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: {{ include "node-readiness-controller.shortname" . }}-controller-manager
+  namespace: {{ include "node-readiness-controller.shortname" . }}-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+  name: {{ include "node-readiness-controller.shortname" . }}-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "node-readiness-controller.shortname" . }}-manager-role
+subjects:
+- kind: ServiceAccount
+  name: {{ include "node-readiness-controller.shortname" . }}-controller-manager
+  namespace: {{ include "node-readiness-controller.shortname" . }}-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+  name: {{ include "node-readiness-controller.shortname" . }}-metrics-auth-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "node-readiness-controller.shortname" . }}-metrics-auth-role
+subjects:
+- kind: ServiceAccount
+  name: {{ include "node-readiness-controller.shortname" . }}-controller-manager
+  namespace: {{ include "node-readiness-controller.shortname" . }}-system
+{{- end }}
