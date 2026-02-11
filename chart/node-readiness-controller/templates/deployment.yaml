@@ -5,9 +5,7 @@ metadata:
   labels:
     {{- include "node-readiness-controller.labels" . | nindent 4 }}
 spec:
-  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
-  {{- end }}
   selector:
     matchLabels:
       {{- include "node-readiness-controller.selectorLabels" . | nindent 6 }}
@@ -51,7 +49,7 @@ spec:
             {{- end }}
           ports:
             - name: http
-              containerPort: {{ .Values.controller.healthCheckPort }}
+              containerPort: {{ .Values.healthCheckPort }}
               protocol: TCP
           {{- with .Values.livenessProbe }}
           livenessProbe:
