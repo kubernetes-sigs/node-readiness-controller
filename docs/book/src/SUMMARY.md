@@ -6,7 +6,7 @@
 
 - [Core Concepts](./user-guide/concepts.md)
 - [Installation](./user-guide/installation.md)
-<!-- - [Creating Rules](./user-guide/creating-rules.md) -->
+- [Getting Started](./user-guide/getting-started.md)
 <!-- - [Quickstart](./user-guide/quickstart.md) -- [TODO] How to run the Calico example in KIND cluster -->
 
 # Examples

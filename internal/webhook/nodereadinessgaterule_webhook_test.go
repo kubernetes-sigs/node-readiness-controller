@@ -474,6 +474,167 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 		})
 	})
 
+	Context("NoExecute Taint Warnings", func() {
+		It("should warn when using NoExecute with continuous enforcement", func() {
+			rule := &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "noexecute-continuous"},
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+					Taint: corev1.Taint{
+						Key:    "test-key",
+						Effect: corev1.TaintEffectNoExecute, // NoExecute effect
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous, // Continuous mode
+				},
+			}
+
+			warnings, err := webhook.ValidateCreate(ctx, rule)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(HaveLen(1))
+			Expect(warnings[0]).To(ContainSubstring("CAUTION"))
+			Expect(warnings[0]).To(ContainSubstring("NoExecute"))
+			Expect(warnings[0]).To(ContainSubstring("continuous"))
+		})
+
+		It("should warn when using NoExecute with bootstrap-only enforcement", func() {
+			rule := &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "noexecute-bootstrap"},
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+					Taint: corev1.Taint{
+						Key:    "test-key",
+						Effect: corev1.TaintEffectNoExecute, // NoExecute effect
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly, // Bootstrap mode
+				},
+			}
+
+			warnings, err := webhook.ValidateCreate(ctx, rule)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(HaveLen(1))
+			Expect(warnings[0]).To(ContainSubstring("NOTE"))
+			Expect(warnings[0]).To(ContainSubstring("NoExecute"))
+		})
+
+		It("should not warn when using NoSchedule effect", func() {
+			rule := &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "noschedule-test"},
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+					Taint: corev1.Taint{
+						Key:    "test-key",
+						Effect: corev1.TaintEffectNoSchedule, // NoSchedule effect
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			warnings, err := webhook.ValidateCreate(ctx, rule)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(BeEmpty()) // No warnings for NoSchedule
+		})
+
+		It("should not warn when using PreferNoSchedule effect", func() {
+			rule := &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "prefernoschedule-test"},
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+					Taint: corev1.Taint{
+						Key:    "test-key",
+						Effect: corev1.TaintEffectPreferNoSchedule, // PreferNoSchedule effect
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			warnings, err := webhook.ValidateCreate(ctx, rule)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(BeEmpty()) // No warnings for PreferNoSchedule
+		})
+
+		It("should warn on update when changing to NoExecute with continuous", func() {
+			oldRule := &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "update-noexecute"},
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+					Taint: corev1.Taint{
+						Key:    "test-key",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			newRule := oldRule.DeepCopy()
+			newRule.Spec.Taint.Effect = corev1.TaintEffectNoExecute // Changed to NoExecute
+
+			warnings, err := webhook.ValidateUpdate(ctx, oldRule, newRule)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(HaveLen(1))
+			Expect(warnings[0]).To(ContainSubstring("CAUTION"))
+		})
+
+		It("should generate warnings via generateNoExecuteWarnings directly", func() {
+			// Test NoExecute + continuous
+			spec := readinessv1alpha1.NodeReadinessRuleSpec{
+				Taint: corev1.Taint{
+					Key:    "test",
+					Effect: corev1.TaintEffectNoExecute,
+				},
+				EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
+			}
+			warnings := webhook.generateNoExecuteWarnings(spec)
+			Expect(warnings).To(HaveLen(1))
+			Expect(warnings[0]).To(ContainSubstring("CAUTION"))
+
+			// Test NoExecute + bootstrap-only
+			spec.EnforcementMode = readinessv1alpha1.EnforcementModeBootstrapOnly
+			warnings = webhook.generateNoExecuteWarnings(spec)
+			Expect(warnings).To(HaveLen(1))
+			Expect(warnings[0]).To(ContainSubstring("NOTE"))
+
+			// Test NoSchedule (no warnings)
+			spec.Taint.Effect = corev1.TaintEffectNoSchedule
+			warnings = webhook.generateNoExecuteWarnings(spec)
+			Expect(warnings).To(BeEmpty())
+		})
+	})
+
 	Context("Full Validation Integration", func() {
 		It("should perform comprehensive validation", func() {
 			// Create existing rule to test conflict detection
