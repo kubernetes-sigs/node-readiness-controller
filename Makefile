@@ -176,7 +176,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG_PREFIX}:${IMG_TAG} .
+	DOCKER_BUILDKIT=1 $(CONTAINER_TOOL) build -t ${IMG_PREFIX}:${IMG_TAG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -198,7 +198,7 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 
 .PHONY: docker-build-reporter
 docker-build-reporter: ## Build docker image with the reporter.
-	$(CONTAINER_TOOL) build -f Dockerfile.reporter -t ${IMG_PREFIX}:${IMG_TAG} .
+	DOCKER_BUILDKIT=1 $(CONTAINER_TOOL) build -f Dockerfile.reporter -t ${IMG_PREFIX}:${IMG_TAG} .
 
 .PHONY: docker-push-reporter
 docker-push-reporter: ## Push docker image with the reporter.
