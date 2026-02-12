@@ -91,7 +91,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "test-key",
+						Key:    "readiness.k8s.io/test-key",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
@@ -118,7 +118,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 							{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 						},
 						Taint: corev1.Taint{
-							Key:    "test-key",
+							Key:    "readiness.k8s.io/test-key",
 							Effect: corev1.TaintEffectNoSchedule,
 						},
 						EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
@@ -142,7 +142,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 							},
 						},
 						Taint: corev1.Taint{
-							Key:    "test-key",
+							Key:    "readiness.k8s.io/test-key",
 							Effect: corev1.TaintEffectNoSchedule,
 						},
 						EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
@@ -168,7 +168,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "test-key",
+						Key:    "readiness.k8s.io/test-key",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: "invalid-mode",
@@ -182,6 +182,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 		})
 
 		It("should pass validation for valid spec", func() {
+			val := "pending"
 			rule := &readinessv1alpha1.NodeReadinessRule{
 				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
@@ -189,9 +190,9 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						{Type: "NetworkReady", RequiredStatus: corev1.ConditionTrue},
 					},
 					Taint: corev1.Taint{
-						Key:    "test-key",
+						Key:    "readiness.k8s.io/test-key",
 						Effect: corev1.TaintEffectNoSchedule,
-						Value:  "pending",
+						Value:  val,
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
 					NodeSelector: metav1.LabelSelector{
@@ -207,6 +208,102 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 		})
 	})
 
+	Context("Taint Validation", func() {
+		It("should validate taint key prefix", func() {
+			rule := &readinessv1alpha1.NodeReadinessRule{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"node-role.kubernetes.io/worker": ""},
+					},
+					Taint: corev1.Taint{
+						Key:    "example.com/test-key", // Invalid prefix
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+
+			allErrs := webhook.validateSpec(rule.Spec)
+			Expect(allErrs).To(HaveLen(1))
+			Expect(allErrs[0].Field).To(Equal("spec.taint.key"))
+			Expect(allErrs[0].Detail).To(ContainSubstring("must start with 'readiness.k8s.io/'"))
+		})
+
+		It("should validate taint key length", func() {
+			// Too short
+			ruleShort := &readinessv1alpha1.NodeReadinessRule{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"node-role.kubernetes.io/worker": ""},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/" + string(make([]byte, 250)), // 17 + 250 = 267 > 253
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+
+			allErrs := webhook.validateSpec(ruleShort.Spec)
+			Expect(allErrs).To(HaveLen(1))
+			Expect(allErrs[0].Field).To(Equal("spec.taint.key"))
+			Expect(allErrs[0].Detail).To(ContainSubstring("must be between 17 and 253 characters"))
+		})
+
+		It("should validate taint value length", func() {
+			rule := &readinessv1alpha1.NodeReadinessRule{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"node-role.kubernetes.io/worker": ""},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/valid-key",
+						Value:  string(make([]byte, 64)), // 64 chars > 63
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+
+			allErrs := webhook.validateSpec(rule.Spec)
+			Expect(allErrs).To(HaveLen(1))
+			Expect(allErrs[0].Field).To(Equal("spec.taint.value"))
+			Expect(allErrs[0].Detail).To(ContainSubstring("must be at most 63 characters"))
+		})
+
+		It("should validate taint effect", func() {
+			rule := &readinessv1alpha1.NodeReadinessRule{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"node-role.kubernetes.io/worker": ""},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/valid-key",
+						Effect: "InvalidEffect",
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+
+			allErrs := webhook.validateSpec(rule.Spec)
+			Expect(allErrs).To(HaveLen(1))
+			Expect(allErrs[0].Field).To(Equal("spec.taint.effect"))
+			Expect(allErrs[0].Type).To(Equal(field.ErrorTypeNotSupported))
+		})
+	})
+
 	Context("Taint Conflict Detection", func() {
 		It("should detect conflicting rules with same taint key", func() {
 			// Create existing rule
@@ -217,7 +314,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
 					Taint: corev1.Taint{
-						Key:    "conflict-key",
+						Key:    "readiness.k8s.io/conflict-key",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
@@ -239,7 +336,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						{Type: "NetworkReady", RequiredStatus: corev1.ConditionTrue},
 					},
 					Taint: corev1.Taint{
-						Key:    "conflict-key",
+						Key:    "readiness.k8s.io/conflict-key",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
@@ -262,7 +359,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
 					Taint: corev1.Taint{
-						Key:    "same-key",
+						Key:    "readiness.k8s.io/same-key",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
@@ -284,7 +381,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						{Type: "NetworkReady", RequiredStatus: corev1.ConditionTrue},
 					},
 					Taint: corev1.Taint{
-						Key:    "same-key",
+						Key:    "readiness.k8s.io/same-key",
 						Effect: corev1.TaintEffectNoExecute, // Different effect
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
@@ -304,7 +401,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
 					Taint: corev1.Taint{
-						Key:    "update-key",
+						Key:    "readiness.k8s.io/update-key",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
@@ -398,7 +495,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "create-test-key",
+						Key:    "readiness.k8s.io/create-test-key",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
@@ -437,7 +534,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "update-test-key",
+						Key:    "readiness.k8s.io/update-test-key",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
@@ -489,7 +586,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "comprehensive-key",
+						Key:    "readiness.k8s.io/comprehensive-key",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
@@ -516,7 +613,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "different-key", // No conflict
+						Key:    "readiness.k8s.io/different-key", // No conflict
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
@@ -539,7 +636,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "comprehensive-key", // Conflicts with existing
+						Key:    "readiness.k8s.io/comprehensive-key", // Conflicts with existing
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,

@@ -244,11 +244,7 @@ func (r *RuleReadinessController) hasTaintBySpec(node *corev1.Node, taintSpec co
 // addTaintBySpec adds a taint to a node.
 func (r *RuleReadinessController) addTaintBySpec(ctx context.Context, node *corev1.Node, taintSpec corev1.Taint) error {
 	patch := client.StrategicMergeFrom(node.DeepCopy())
-	node.Spec.Taints = append(node.Spec.Taints, corev1.Taint{
-		Key:    taintSpec.Key,
-		Value:  taintSpec.Value,
-		Effect: taintSpec.Effect,
-	})
+	node.Spec.Taints = append(node.Spec.Taints, taintSpec)
 	return r.Patch(ctx, node, patch)
 }
 

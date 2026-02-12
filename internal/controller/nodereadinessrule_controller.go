@@ -284,6 +284,30 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 	rule.Status.ObservedGeneration = rule.Generation
 	rule.Status.AppliedNodes = appliedNodes
 
+	// Create a map for efficient lookup of applied nodes
+	appliedNodesMap := make(map[string]bool, len(appliedNodes))
+	for _, nodeName := range appliedNodes {
+		appliedNodesMap[nodeName] = true
+	}
+
+	// Filter NodeEvaluations to only include nodes that currently match
+	var newNodeEvaluations []readinessv1alpha1.NodeEvaluation
+	for _, evaluation := range rule.Status.NodeEvaluations {
+		if appliedNodesMap[evaluation.NodeName] {
+			newNodeEvaluations = append(newNodeEvaluations, evaluation)
+		}
+	}
+	rule.Status.NodeEvaluations = newNodeEvaluations
+
+	// Filter FailedNodes to only include nodes that currently match
+	var newFailedNodes []readinessv1alpha1.NodeFailure
+	for _, failure := range rule.Status.FailedNodes {
+		if appliedNodesMap[failure.NodeName] {
+			newFailedNodes = append(newFailedNodes, failure)
+		}
+	}
+	rule.Status.FailedNodes = newFailedNodes
+
 	if !rule.Spec.DryRun {
 		rule.Status.DryRunResults = readinessv1alpha1.DryRunResults{}
 	}
@@ -566,6 +590,7 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 	}
 
 	// Update rule status with dry run results
+	rule.Status.ObservedGeneration = rule.Generation
 	rule.Status.DryRunResults = readinessv1alpha1.DryRunResults{
 		AffectedNodes:   &affectedNodes,
 		TaintsToAdd:     &taintsToAdd,
