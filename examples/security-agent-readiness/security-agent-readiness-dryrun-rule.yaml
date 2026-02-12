@@ -1,0 +1,18 @@
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: security-agent-readiness-rule
+spec:
+  dryRun: true
+  conditions:
+    - type: "security.k8s.io/FalcoReady"
+      requiredStatus: "True"
+  taint:
+    key: "readiness.k8s.io/SecurityReady"
+    effect: "NoSchedule"
+    value: "pending"
+  enforcementMode: "bootstrap-only"
+  nodeSelector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: DoesNotExist
