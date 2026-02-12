@@ -56,11 +56,11 @@ spec:
       #             values:
       #               - platform    # Modify this value based on your platform node labels.
       priorityClassName: system-cluster-critical
-      nodeSelector:
-        "node-role.kubernetes.io/control-plane": ""
       tolerations:
-      - key: "node-role.kubernetes.io/control-plane"
-        operator: "Exists"
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
       securityContext:
         # Projects are configured by default to adhere to the "restricted" Pod Security Standards.
         # This ensures that deployments meet the highest security requirements for Kubernetes.
