@@ -1,0 +1,127 @@
+# Default values for node-readiness-controller.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# replicaCount -- This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
+replicaCount: 1
+
+# image -- This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
+image:
+  # image.repository 
+  repository: controller
+  # image.pullPolicy -- This sets the pull policy for images.
+  pullPolicy: IfNotPresent
+  # image.tag -- Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+# imagePullSecrets -- This is for the secrets for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+imagePullSecrets: []
+
+# nameOverride -- This is to override the chart name.
+nameOverride: ""
+
+# fullnameOverride -- This is to override the full name of the resources created by this chart. More information can be found here: https://helm.sh/docs/chart_template_guide/naming_conventions/#full-name-override
+fullnameOverride: ""
+
+# enableWebhook -- Enables the validating webhook for the controller. More information can be found here: https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/
+enableWebhook: false
+
+# healthCheckPort -- This is for setting the health check port for the controller. More information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+healthCheckPort: 8081
+
+# extraArgs -- This is for setting extra arguments to the controller
+extraArgs: []
+
+# priorityClassName -- This is for setting the priority class name for the controller. More information can be found here: https://kubernetes.io/docs/concepts/configuration/pod-priority-preemption/
+priorityClassName: system-cluster-critical
+
+# serviceAccount -- This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/
+serviceAccount:
+  # serviceAccount.create -- Specifies whether a service account should be created.
+  create: true
+  # serviceAccount.automount -- Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # serviceAccount.annotations -- Annotations to add to the service account.
+  annotations: {}
+  # serviceAccount.name -- The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template.
+  name: ""
+
+# rbac -- Configures Roles, ClusterRoles, RoleBindings and ClusterRoleBindings required for node-readiness-controller to operate. 
+rbac: 
+  # rbac.create -- Specifies whether RBAC resources should be created.
+  create: true
+
+# podAnnotations -- This is for setting Kubernetes Annotations to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+podAnnotations: {}
+
+# podLabels -- This is for setting Kubernetes Labels to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+podLabels: {}
+
+# podSecurityContext -- This is for setting the security context for the pod. Set to a reasonable default. More information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# securityContext -- This is for setting the security context for the container. Set to a reasonable default. More information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
+securityContext: 
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true
+
+
+# resources -- This is for setting the resource requests and limits for the container. A reeasonable default is commented out for guidance. More information can be found here: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+resources: {}
+  # limits:
+  #   cpu: 500m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 10m
+  #   memory: 64Mi
+
+# livenessProbe -- This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  
+# readinessProbe -- This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+
+# volumes -- Additional volumes on the output Deployment definition.
+volumes: []
+  # - name: foo
+  #   secret:
+  #     secretName: mysecret
+  #     optional: false
+
+# volumeMounts -- Additional volumeMounts on the output Deployment definition.
+volumeMounts: []
+  # - name: foo
+  #   mountPath: "/etc/foo"
+  #   readOnly: true
+
+# nodeSelector -- This is for setting the node selector for the controller. More information can be found here: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
+nodeSelector: {}
+  # node-role.kubernetes.io/control-plane: ""
+
+# tolerations -- This is for setting the tolerations for the controller. More information can be found here: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/#concepts
+tolerations: []
+  # - key: node-role.kubernetes.io/control-plane
+  #   operator: Exists
+
+# affinity -- This is for setting the affinity for the controller. More information can be found here: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity
+affinity: {}
