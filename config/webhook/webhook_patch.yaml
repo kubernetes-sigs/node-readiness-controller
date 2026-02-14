@@ -10,4 +10,3 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-readiness-node-x-k8s-io-v1alpha1-nodereadinessrule

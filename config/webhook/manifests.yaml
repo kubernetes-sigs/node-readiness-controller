@@ -10,7 +10,7 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-nodereadiness-io-v1alpha1-nodereadinessrule
+      path: /validate-readiness-node-x-k8s-io-v1alpha1-nodereadinessrule
   failurePolicy: Fail
   name: vnodereadinessrule.kb.io
   rules:
