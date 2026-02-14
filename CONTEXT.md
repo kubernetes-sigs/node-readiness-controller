@@ -312,7 +312,6 @@ spec:
 ### Error Recovery
 - Failed node evaluations recorded in rule status
 - Controller continues processing other nodes on individual failures
-- Global dry-run mode as emergency off-switch
 - Conservative approach: missing conditions = unsatisfied (keep restrictive taints)
 
 ### Observability

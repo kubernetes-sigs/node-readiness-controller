@@ -132,8 +132,8 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			continue
 		}
 
-		// Skip if dry run or global dry run
-		if rule.Spec.DryRun || r.globalDryRun {
+		// Skip if dry run
+		if rule.Spec.DryRun {
 			log.Info("Skipping rule - dry run mode",
 				"node", node.Name, "rule", rule.Name)
 			continue

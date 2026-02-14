@@ -56,9 +56,6 @@ type RuleReadinessController struct {
 	// Cache for efficient rule lookup
 	ruleCacheMutex sync.RWMutex
 	ruleCache      map[string]*readinessv1alpha1.NodeReadinessRule // ruleName -> rule
-
-	// Global dry run mode (emergency off-switch)
-	globalDryRun bool
 }
 
 // RuleReconciler handles NodeReadinessRule reconciliation.
@@ -575,11 +572,6 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 	}
 
 	return nil
-}
-
-// SetGlobalDryRun sets the global dry run mode (emergency off-switch).
-func (r *RuleReadinessController) SetGlobalDryRun(dryRun bool) {
-	r.globalDryRun = dryRun
 }
 
 // cleanupTaintsForRule removes taints managed by this rule from all applicable nodes.
