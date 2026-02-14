@@ -43,7 +43,7 @@ func NewNodeReadinessRuleWebhook(c client.Client) *NodeReadinessRuleWebhook {
 	}
 }
 
-// +kubebuilder:webhook:path=/validate-nodereadiness-io-v1alpha1-nodereadinessrule,mutating=false,failurePolicy=fail,sideEffects=None,groups=readiness.node.x-k8s.io,resources=nodereadinessrules,verbs=create;update,versions=v1alpha1,name=vnodereadinessrule.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-readiness-node-x-k8s-io-v1alpha1-nodereadinessrule,mutating=false,failurePolicy=fail,sideEffects=None,groups=readiness.node.x-k8s.io,resources=nodereadinessrules,verbs=create;update,versions=v1alpha1,name=vnodereadinessrule.kb.io,admissionReviewVersions=v1
 
 // validateNodeReadinessRule performs validation logic.
 func (w *NodeReadinessRuleWebhook) validateNodeReadinessRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, isUpdate bool) field.ErrorList {

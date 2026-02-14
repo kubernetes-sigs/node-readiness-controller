@@ -74,7 +74,6 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
-          - --enable-webhook=false
         image: controller:latest
         imagePullPolicy: IfNotPresent
         name: manager

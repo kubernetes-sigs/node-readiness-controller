@@ -3,11 +3,10 @@ kind: ValidatingWebhookConfiguration
 metadata:
   name: validating-webhook-configuration
   annotations:
-    cert-manager.io/inject-ca-from: $(CERTIFICATE_NAMESPACE)/$(CERTIFICATE_NAME)
+    cert-manager.io/inject-ca-from: nrr-system/nrr-serving-cert
 webhooks:
 - name: vnodereadinessrule.kb.io
   clientConfig:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-nodereadiness-io-v1alpha1-nodereadinessrule
