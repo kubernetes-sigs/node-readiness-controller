@@ -5,7 +5,7 @@ metadata:
 spec:
   dryRun: true
   conditions:
-    - type: "security.k8s.io/FalcoReady"
+    - type: "falco.org/FalcoReady"
       requiredStatus: "True"
   taint:
     key: "readiness.k8s.io/SecurityReady"

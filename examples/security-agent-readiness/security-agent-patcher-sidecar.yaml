@@ -9,7 +9,7 @@ env:
   - name: CHECK_ENDPOINT
     value: "http://localhost:8765/healthz"
   - name: CONDITION_TYPE
-    value: "security.k8s.io/FalcoReady"
+    value: "falco.org/FalcoReady"
   - name: CHECK_INTERVAL
     value: "5s"
 resources:

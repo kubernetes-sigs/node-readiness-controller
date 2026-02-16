@@ -28,9 +28,9 @@ This example uses **Falco** as a representative security agent, but the same pat
 
 ### 1. Deploy the Readiness Condition Reporter
 
-To bridge the security agent’s internal health signal to Kubernetes, we deploy a readiness reporter that updates a Node Condition. This reporter is typically deployed as a sidecar container in the Falco DaemonSet.
+To bridge the security agent’s internal health signal to Kubernetes, we deploy a readiness reporter that updates a Node Condition. In this example, the reporter is deployed as a sidecar container in the Falco DaemonSet. Components that natively update Node conditions would not require this additional container.
 
-This sidecar periodically checks Falco's local health endpoint (`http://localhost:8765/healthz`) and updates a Node Condition `security.k8s.io/FalcoReady`.
+This sidecar periodically checks Falco's local health endpoint (`http://localhost:8765/healthz`) and updates a Node Condition `falco.org/FalcoReady`.
 
 **Patch your Falco DaemonSet:**
 
@@ -47,7 +47,7 @@ This sidecar periodically checks Falco's local health endpoint (`http://localhos
     - name: CHECK_ENDPOINT
       value: "http://localhost:8765/healthz" # Update the right security agent endpoint
     - name: CONDITION_TYPE
-      value: "security.k8s.io/FalcoReady"   # Update the right condition
+      value: "falco.org/FalcoReady"   # Update the right condition
     - name: CHECK_INTERVAL
       value: "5s"
   resources:
@@ -59,7 +59,7 @@ This sidecar periodically checks Falco's local health endpoint (`http://localhos
       memory: "32Mi"
 ```
 
-> Note: In this example, the security agent’s health is monitored by a side-car, so the reporter’s lifecycle is the same as the pod lifecycle. If the Falco pod is crashlooping, the sidecar will not run and cannot report readiness. For robust `continuous` readiness reporting, the reporter should be deployed `external` to the pod.
+> Note: In this example, the security agent’s health is monitored by a side-car, so the reporter’s lifecycle is the same as the pod lifecycle. If the Falco pod is crashlooping, the sidecar will not run and cannot report readiness. For robust `continuous` readiness reporting, the reporter should be deployed independently of the security agent pod. For example, a separate DaemonSet (similar to Node Problem Detector) can monitor the agent and update Node conditions even if the agent pod crashes.
 
 ### 2. Grant Permissions (RBAC)
 
@@ -72,6 +72,9 @@ kind: ClusterRole
 metadata:
   name: node-status-patch-role
 rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get"]
 - apiGroups: [""]
   resources: ["nodes/status"]
   verbs: ["patch", "update"]
@@ -93,7 +96,7 @@ subjects:
 
 ### 3. Create the Node Readiness Rule
 
-Next, define a NodeReadinessRule that enforces the security readiness requirement. This rule instructs the controller: *"Keep the `readiness.k8s.io/SecurityReady` taint on the node until `security.k8s.io/FalcoReady` condition becomes True."*
+Next, define a NodeReadinessRule that enforces the security readiness requirement. This rule instructs the controller: *"Keep the `readiness.k8s.io/SecurityReady` taint on the node until the `falco.org/FalcoReady` condition becomes True."*
 
 ```yaml
 # security-agent-readiness-rule.yaml
@@ -104,7 +107,7 @@ metadata:
 spec:
   # Conditions that must be satisfied before the taint is removed
   conditions:
-    - type: "security.k8s.io/FalcoReady"
+    - type: "falco.org/FalcoReady"
       requiredStatus: "True"
 
   # Taint managed by this rule
@@ -146,7 +149,7 @@ Immediately after the node joins, it should have the taint:
 `readiness.k8s.io/SecurityReady=pending:NoSchedule`.
 
 2. **Check Node Conditions**:
-Observe the node’s conditions. You will initially see `security.k8s.io/FalcoReady` as `False` or missing. Once Falco initializes, the sidecar reporter updates the condition to `True`.
+Observe the node’s conditions. You will initially see `falco.org/FalcoReady` as `False` or missing. Once Falco initializes, the sidecar reporter updates the condition to `True`.
 
 3. **Check Taint Removal**:
 As soon as the condition becomes `True`, the Node Readiness Controller removes the taint, allowing workloads to be scheduled on the node.
