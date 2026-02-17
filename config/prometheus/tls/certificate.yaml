@@ -4,10 +4,9 @@ metadata:
   name: metrics-certs
   namespace: system
 spec:
-  commonName: metrics
   dnsNames:
-  - nrr-controller-manager-metrics-service.nrr-system.svc
-  - nrr-controller-manager-metrics-service.nrr-system.svc.cluster.local
+  - nrr-metrics-service.nrr-system.svc
+  - nrr-metrics-service.nrr-system.svc.cluster.local
   issuerRef:
     kind: Issuer
     name: selfsigned-issuer
