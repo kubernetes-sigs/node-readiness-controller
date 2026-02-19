@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -84,6 +83,7 @@ func (r *NodeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager)
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=nodes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=core,resources=nodes/finalizers,verbs=update
+// +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 
 // NodeReconciler handles node changes
 
@@ -139,85 +139,18 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			continue
 		}
 
-		log.Info("Evaluating rule for node",
-			"node", node.Name,
-			"rule", rule.Name,
-			"ruleResourceVersion", rule.ResourceVersion)
-
 		if err := r.evaluateRuleForNode(ctx, rule, node); err != nil {
+			// Log error and record event but continue with other rules.
 			log.Error(err, "Failed to evaluate rule for node",
 				"node", node.Name, "rule", rule.Name)
-			// Continue with other rules even if one fails
-			r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
+			r.recorder.Eventf(node, corev1.EventTypeWarning, "RuleEvaluationError", "Failed to evaluate rule for node: %v", err)
 		}
 
 		// Persist the rule status
-		log.V(4).Info("Attempting to persist rule status",
+		log.V(4).Info("Successfully evaluated rule for node",
 			"node", node.Name,
 			"rule", rule.Name,
 			"resourceVersion", rule.ResourceVersion)
-
-		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			latestRule := &readinessv1alpha1.NodeReadinessRule{}
-			if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, latestRule); err != nil {
-				return err
-			}
-
-			patch := client.MergeFrom(latestRule.DeepCopy())
-
-			// update only this specific node evaluation status
-			currEval := readinessv1alpha1.NodeEvaluation{}
-			for _, eval := range rule.Status.NodeEvaluations {
-				if eval.NodeName == node.Name {
-					currEval = eval
-					break
-				}
-			}
-
-			found := false
-			for i := range latestRule.Status.NodeEvaluations {
-				if latestRule.Status.NodeEvaluations[i].NodeName == node.Name {
-					latestRule.Status.NodeEvaluations[i] = currEval
-					found = true
-					break
-				}
-			}
-			if !found {
-				latestRule.Status.NodeEvaluations = append(
-					latestRule.Status.NodeEvaluations,
-					currEval,
-				)
-			}
-
-			// handle status.FailedNodes for this node
-			var updatedFailedNodes []readinessv1alpha1.NodeFailure
-			for _, failure := range latestRule.Status.FailedNodes {
-				if failure.NodeName != node.Name {
-					updatedFailedNodes = append(updatedFailedNodes, failure)
-				}
-			}
-			for _, failure := range rule.Status.FailedNodes {
-				if failure.NodeName == node.Name {
-					updatedFailedNodes = append(updatedFailedNodes, failure)
-				}
-			}
-			latestRule.Status.FailedNodes = updatedFailedNodes
-
-			return r.Status().Patch(ctx, latestRule, patch)
-		})
-
-		if err != nil {
-			log.Error(err, "Failed to update rule status after node evaluation",
-				"node", node.Name,
-				"rule", rule.Name,
-				"resourceVersion", rule.ResourceVersion)
-			// continue with other rules
-		} else {
-			log.V(4).Info("Successfully persisted rule status from node reconciler",
-				"node", node.Name,
-				"rule", rule.Name,
-				"newResourceVersion", rule.ResourceVersion)
-		}
 	}
 }
 
@@ -313,28 +246,4 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 		log.Info("Marked bootstrap completed", "node", nodeName, "rule", ruleName)
 		metrics.BootstrapCompleted.WithLabelValues(ruleName).Inc()
 	}
-}
-
-// recordNodeFailure records a failure for a specific node.
-func (r *RuleReadinessController) recordNodeFailure(
-	rule *readinessv1alpha1.NodeReadinessRule,
-	nodeName, reason, message string,
-) {
-	// Remove any existing failure for this node
-	var failedNodes []readinessv1alpha1.NodeFailure
-	for _, failure := range rule.Status.FailedNodes {
-		if failure.NodeName != nodeName {
-			failedNodes = append(failedNodes, failure)
-		}
-	}
-
-	// Add new failure
-	failedNodes = append(failedNodes, readinessv1alpha1.NodeFailure{
-		NodeName:           nodeName,
-		Reason:             reason,
-		Message:            message,
-		LastEvaluationTime: metav1.Now(),
-	})
-
-	rule.Status.FailedNodes = failedNodes
 }

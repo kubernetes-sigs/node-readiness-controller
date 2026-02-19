@@ -189,16 +189,6 @@ spec:
             description: status defines the observed state of NodeReadinessRule
             minProperties: 1
             properties:
-              appliedNodes:
-                description: |-
-                  appliedNodes lists the names of Nodes where the taint has been successfully managed.
-                  This provides a quick reference to the scope of impact for this rule.
-                items:
-                  maxLength: 253
-                  type: string
-                maxItems: 5000
-                type: array
-                x-kubernetes-list-type: set
               dryRunResults:
                 description: |-
                   dryRunResults captures the outcome of the rule evaluation when DryRun is enabled.
@@ -242,137 +232,19 @@ spec:
                 required:
                 - summary
                 type: object
-              failedNodes:
-                description: |-
-                  failedNodes lists the Nodes where the rule evaluation encountered an error.
-                  This is used for troubleshooting configuration issues, such as invalid selectors during node lookup.
-                items:
-                  description: NodeFailure provides diagnostic details for Nodes that
-                    could not be successfully evaluated by the rule.
-                  properties:
-                    lastEvaluationTime:
-                      description: lastEvaluationTime is the timestamp of the last
-                        rule check failed for this Node.
-                      format: date-time
-                      type: string
-                    message:
-                      description: message is a human-readable message indicating
-                        details about the evaluation.
-                      maxLength: 10240
-                      minLength: 1
-                      type: string
-                    nodeName:
-                      description: |-
-                        nodeName is the name of the failed Node.
-
-                        Following kubebuilder validation is referred from
-                        https://github.com/kubernetes/apimachinery/blob/84d740c9e27f3ccc94c8bc4d13f1b17f60f7080b/pkg/util/validation/validation.go#L198
-                      maxLength: 253
-                      minLength: 1
-                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
-                      type: string
-                    reason:
-                      description: reason provides a brief explanation of the evaluation
-                        result.
-                      maxLength: 256
-                      minLength: 1
-                      type: string
-                  required:
-                  - lastEvaluationTime
-                  - nodeName
-                  type: object
-                maxItems: 5000
-                type: array
-                x-kubernetes-list-map-keys:
-                - nodeName
-                x-kubernetes-list-type: map
-              nodeEvaluations:
-                description: |-
-                  nodeEvaluations provides detailed insight into the rule's assessment for individual Nodes.
-                  This is primarily used for auditing and debugging why specific Nodes were or
-                  were not targeted by the rule.
-                items:
-                  description: NodeEvaluation provides a detailed audit of a single
-                    Node's compliance with the rule.
-                  properties:
-                    conditionResults:
-                      description: |-
-                        conditionResults provides a detailed breakdown of each condition evaluation
-                        for this Node. This allows for granular auditing of which specific
-                        criteria passed or failed during the rule assessment.
-                      items:
-                        description: |-
-                          ConditionEvaluationResult provides a detailed report of the comparison between
-                          the Node's observed condition and the rule's requirement.
-                        properties:
-                          currentStatus:
-                            description: currentStatus is the actual status value
-                              observed on the Node, one of True, False, Unknown.
-                            enum:
-                            - "True"
-                            - "False"
-                            - Unknown
-                            type: string
-                          requiredStatus:
-                            description: requiredStatus is the status value defined
-                              in the rule that must be matched, one of True, False,
-                              Unknown.
-                            enum:
-                            - "True"
-                            - "False"
-                            - Unknown
-                            type: string
-                          type:
-                            description: type corresponds to the Node condition type
-                              being evaluated.
-                            maxLength: 316
-                            minLength: 1
-                            type: string
-                        required:
-                        - currentStatus
-                        - requiredStatus
-                        - type
-                        type: object
-                      maxItems: 5000
-                      type: array
-                      x-kubernetes-list-map-keys:
-                      - type
-                      x-kubernetes-list-type: map
-                    lastEvaluationTime:
-                      description: lastEvaluationTime is the timestamp when the controller
-                        last assessed this Node.
-                      format: date-time
-                      type: string
-                    nodeName:
-                      description: nodeName is the name of the evaluated Node.
-                      maxLength: 253
-                      minLength: 1
-                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
-                      type: string
-                    taintStatus:
-                      description: taintStatus represents the taint status on the
-                        Node, one of Present, Absent.
-                      enum:
-                      - Present
-                      - Absent
-                      type: string
-                  required:
-                  - conditionResults
-                  - lastEvaluationTime
-                  - nodeName
-                  - taintStatus
-                  type: object
-                maxItems: 5000
-                type: array
-                x-kubernetes-list-map-keys:
-                - nodeName
-                x-kubernetes-list-type: map
+              lastEvaluationTime:
+                description: lastEvaluationTime is the timestamp when the rule was
+                  evaluated against all the nodes in the cluster.
+                format: date-time
+                type: string
               observedGeneration:
                 description: observedGeneration reflects the generation of the most
                   recently observed NodeReadinessRule by the controller.
                 format: int64
                 minimum: 1
                 type: integer
+            required:
+            - lastEvaluationTime
             type: object
         required:
         - spec

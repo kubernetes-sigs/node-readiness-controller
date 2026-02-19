@@ -112,33 +112,10 @@ type NodeReadinessRuleStatus struct {
 	// +kubebuilder:validation:Minimum=1
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// appliedNodes lists the names of Nodes where the taint has been successfully managed.
-	// This provides a quick reference to the scope of impact for this rule.
+	// lastEvaluationTime is the timestamp when the rule was evaluated against all the nodes in the cluster.
 	//
-	// +optional
-	// +listType=set
-	// +kubebuilder:validation:MaxItems=5000
-	// +kubebuilder:validation:items:MaxLength=253
-	AppliedNodes []string `json:"appliedNodes,omitempty"`
-
-	// failedNodes lists the Nodes where the rule evaluation encountered an error.
-	// This is used for troubleshooting configuration issues, such as invalid selectors during node lookup.
-	//
-	// +optional
-	// +listType=map
-	// +listMapKey=nodeName
-	// +kubebuilder:validation:MaxItems=5000
-	FailedNodes []NodeFailure `json:"failedNodes,omitempty"`
-
-	// nodeEvaluations provides detailed insight into the rule's assessment for individual Nodes.
-	// This is primarily used for auditing and debugging why specific Nodes were or
-	// were not targeted by the rule.
-	//
-	// +optional
-	// +listType=map
-	// +listMapKey=nodeName
-	// +kubebuilder:validation:MaxItems=5000
-	NodeEvaluations []NodeEvaluation `json:"nodeEvaluations,omitempty"`
+	// +required
+	LastEvaluationTime metav1.Time `json:"lastEvaluationTime,omitempty,omitzero"`
 
 	// dryRunResults captures the outcome of the rule evaluation when DryRun is enabled.
 	// This field provides visibility into the actions the controller would have taken,
@@ -146,93 +123,6 @@ type NodeReadinessRuleStatus struct {
 	//
 	// +optional
 	DryRunResults DryRunResults `json:"dryRunResults,omitempty,omitzero"`
-}
-
-// NodeFailure provides diagnostic details for Nodes that could not be successfully evaluated by the rule.
-type NodeFailure struct {
-	// nodeName is the name of the failed Node.
-	//
-	// Following kubebuilder validation is referred from
-	// https://github.com/kubernetes/apimachinery/blob/84d740c9e27f3ccc94c8bc4d13f1b17f60f7080b/pkg/util/validation/validation.go#L198
-	//
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
-	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
-	NodeName string `json:"nodeName,omitempty"`
-
-	// reason provides a brief explanation of the evaluation result.
-	//
-	// +optional
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=256
-	Reason string `json:"reason,omitempty"`
-
-	// message is a human-readable message indicating details about the evaluation.
-	//
-	// +optional
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=10240
-	Message string `json:"message,omitempty"`
-
-	// lastEvaluationTime is the timestamp of the last rule check failed for this Node.
-	//
-	// +required
-	LastEvaluationTime metav1.Time `json:"lastEvaluationTime,omitempty,omitzero"`
-}
-
-// NodeEvaluation provides a detailed audit of a single Node's compliance with the rule.
-type NodeEvaluation struct {
-	// nodeName is the name of the evaluated Node.
-	//
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
-	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
-	NodeName string `json:"nodeName,omitempty"`
-
-	// conditionResults provides a detailed breakdown of each condition evaluation
-	// for this Node. This allows for granular auditing of which specific
-	// criteria passed or failed during the rule assessment.
-	//
-	// +required
-	// +listType=map
-	// +listMapKey=type
-	// +kubebuilder:validation:MaxItems=5000
-	ConditionResults []ConditionEvaluationResult `json:"conditionResults,omitempty"`
-
-	// taintStatus represents the taint status on the Node, one of Present, Absent.
-	//
-	// +required
-	TaintStatus TaintStatus `json:"taintStatus,omitempty"`
-
-	// lastEvaluationTime is the timestamp when the controller last assessed this Node.
-	//
-	// +required
-	LastEvaluationTime metav1.Time `json:"lastEvaluationTime,omitempty,omitzero"`
-}
-
-// ConditionEvaluationResult provides a detailed report of the comparison between
-// the Node's observed condition and the rule's requirement.
-type ConditionEvaluationResult struct {
-	// type corresponds to the Node condition type being evaluated.
-	//
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=316
-	Type string `json:"type,omitempty"`
-
-	// currentStatus is the actual status value observed on the Node, one of True, False, Unknown.
-	//
-	// +required
-	// +kubebuilder:validation:Enum=True;False;Unknown
-	CurrentStatus corev1.ConditionStatus `json:"currentStatus,omitempty"`
-
-	// requiredStatus is the status value defined in the rule that must be matched, one of True, False, Unknown.
-	//
-	// +required
-	// +kubebuilder:validation:Enum=True;False;Unknown
-	RequiredStatus corev1.ConditionStatus `json:"requiredStatus,omitempty"`
 }
 
 // DryRunResults provides a summary of the actions the controller would perform if DryRun mode is enabled.
