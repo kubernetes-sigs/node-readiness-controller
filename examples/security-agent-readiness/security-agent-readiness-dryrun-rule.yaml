@@ -8,7 +8,7 @@ spec:
     - type: "falco.org/FalcoReady"
       requiredStatus: "True"
   taint:
-    key: "readiness.k8s.io/SecurityReady"
+    key: "readiness.k8s.io/falco.org/security-agent-ready"
     effect: "NoSchedule"
     value: "pending"
   enforcementMode: "bootstrap-only"

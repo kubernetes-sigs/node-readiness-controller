@@ -9,12 +9,12 @@ In many Kubernetes clusters, security agents are deployed as DaemonSets. When a 
 2. The scheduler sees the node as `Ready` and considers the node eligible for workloads.
 3. However, the security agent on that node may still be starting or initializing.
 
-**Result**: Application workloads may start running before security monitoring is active, creating a blind spot where runtime threats, policy violations, or anomalous behavior may go undetected.
+**Result**: Application workloads may start running before node is security compliant, creating a blind spot where runtime threats, policy violations, or anomalous behavior may go undetected.
 
 ## The Solution
 
 We can use the Node Readiness Controller to enforce a security readiness guardrail:
-1. **Taint** the node with a [startup taint](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/)`readiness.k8s.io/SecurityReady=pending:NoSchedule` as soon as it joins the cluster.
+1. **Taint** the node with a [startup taint](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/) `readiness.k8s.io/falco.org/security-agent-ready=pending:NoSchedule` as soon as it joins the cluster.
 2. **Monitor** the security agent’s readiness using a sidecar and expose it as a Node Condition.
 3. **Untaint** the node only after the security agent reports that it is ready.
 
@@ -96,7 +96,7 @@ subjects:
 
 ### 3. Create the Node Readiness Rule
 
-Next, define a NodeReadinessRule that enforces the security readiness requirement. This rule instructs the controller: *"Keep the `readiness.k8s.io/SecurityReady` taint on the node until the `falco.org/FalcoReady` condition becomes True."*
+Next, define a NodeReadinessRule that enforces the security readiness requirement. This rule instructs the controller: *"Keep the `readiness.k8s.io/falco.org/security-agent-ready` taint on the node until the `falco.org/FalcoReady` condition becomes True."*
 
 ```yaml
 # security-agent-readiness-rule.yaml
@@ -112,7 +112,7 @@ spec:
 
   # Taint managed by this rule
   taint:
-    key: "readiness.k8s.io/SecurityReady"
+    key: "readiness.k8s.io/falco.org/security-agent-ready"
     effect: "NoSchedule"
     value: "pending"
 
@@ -146,7 +146,7 @@ To verify that the guardrail is working, add a new node to the cluster.
 
 1. **Check the Node Taints**:
 Immediately after the node joins, it should have the taint:
-`readiness.k8s.io/SecurityReady=pending:NoSchedule`.
+`readiness.k8s.io/falco.org/security-agent-ready=pending:NoSchedule`.
 
 2. **Check Node Conditions**:
 Observe the node’s conditions. You will initially see `falco.org/FalcoReady` as `False` or missing. Once Falco initializes, the sidecar reporter updates the condition to `True`.
