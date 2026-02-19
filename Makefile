@@ -62,7 +62,7 @@ CONTROLLER_GEN_PKG := sigs.k8s.io/controller-tools/cmd/controller-gen
 IMG_PREFIX ?= controller
 IMG_TAG ?= latest
 
-# ENABLE_METRICS: If set to true, includes Prometheus Service and ServiceMonitor resources.
+# ENABLE_METRICS: If set to true, includes Prometheus Service resources.
 ENABLE_METRICS ?= false
 ENABLE_TLS ?= false
 # ENABLE_WEBHOOK: If set to true, includes validating webhook. Requires ENABLE_TLS=true.
