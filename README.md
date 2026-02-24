@@ -64,13 +64,13 @@ Find a more detailed walkthrough of setting up Node Readiness Controller in your
 
 ## High-level Roadmap
 
-- [ ] Add documentation capturing design details
-- [ ] Metrics and alerting integration
-- [ ] Validation Webhook for rules
+- [X] Release v0.1.0
+- [X] Add documentation capturing design details
+- [X] Metrics and alerting integration
+- [X] Validation Webhook for rules
 - [ ] Improve logging and add debugging pointers
 - [ ] Performance optimizations for large clusters
 - [ ] Scale testing 1000+ nodes
-- [ ] Release v0.1.0
 
 ## Getting Involved
 
