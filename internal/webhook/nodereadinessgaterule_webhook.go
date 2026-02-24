@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -165,6 +166,29 @@ func (w *NodeReadinessRuleWebhook) nodSelectorsOverlap(selector1, selector2 meta
 	return sel1.String() == sel2.String()
 }
 
+// generateNoExecuteWarnings generates admission warnings for NoExecute taint usage.
+// NoExecute taints cause immediate pod eviction, which can be disruptive when
+// used with continuous enforcement mode.
+func (w *NodeReadinessRuleWebhook) generateNoExecuteWarnings(spec readinessv1alpha1.NodeReadinessRuleSpec) admission.Warnings {
+	var warnings admission.Warnings
+
+	if spec.Taint.Effect != corev1.TaintEffectNoExecute {
+		return warnings
+	}
+
+	// NoExecute with continuous mode is particularly risky
+	if spec.EnforcementMode == readinessv1alpha1.EnforcementModeContinuous {
+		warnings = append(warnings,
+			"CAUTION: NoExecute with continuous mode evicts pods when conditions fail, risking workload disruption. Consider NoSchedule or bootstrap-only")
+	} else {
+		// NoExecute with bootstrap-only is less risky but still worth noting
+		warnings = append(warnings,
+			"NOTE: NoExecute will evict existing pods without tolerations. Ensure critical system pods have appropriate tolerations")
+	}
+
+	return warnings
+}
+
 // SetupWithManager sets up the webhook with the manager.
 func (w *NodeReadinessRuleWebhook) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
@@ -185,7 +209,10 @@ func (w *NodeReadinessRuleWebhook) ValidateCreate(ctx context.Context, obj runti
 	if allErrs := w.validateNodeReadinessRule(ctx, rule, false); len(allErrs) > 0 {
 		return nil, fmt.Errorf("validation failed: %v", allErrs)
 	}
-	return nil, nil
+
+	// Generate warnings for NoExecute taint usage
+	warnings := w.generateNoExecuteWarnings(rule.Spec)
+	return warnings, nil
 }
 
 func (w *NodeReadinessRuleWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
@@ -197,7 +224,10 @@ func (w *NodeReadinessRuleWebhook) ValidateUpdate(ctx context.Context, oldObj, n
 	if allErrs := w.validateNodeReadinessRule(ctx, rule, true); len(allErrs) > 0 {
 		return nil, fmt.Errorf("validation failed: %v", allErrs)
 	}
-	return nil, nil
+
+	// Generate warnings for NoExecute taint usage
+	warnings := w.generateNoExecuteWarnings(rule.Spec)
+	return warnings, nil
 }
 
 func (w *NodeReadinessRuleWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
