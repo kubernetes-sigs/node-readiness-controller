@@ -1,132 +1,90 @@
+# Getting Started
 
-## Getting Started
-
-This guide covers creating and configuring `NodeReadinessRule` resources.
+This guide covers how to use the Node Readiness Controller to define and enforce node readiness checks using `NodeReadinessRule` resources.
 
 > **Prerequisites**: Node Readiness Controller must be installed. See [Installation](./installation.md).
 
-### API Spec
+## Creating a Readiness Rule
 
-#### Example: Storage Readiness Rule (Bootstrap-only)
+The core resource is the `NodeReadinessRule` CRD. It defines a set of conditions
+that a node must meet to be considered "workload ready". If the conditions are
+not met, the controller applies a specific taint to the node.
 
-This rule ensures nodes have working storage before removing the storage readiness taint:
+### Basic Example: Storage Readiness
+
+Here is a rule that ensures a storage plugin is registered before allowing workloads that need it.
 
 ```yaml
 apiVersion: readiness.node.x-k8s.io/v1alpha1
 kind: NodeReadinessRule
 metadata:
-  name: nfs-storage-readiness-rule
+  name: storage-readiness-rule
 spec:
-  conditions:  
-    - type: "csi.example.net/NodePluginRegistered"
-    requiredStatus: "True"
-    - type: "csi.example.net/BackendReachable"
-    requiredStatus: "True"
-    - type: "DiskPressure"
-    requiredStatus: "False"
-  taint:
-    key: "readiness.k8s.io/vendor.com/nfs-unhealthy"
-    effect: "NoSchedule"
-  enforcementMode: "bootstrap-only"
+  # The label selector determines which nodes this rule applies to
   nodeSelector:
     matchLabels:
       storage-backend: "nfs"
-  dryRun: true  # Preview mode
-```
 
-#### NodeReadinessRule
-
-| Field | Description | Required |
-|-------|-------------|----------|
-| `conditions` | List of node conditions that must ALL be satisfied | Yes |
-| `conditions[].type` | Node condition type to evaluate | Yes |
-| `conditions[].requiredStatus` | Required condition status (`True`, `False`, `Unknown`) | Yes |
-| `taint.key` | Taint key to manage | Yes |
-| `taint.effect` | Taint effect (`NoSchedule`, `PreferNoSchedule`, `NoExecute`) | Yes |
-| `taint.value` | Optional taint value | No |
-| `enforcementMode` | `bootstrap-only` or `continuous` | Yes |
-| `nodeSelector` | Label selector to target specific nodes | No |
-| `dryRun` | Preview changes without applying them | No |
-
-### Enforcement Modes
-
-#### Bootstrap-only Mode
-- Removes bootstrap taint when conditions are first satisfied
-- Marks completion with node annotation
-- Stops monitoring after successful removal (fail-safe)
-- Ideal for one-time setup conditions (installing node daemons e.g: security agent or kernel-module update)
-
-#### Continuous Mode
-- Continuously monitors conditions
-- Adds taint when any condition becomes unsatisfied
-- Removes taint when all conditions become satisfied
-- Ideal for ongoing health monitoring (network connectivity, resource availability)
-
-## Operations
-
-### Monitoring Rule Status
-
-View rule status and evaluation results:
-
-```sh
-# List all rules
-kubectl get nodereadinessrules
-
-# Detailed status of a specific rule
-kubectl describe nodereadinessrule network-readiness-rule
-
-# Check rule evaluation per node
-kubectl get nodereadinessrule network-readiness-rule -o yaml
-```
-
-The status includes:
-- `appliedNodes`: Nodes this rule targets
-- `failedNodes`: Nodes with evaluation errors
-- `nodeEvaluations`: Per-node condition evaluation results
-- `dryRunResults`: Impact analysis for dry-run rules
-
-### Dry Run Mode
-
-Test rules safely before applying:
-
-```yaml
-spec:
-  dryRun: true  # Enable dry run mode
+  # The conditions that must be True for the node to be considered ready
   conditions:
-    - type: "csi.example.net/NodePluginRegistered"
+    - type: "csi.example.com/NodePluginRegistered"
       requiredStatus: "True"
-  # ... rest of spec
+    - type: "csi.example.com/BackendReachable"
+      requiredStatus: "True"
+
+  # The taint to apply if conditions are NOT met
+  taint:
+    key: "readiness.k8s.io/vendor.com/nfs-unhealthy"
+    effect: "NoSchedule"
+
+  # When to enforce: 'bootstrap-only' (initial setup) or 'continuous' (ongoing health)
+  enforcementMode: "continuous"
 ```
 
-Check dry run results:
+## Configuring the Rule
 
-```sh
-kubectl get nodereadinessrule <rule-name> -o jsonpath='{.status.dryRunResults}'
-```
+### 1. Select Target Nodes
+Use the `nodeSelector` to target specific nodes (eg., GPU nodes).
 
-### Rule Validation and Constraints
+> **Note**: These labels could be configured at node registration (e.g., via Kubelet `--node-labels`). Relying on labels added asynchronously by addons (like Node Feature Discovery) can create a race condition where the node remains schedulable until the labels appear.
 
-#### NoExecute Taint Effect Warning
+### 2. Define Readiness Conditions
+The `conditions` list defines the criteria. The controller watches the Node's status for these conditions.
+*   `type`: The exact string matching the NodeCondition type.
+*   `requiredStatus`: The status required (`True`, `False`, or `Unknown`).
 
-**`NoExecute` with `continuous` enforcement mode will evict existing workloads when conditions fail.**
+### 3. Choose an Enforcement Mode
+The `enforcementMode` determines how the controller manages the taint lifecycle.
 
-If a readiness condition on the node is failing temporarily (eg., the component restarted), all pods without matching tolerations are immediately evicted from the node, if configured with a `NoExecute` taint. Use `NoSchedule` to prevent new scheduling without disrupting running workloads.
+*   **`bootstrap-only`**: Use this for one-time initialization tasks (e.g., installing a kernel module or driver). Once the conditions are met once, the taint is removed and never reapplied.
+*   **`continuous`**: Use this for ongoing health checks (e.g., network connectivity). If the condition fails at any time, the taint is reapplied.
 
-The admission webhook warns when using `NoExecute`:
+> For more details on these modes, see [Concepts](./concepts.md#enforcement-modes).
 
-```sh
-# NoExecute + continuous enforcement
-$ kubectl apply -f rule.yaml
-Warning: CAUTION: NoExecute with continuous mode evicts pods when conditions fail, risking workload disruption. Consider NoSchedule or bootstrap-only
-nodereadinessrule.readiness.node.x-k8s.io/my-rule created
+### 4. Configure the Taint
+Define the taint that will block scheduling.
+*   **Key**: Must start with `readiness.k8s.io/` prefix.
+*   **Effect**:
+    *   `NoSchedule`: Prevents new pods from scheduling (Recommended).
+    *   `PreferNoSchedule`: Tries to avoid scheduling.
+    *   `NoExecute`: Evicts running pods if they don't tolerate the taint.
 
-# NoExecute + bootstrap-only enforcement
+> **Note**: To eliminate startup race conditions, register nodes with this taint (e.g., via Kubelet `--register-with-taints`). The controller will remove it once conditions are met.
+
+> **Caution**: When using `NoExecute` with `continuous` mode: if a condition
+> fails momentarily, all workloads on the node (without tolerations) will be
+> immediately evicted, which can cause service disruption.
+
+
+The admission webhook warns when using `NoExecute` taint:
+
+```bash
 $ kubectl apply -f rule.yaml
 Warning: NOTE: NoExecute will evict existing pods without tolerations. Ensure critical system pods have appropriate tolerations
 nodereadinessrule.readiness.node.x-k8s.io/my-rule created
 ```
 
-See [Kubernetes taints documentation](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/) for taint behavior details.
+### Rule Validations
 
 #### Avoiding Taint Key Conflicts
 
@@ -159,13 +117,11 @@ spec:
     effect: "NoSchedule"
 ```
 
-Use unique, descriptive taint keys for different readiness checks.
-
 #### Taint Key Naming
+Taint keys must have the `readiness.k8s.io/` prefix to clearly identify
+readiness-related taints and avoid conflicts with other controllers. 
+Use unique, descriptive taint keys for different readiness checks. Follow [Kubernetes naming conventions](https://kubernetes.io/docs/concepts/overview/working-with-objects/names/).
 
-Follow [Kubernetes naming conventions](https://kubernetes.io/docs/concepts/overview/working-with-objects/names/).
-
-Taint keys must have the `readiness.k8s.io/` prefix to clearly identify readiness-related taints and avoid conflicts with other controllers
 
 **Valid:**
 ```yaml
@@ -182,31 +138,32 @@ taint:
 ```
 
 
-## Configuration
+## Testing with Dry Run
 
-### Performance and Scalability
+You can preview the impact of a rule without actually tainting nodes using `dryRun`.
 
-- **Memory Usage**: ~64MB base + ~1KB per node + ~2KB per rule
-- **CPU Usage**: Minimal during steady state, scales with node/rule change frequency
-- **Node Scale**: Tested up to 100 nodes using kwok (1k nodes in progress)
-- **Rule Scale**: Recommended maximum 50 rules per cluster
-
-### Integration Patterns
-
-#### With Node Problem Detector
 ```yaml
-# custom NPD plugin checks and sets node conditions, controller manages taints
-conditions:
-  - type: "readiness.k8s.io/NetworkReady"  # Set by NPD
-    requiredStatus: "False"
+spec:
+  dryRun: true  # Enable dry run mode
+  conditions:
+    - type: "csi.example.com/NodePluginRegistered"
+      requiredStatus: "True"
 ```
 
-#### With Custom Health Checkers
-```yaml
-# Your daemonset sets custom conditions
-conditions:
-  - type: "readiness.k8s.io/mycompany.example.com/DatabaseReady"
-    requiredStatus: "True"
-  - type: "readiness.k8s.io/mycompany.example.com/CacheWarmed"
-    requiredStatus: "True"
+Check the `status` of the rule to follow the results:
+
+```sh
+kubectl get nodereadinessrule my-rule -o yaml
 ```
+
+Look for `dryRunResults` in the output to see which nodes would be tainted.
+
+## Reporting Node Conditions
+
+The Node Readiness Controller only 'reacts' to observed conditions on the Node object. These conditions can be set by various tools:
+
+1.  **Node Problem Detector (NPD)**: You can configure NPD with [custom plugins](https://github.com/kubernetes/node-problem-detector/blob/master/docs/custom_plugin_monitor.md) to monitor system state and report conditions.
+2.  **Custom Health-Checkers or Sidecars**: You can run a daemonset or a small sidecar (eg., [Readiness Condition Reporter](../examples/security-agent-readiness.md#1-deploy-the-readiness-condition-reporter)) that checks your application or driver and updates the Node status.
+3.  **External Controllers**: Any tool that can patch Node status can trigger these rules.
+
+For a full example of setting up a custom condition for a security agent, see the [Security Agent Readiness Example](../examples/security-agent-readiness.md).
