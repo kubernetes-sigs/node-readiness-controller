@@ -13,6 +13,17 @@ A rule specifies:
 
 When a rule is created, the controller continuously watches all matching nodes. If a node does not satisfy the required conditions, the controller ensures the configured taint is present, preventing the scheduler from assigning new pods to that node.
 
+### Readiness Domain and Taint Keys
+
+Node Readiness Controller uses the `readiness.k8s.io` domain for taints and annotations that it owns. All `spec.taint.key` values in `NodeReadinessRule` must start with the `readiness.k8s.io/` prefix; this is enforced by the CRD schema.
+
+Typical taint keys look like:
+- `readiness.k8s.io/cni.example.net/network-not-ready`
+- `readiness.k8s.io/csi.vendor.com/storage-driver-not-ready`
+- `readiness.k8s.io/<dns.subdomain>/<component-name>`
+
+The segment after `readiness.k8s.io/` should describe the dependency or subsystem whose readiness is being guarded (for example, a CNI plugin, storage backend, or security agent). Treat this domain as reserved for the controller and closely related components, and avoid reusing it for unrelated taints.
+
 ## Enforcement Modes
 
 The controller supports two distinct modes of enforcement, configured via `spec.enforcementMode`, to handle different operational needs.

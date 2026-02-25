@@ -563,6 +563,7 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 	}
 
 	// Update rule status with dry run results
+	rule.Status.ObservedGeneration = rule.Generation
 	rule.Status.DryRunResults = readinessv1alpha1.DryRunResults{
 		AffectedNodes:   &affectedNodes,
 		TaintsToAdd:     &taintsToAdd,

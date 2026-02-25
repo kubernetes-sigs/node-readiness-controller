@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	selectorChangeTaintKey = "selector-change-taint"
+	selectorChangeTaintKey = "readiness.k8s.io/selector-change-taint"
 )
 
 var _ = Describe("NodeReadinessRule Controller", func() {
@@ -91,7 +91,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "test-taint",
+						Key:    "readiness.k8s.io/test-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
@@ -134,7 +134,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "test-taint",
+						Key:    "readiness.k8s.io/test-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
@@ -155,7 +155,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			cachedRule, exists := readinessController.ruleCache["test-rule"]
 			readinessController.ruleCacheMutex.RUnlock()
 			Expect(exists).To(BeTrue())
-			Expect(cachedRule.Spec.Taint.Key).To(Equal("test-taint"))
+			Expect(cachedRule.Spec.Taint.Key).To(Equal("readiness.k8s.io/test-taint"))
 
 			// Cleanup
 			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
@@ -177,7 +177,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "test-taint",
+						Key:    "readiness.k8s.io/test-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
@@ -238,7 +238,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						{Type: "TestCondition", RequiredStatus: corev1.ConditionTrue},
 					},
 					Taint: corev1.Taint{
-						Key:    "immediate-test-taint",
+						Key:    "readiness.k8s.io/immediate-test-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
@@ -266,7 +266,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 					return false
 				}
 				for _, taint := range updatedNode.Spec.Taints {
-					if taint.Key == "immediate-test-taint" && taint.Effect == corev1.TaintEffectNoSchedule {
+					if taint.Key == "readiness.k8s.io/immediate-test-taint" && taint.Effect == corev1.TaintEffectNoSchedule {
 						return true
 					}
 				}
@@ -300,7 +300,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "dry-run-taint",
+						Key:    "readiness.k8s.io/dry-run-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
@@ -370,7 +370,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
 					Taint: corev1.Taint{
-						Key:    "node-test-taint",
+						Key:    "readiness.k8s.io/node-test-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
@@ -424,14 +424,14 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			node := &corev1.Node{
 				Spec: corev1.NodeSpec{
 					Taints: []corev1.Taint{
-						{Key: "test-key", Effect: corev1.TaintEffectNoSchedule, Value: "test-value"},
-						{Key: "another-key", Effect: corev1.TaintEffectNoExecute},
+						{Key: "readiness.k8s.io/test-key", Effect: corev1.TaintEffectNoSchedule, Value: "test-value"},
+						{Key: "readiness.k8s.io/another-key", Effect: corev1.TaintEffectNoExecute},
 					},
 				},
 			}
 
 			taintSpec := corev1.Taint{
-				Key:    "test-key",
+				Key:    "readiness.k8s.io/test-key",
 				Effect: corev1.TaintEffectNoSchedule,
 			}
 
@@ -440,7 +440,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			// Test non-existent taint
 			nonExistentTaint := corev1.Taint{
-				Key:    "missing-key",
+				Key:    "readiness.k8s.io/missing-key",
 				Effect: corev1.TaintEffectNoSchedule,
 			}
 
@@ -535,7 +535,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "DBReady", RequiredStatus: corev1.ConditionTrue}},
-					Taint:           corev1.Taint{Key: "db-unready", Effect: corev1.TaintEffectNoSchedule},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/db-unready", Effect: corev1.TaintEffectNoSchedule},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"app": "backend"}},
 				},
@@ -579,6 +579,77 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		})
 	})
 
+	Context("when an existing rule is updated", func() {
+		var rule *nodereadinessiov1alpha1.NodeReadinessRule
+
+		BeforeEach(func() {
+			rule = &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "metadata-gen-test-rule",
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/metadata-gen-test-taint",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "metadata-gen-test-rule"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		AfterEach(func() {
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "metadata-gen-test-rule"}, updatedRule); err == nil {
+				updatedRule.Finalizers = nil
+				_ = k8sClient.Update(ctx, updatedRule)
+				_ = k8sClient.Delete(ctx, updatedRule)
+			}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: "metadata-gen-test-rule"}, &nodereadinessiov1alpha1.NodeReadinessRule{})
+				return apierrors.IsNotFound(err)
+			}, time.Second*10).Should(BeTrue())
+		})
+
+		It("should not update ObservedGeneration for metadata-only changes", func() {
+			createdRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "metadata-gen-test-rule"}, createdRule)).To(Succeed())
+			initialObservedGeneration := createdRule.Status.ObservedGeneration
+			initialGeneration := createdRule.Generation
+
+			patch := client.MergeFrom(createdRule.DeepCopy())
+			createdRule.Labels = map[string]string{"test-label": "value"}
+			Expect(k8sClient.Patch(ctx, createdRule, patch)).To(Succeed())
+
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "metadata-gen-test-rule"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "metadata-gen-test-rule"}, updatedRule)).To(Succeed())
+
+			Expect(updatedRule.Generation).To(Equal(initialGeneration))
+			Expect(updatedRule.Status.ObservedGeneration).To(Equal(initialObservedGeneration))
+		})
+	})
+
 	Context("when a new node is added", func() {
 		var rule *nodereadinessiov1alpha1.NodeReadinessRule
 		var newNode *corev1.Node
@@ -591,7 +662,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "TestReady", RequiredStatus: corev1.ConditionTrue}},
-					Taint:           corev1.Taint{Key: "test-unready", Effect: corev1.TaintEffectNoSchedule},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/test-unready", Effect: corev1.TaintEffectNoSchedule},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"node-group": "new-workers"}},
 				},
@@ -665,7 +736,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				},
 				Spec: corev1.NodeSpec{
 					Taints: []corev1.Taint{
-						{Key: "cleanup-taint", Effect: corev1.TaintEffectNoSchedule, Value: "pending"},
+						{Key: "readiness.k8s.io/cleanup-taint", Effect: corev1.TaintEffectNoSchedule, Value: "pending"},
 					},
 				},
 				Status: corev1.NodeStatus{
@@ -680,7 +751,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
 					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "TestReady", RequiredStatus: corev1.ConditionTrue}},
 					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"kubernetes.io/hostname": "cleanup-test-node"}},
-					Taint:           corev1.Taint{Key: "cleanup-taint", Effect: corev1.TaintEffectNoSchedule},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/cleanup-taint", Effect: corev1.TaintEffectNoSchedule},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 				},
 			}
@@ -711,7 +782,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cleanup-test-node"}, updatedNode)).To(Succeed())
 			hasTaint := false
 			for _, taint := range updatedNode.Spec.Taints {
-				if taint.Key == "cleanup-taint" {
+				if taint.Key == "readiness.k8s.io/cleanup-taint" {
 					hasTaint = true
 					break
 				}
@@ -732,7 +803,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 					return false
 				}
 				for _, taint := range updatedNode.Spec.Taints {
-					if taint.Key == "cleanup-taint" {
+					if taint.Key == "readiness.k8s.io/cleanup-taint" {
 						return false // Taint still exists
 					}
 				}
@@ -768,7 +839,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 							},
 						},
 					},
-					Taint:           corev1.Taint{Key: "unready", Effect: corev1.TaintEffectNoSchedule},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/unready", Effect: corev1.TaintEffectNoSchedule},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 				},
 			}
@@ -970,7 +1041,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		BeforeEach(func() {
 			node = &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:   "generation-test-node",
+					Name:   "observed-gen-test-node",
 					Labels: map[string]string{"app": "test"},
 				},
 				Status: corev1.NodeStatus{
@@ -982,7 +1053,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			rule = &nodereadinessiov1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "generation-test-rule",
+					Name:       "observed-gen-test-rule",
 					Finalizers: []string{finalizerName},
 				},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
@@ -990,7 +1061,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
 					Taint: corev1.Taint{
-						Key:    "generation-test-taint",
+						Key:    "readiness.k8s.io/observed-gen-test-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					NodeSelector: metav1.LabelSelector{
@@ -1008,14 +1079,14 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			_ = k8sClient.Delete(ctx, node)
 
 			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, updatedRule); err == nil {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "observed-gen-test-rule"}, updatedRule); err == nil {
 				updatedRule.Finalizers = nil
 				_ = k8sClient.Update(ctx, updatedRule)
 				_ = k8sClient.Delete(ctx, updatedRule)
 			}
 
 			Eventually(func() bool {
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, &nodereadinessiov1alpha1.NodeReadinessRule{})
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: "observed-gen-test-rule"}, &nodereadinessiov1alpha1.NodeReadinessRule{})
 				return apierrors.IsNotFound(err)
 			}, time.Second*10).Should(BeTrue())
 		})
@@ -1023,14 +1094,14 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		It("should set ObservedGeneration to match rule Generation after reconciliation", func() {
 			By("Running initial reconciliation")
 			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "generation-test-rule"},
+				NamespacedName: types.NamespacedName{Name: "observed-gen-test-rule"},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying ObservedGeneration matches Generation")
 			Eventually(func() bool {
 				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, updatedRule); err != nil {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "observed-gen-test-rule"}, updatedRule); err != nil {
 					return false
 				}
 				return updatedRule.Status.ObservedGeneration == updatedRule.Generation
@@ -1040,13 +1111,13 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		It("should update ObservedGeneration when spec changes", func() {
 			By("Running initial reconciliation")
 			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "generation-test-rule"},
+				NamespacedName: types.NamespacedName{Name: "observed-gen-test-rule"},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Getting initial generation")
 			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, updatedRule)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "observed-gen-test-rule"}, updatedRule)).To(Succeed())
 			initialGeneration := updatedRule.Generation
 			Expect(updatedRule.Status.ObservedGeneration).To(Equal(initialGeneration))
 
@@ -1057,7 +1128,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			By("Running reconciliation after spec change")
 			Eventually(func() error {
 				_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: types.NamespacedName{Name: "generation-test-rule"},
+					NamespacedName: types.NamespacedName{Name: "observed-gen-test-rule"},
 				})
 				return err
 			}, time.Second*5).Should(Succeed())
@@ -1065,7 +1136,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			By("Verifying ObservedGeneration updated to new Generation")
 			Eventually(func() bool {
 				latestRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, latestRule); err != nil {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "observed-gen-test-rule"}, latestRule); err != nil {
 					return false
 				}
 				return latestRule.Status.ObservedGeneration == latestRule.Generation &&
@@ -1076,13 +1147,13 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		It("should not update ObservedGeneration for metadata-only changes", func() {
 			By("Running initial reconciliation")
 			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "generation-test-rule"},
+				NamespacedName: types.NamespacedName{Name: "observed-gen-test-rule"},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Getting initial generation and observedGeneration")
 			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, updatedRule)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "observed-gen-test-rule"}, updatedRule)).To(Succeed())
 			initialGeneration := updatedRule.Generation
 			initialObservedGeneration := updatedRule.Status.ObservedGeneration
 			Expect(initialObservedGeneration).To(Equal(initialGeneration))
@@ -1094,19 +1165,19 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			By("Verifying Generation did not change")
 			Eventually(func() int64 {
 				latestRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-				_ = k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, latestRule)
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: "observed-gen-test-rule"}, latestRule)
 				return latestRule.Generation
 			}, time.Second*2).Should(Equal(initialGeneration), "Generation should not change for metadata updates")
 
 			By("Running reconciliation after metadata change")
 			_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "generation-test-rule"},
+				NamespacedName: types.NamespacedName{Name: "observed-gen-test-rule"},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying ObservedGeneration remains unchanged")
 			latestRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, latestRule)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "observed-gen-test-rule"}, latestRule)).To(Succeed())
 			Expect(latestRule.Status.ObservedGeneration).To(Equal(initialObservedGeneration),
 				"ObservedGeneration should not change when Generation doesn't change")
 		})
@@ -1155,7 +1226,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
 					Taint: corev1.Taint{
-						Key:    "applied-test-taint",
+						Key:    "readiness.k8s.io/applied-test-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					NodeSelector: metav1.LabelSelector{
