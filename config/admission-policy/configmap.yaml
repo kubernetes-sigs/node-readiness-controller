@@ -1,0 +1,12 @@
+---
+# ConfigMap that stores readiness tolerations
+# This will be populated/updated by the NodeReadinessRule controller
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: readiness-taints
+  namespace: nrr-system
+data:
+  # Store each toleration key separately for easier CEL access
+  # Format: key1=readiness.k8s.io/NetworkReady,key2=readiness.k8s.io/StorageReady
+  taint-keys: ""

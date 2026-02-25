@@ -87,6 +87,8 @@ func (r *RuleReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager)
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;create;update;patch;delete
 
 func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -163,6 +165,12 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
+	// Sync taints to ConfigMap for MutatingAdmissionPolicy
+	if err := r.Controller.syncTaintsConfigMap(ctx); err != nil {
+		log.Error(err, "Failed to sync taints configmap", "rule", rule.Name)
+		// Don't fail reconciliation for this - log and continue
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -170,6 +178,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 // 1. Deletes the taints associated with the rule.
 // 2. Remove the rule from the cache.
 // 3. Remove the finalizer from the rule.
+// 4. Sync the Taints ConfigMap.
 func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -193,6 +202,13 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+
+	// Sync taints to ConfigMap for MutatingAdmissionPolicy
+	if err := r.Controller.syncTaintsConfigMap(ctx); err != nil {
+		log.Error(err, "Failed to sync taints configmap", "rule", rule.Name)
+		// Don't fail reconciliation for this - log and continue
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -661,6 +677,79 @@ func (r *RuleReadinessController) cleanupNodesAfterSelectorChange(ctx context.Co
 		return fmt.Errorf("failed to cleanup taints on some nodes: %s", strings.Join(errors, "; "))
 	}
 
+	return nil
+}
+
+// syncTaintsConfigMap synchronizes readiness taints to a ConfigMap for admission policy.
+func (r *RuleReadinessController) syncTaintsConfigMap(ctx context.Context) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// List all NodeReadinessRules
+	var ruleList readinessv1alpha1.NodeReadinessRuleList
+	if err := r.List(ctx, &ruleList); err != nil {
+		return fmt.Errorf("failed to list NodeReadinessRules: %w", err)
+	}
+
+	// Extract unique taint keys with readiness.k8s.io/ prefix and NoSchedule effect
+	taintKeysSet := make(map[string]struct{})
+	for _, rule := range ruleList.Items {
+		// Skip rules that are being deleted
+		if !rule.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if rule.Spec.Taint.Key != "" &&
+			strings.HasPrefix(rule.Spec.Taint.Key, "readiness.k8s.io/") &&
+			rule.Spec.Taint.Effect == corev1.TaintEffectNoSchedule {
+			taintKeysSet[rule.Spec.Taint.Key] = struct{}{}
+		}
+	}
+
+	// Convert set to comma-separated string
+	taintKeys := make([]string, 0, len(taintKeysSet))
+	for key := range taintKeysSet {
+		taintKeys = append(taintKeys, key)
+	}
+	taintKeysStr := strings.Join(taintKeys, ",")
+
+	// Update or create ConfigMap
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "readiness-taints",
+			Namespace: "nrr-system",
+		},
+	}
+
+	// Try to get existing ConfigMap
+	existingCM := &corev1.ConfigMap{}
+	err := r.Get(ctx, client.ObjectKey{Name: "readiness-taints", Namespace: "nrr-system"}, existingCM)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to get configmap: %w", err)
+	}
+
+	// Set data
+	cm.Data = map[string]string{
+		"taint-keys": taintKeysStr,
+	}
+
+	if apierrors.IsNotFound(err) {
+		// Create new ConfigMap
+		log.Info("Creating readiness-taints ConfigMap", "taintCount", len(taintKeys))
+		if err := r.Create(ctx, cm); err != nil {
+			return fmt.Errorf("failed to create configmap: %w", err)
+		}
+	} else {
+		// Update existing ConfigMap
+		log.V(1).Info("Updating readiness-taints ConfigMap", "taintCount", len(taintKeys))
+		patch := client.MergeFrom(existingCM.DeepCopy())
+		existingCM.Data = cm.Data
+		if err := r.Patch(ctx, existingCM, patch); err != nil {
+			return fmt.Errorf("failed to update configmap: %w", err)
+		}
+	}
+
+	log.V(2).Info("Successfully synced taints to ConfigMap",
+		"totalRules", len(ruleList.Items),
+		"readinessTaints", len(taintKeys))
 	return nil
 }
 
