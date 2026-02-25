@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -46,6 +47,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		nodeReconciler      *NodeReconciler
 		scheme              *runtime.Scheme
 		fakeClientset       *fake.Clientset
+		recorder            *record.FakeRecorder
 	)
 
 	BeforeEach(func() {
@@ -55,11 +57,13 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 
 		fakeClientset = fake.NewSimpleClientset()
+		recorder = record.NewFakeRecorder(32)
 		readinessController = &RuleReadinessController{
 			Client:    k8sClient,
 			Scheme:    scheme,
 			clientset: fakeClientset,
 			ruleCache: make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+			recorder:  recorder,
 		}
 
 		ruleReconciler = &RuleReconciler{
@@ -273,15 +277,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				return false
 			}, time.Second*5).Should(BeTrue())
 
-			// Verify rule status includes the node
-			Eventually(func() []string {
-				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: "immediate-test-rule"}, updatedRule)
-				if err != nil {
-					return nil
-				}
-				return updatedRule.Status.AppliedNodes
-			}, time.Second*5).Should(ContainElement("immediate-test-node"))
+			Expect(recorder.Events).To(Receive(ContainSubstring("immediate-test-node")))
 		})
 
 		It("should handle dry run mode", func() {
@@ -570,12 +566,8 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				return false
 			}, time.Second*5).Should(BeTrue())
 
-			// Verify the status of the rule
-			Eventually(func() []string {
-				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-				_ = k8sClient.Get(ctx, types.NamespacedName{Name: "db-rule"}, updatedRule)
-				return updatedRule.Status.AppliedNodes
-			}, time.Second*5).Should(ContainElement("node1"))
+			// Verify the rule applied to the node.
+			Expect(recorder.Events).To(Receive(ContainSubstring("node1")))
 		})
 	})
 
@@ -694,16 +686,6 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				NamespacedName: types.NamespacedName{Name: "new-node-rule"},
 			})
 			Expect(err).NotTo(HaveOccurred())
-
-			// Verify that the rule's status is updated to include the new node
-			Eventually(func() []string {
-				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: "new-node-rule"}, updatedRule)
-				if err != nil {
-					return nil
-				}
-				return updatedRule.Status.AppliedNodes
-			}, time.Second*5, time.Millisecond*250).Should(ContainElement("new-node"))
 
 			// Verify that the new node gets tainted
 			Eventually(func() bool {
@@ -855,49 +837,6 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
 			// node1 is already deleted in the test
 			_ = k8sClient.Delete(ctx, node2)
-		})
-
-		It("should remove the node from the rule's status", func() {
-			// Initial reconcile to populate status
-			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "delete-node-rule"}})
-			Expect(err).NotTo(HaveOccurred())
-
-			Eventually(func() int {
-				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-				_ = k8sClient.Get(ctx, types.NamespacedName{Name: "delete-node-rule"}, updatedRule)
-				return len(updatedRule.Status.NodeEvaluations)
-			}, time.Second*5).Should(Equal(2))
-
-			// Delete node1
-			Expect(k8sClient.Delete(ctx, node1)).To(Succeed())
-
-			// Reconcile again to trigger cleanup
-			_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "delete-node-rule"}})
-			Expect(err).NotTo(HaveOccurred())
-
-			// Verify node1 is removed from status
-			Eventually(func() bool {
-				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-				_ = k8sClient.Get(ctx, types.NamespacedName{Name: "delete-node-rule"}, updatedRule)
-				for _, eval := range updatedRule.Status.NodeEvaluations {
-					if eval.NodeName == "node1" {
-						return false
-					}
-				}
-				return true
-			}, time.Second*5).Should(BeTrue())
-
-			// Verify node2 is still in status
-			Eventually(func() bool {
-				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-				_ = k8sClient.Get(ctx, types.NamespacedName{Name: "delete-node-rule"}, updatedRule)
-				for _, eval := range updatedRule.Status.NodeEvaluations {
-					if eval.NodeName == "node2" {
-						return true
-					}
-				}
-				return false
-			}, time.Second*5).Should(BeTrue())
 		})
 	})
 
@@ -1258,55 +1197,6 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: "applied-nodes-rule"}, &nodereadinessiov1alpha1.NodeReadinessRule{})
 				return apierrors.IsNotFound(err)
 			}, time.Second*10).Should(BeTrue())
-		})
-
-		It("should list only nodes matching the selector in AppliedNodes", func() {
-			By("Running reconciliation")
-			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "applied-nodes-rule"},
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Verifying AppliedNodes contains only matching nodes")
-			Eventually(func() []string {
-				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-				_ = k8sClient.Get(ctx, types.NamespacedName{Name: "applied-nodes-rule"}, updatedRule)
-				return updatedRule.Status.AppliedNodes
-			}, time.Second*5).Should(And(
-				ContainElement("applied-node-1"),
-				ContainElement("applied-node-2"),
-				Not(ContainElement("applied-node-3")),
-			), "AppliedNodes should only contain nodes matching selector")
-		})
-
-		It("should have matching NodeEvaluations for all AppliedNodes", func() {
-			By("Running reconciliation")
-			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "applied-nodes-rule"},
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Verifying NodeEvaluations exist for all AppliedNodes")
-			Eventually(func() bool {
-				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "applied-nodes-rule"}, updatedRule); err != nil {
-					return false
-				}
-
-				for _, appliedNode := range updatedRule.Status.AppliedNodes {
-					found := false
-					for _, eval := range updatedRule.Status.NodeEvaluations {
-						if eval.NodeName == appliedNode {
-							found = true
-							break
-						}
-					}
-					if !found {
-						return false
-					}
-				}
-				return len(updatedRule.Status.AppliedNodes) > 0
-			}, time.Second*5).Should(BeTrue(), "All AppliedNodes should have corresponding NodeEvaluations")
 		})
 	})
 })
