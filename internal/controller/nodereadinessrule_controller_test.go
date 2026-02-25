@@ -585,7 +585,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		BeforeEach(func() {
 			rule = &nodereadinessiov1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "generation-test-rule",
+					Name:       "metadata-gen-test-rule",
 					Finalizers: []string{finalizerName},
 				},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
@@ -593,7 +593,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
 					Taint: corev1.Taint{
-						Key:    "readiness.k8s.io/generation-test-taint",
+						Key:    "readiness.k8s.io/metadata-gen-test-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
@@ -608,18 +608,28 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
 
 			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "generation-test-rule"},
+				NamespacedName: types.NamespacedName{Name: "metadata-gen-test-rule"},
 			})
 			Expect(err).NotTo(HaveOccurred())
 		})
 
 		AfterEach(func() {
-			_ = k8sClient.Delete(ctx, rule)
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "metadata-gen-test-rule"}, updatedRule); err == nil {
+				updatedRule.Finalizers = nil
+				_ = k8sClient.Update(ctx, updatedRule)
+				_ = k8sClient.Delete(ctx, updatedRule)
+			}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: "metadata-gen-test-rule"}, &nodereadinessiov1alpha1.NodeReadinessRule{})
+				return apierrors.IsNotFound(err)
+			}, time.Second*10).Should(BeTrue())
 		})
 
 		It("should not update ObservedGeneration for metadata-only changes", func() {
 			createdRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, createdRule)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "metadata-gen-test-rule"}, createdRule)).To(Succeed())
 			initialObservedGeneration := createdRule.Status.ObservedGeneration
 			initialGeneration := createdRule.Generation
 
@@ -628,12 +638,12 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(k8sClient.Patch(ctx, createdRule, patch)).To(Succeed())
 
 			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "generation-test-rule"},
+				NamespacedName: types.NamespacedName{Name: "metadata-gen-test-rule"},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
 			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, updatedRule)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "metadata-gen-test-rule"}, updatedRule)).To(Succeed())
 
 			Expect(updatedRule.Generation).To(Equal(initialGeneration))
 			Expect(updatedRule.Status.ObservedGeneration).To(Equal(initialObservedGeneration))
@@ -1031,7 +1041,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		BeforeEach(func() {
 			node = &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:   "generation-test-node",
+					Name:   "observed-gen-test-node",
 					Labels: map[string]string{"app": "test"},
 				},
 				Status: corev1.NodeStatus{
@@ -1043,7 +1053,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			rule = &nodereadinessiov1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:       "generation-test-rule",
+					Name:       "observed-gen-test-rule",
 					Finalizers: []string{finalizerName},
 				},
 				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
@@ -1051,7 +1061,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
 					Taint: corev1.Taint{
-						Key:    "readiness.k8s.io/generation-test-taint",
+						Key:    "readiness.k8s.io/observed-gen-test-taint",
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					NodeSelector: metav1.LabelSelector{
@@ -1069,14 +1079,14 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			_ = k8sClient.Delete(ctx, node)
 
 			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, updatedRule); err == nil {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "observed-gen-test-rule"}, updatedRule); err == nil {
 				updatedRule.Finalizers = nil
 				_ = k8sClient.Update(ctx, updatedRule)
 				_ = k8sClient.Delete(ctx, updatedRule)
 			}
 
 			Eventually(func() bool {
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, &nodereadinessiov1alpha1.NodeReadinessRule{})
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: "observed-gen-test-rule"}, &nodereadinessiov1alpha1.NodeReadinessRule{})
 				return apierrors.IsNotFound(err)
 			}, time.Second*10).Should(BeTrue())
 		})
@@ -1084,14 +1094,14 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		It("should set ObservedGeneration to match rule Generation after reconciliation", func() {
 			By("Running initial reconciliation")
 			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "generation-test-rule"},
+				NamespacedName: types.NamespacedName{Name: "observed-gen-test-rule"},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying ObservedGeneration matches Generation")
 			Eventually(func() bool {
 				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, updatedRule); err != nil {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "observed-gen-test-rule"}, updatedRule); err != nil {
 					return false
 				}
 				return updatedRule.Status.ObservedGeneration == updatedRule.Generation
@@ -1101,13 +1111,13 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		It("should update ObservedGeneration when spec changes", func() {
 			By("Running initial reconciliation")
 			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "generation-test-rule"},
+				NamespacedName: types.NamespacedName{Name: "observed-gen-test-rule"},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Getting initial generation")
 			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, updatedRule)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "observed-gen-test-rule"}, updatedRule)).To(Succeed())
 			initialGeneration := updatedRule.Generation
 			Expect(updatedRule.Status.ObservedGeneration).To(Equal(initialGeneration))
 
@@ -1118,7 +1128,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			By("Running reconciliation after spec change")
 			Eventually(func() error {
 				_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: types.NamespacedName{Name: "generation-test-rule"},
+					NamespacedName: types.NamespacedName{Name: "observed-gen-test-rule"},
 				})
 				return err
 			}, time.Second*5).Should(Succeed())
@@ -1126,7 +1136,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			By("Verifying ObservedGeneration updated to new Generation")
 			Eventually(func() bool {
 				latestRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, latestRule); err != nil {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "observed-gen-test-rule"}, latestRule); err != nil {
 					return false
 				}
 				return latestRule.Status.ObservedGeneration == latestRule.Generation &&
@@ -1137,13 +1147,13 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		It("should not update ObservedGeneration for metadata-only changes", func() {
 			By("Running initial reconciliation")
 			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "generation-test-rule"},
+				NamespacedName: types.NamespacedName{Name: "observed-gen-test-rule"},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Getting initial generation and observedGeneration")
 			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, updatedRule)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "observed-gen-test-rule"}, updatedRule)).To(Succeed())
 			initialGeneration := updatedRule.Generation
 			initialObservedGeneration := updatedRule.Status.ObservedGeneration
 			Expect(initialObservedGeneration).To(Equal(initialGeneration))
@@ -1155,19 +1165,19 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			By("Verifying Generation did not change")
 			Eventually(func() int64 {
 				latestRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-				_ = k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, latestRule)
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: "observed-gen-test-rule"}, latestRule)
 				return latestRule.Generation
 			}, time.Second*2).Should(Equal(initialGeneration), "Generation should not change for metadata updates")
 
 			By("Running reconciliation after metadata change")
 			_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "generation-test-rule"},
+				NamespacedName: types.NamespacedName{Name: "observed-gen-test-rule"},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying ObservedGeneration remains unchanged")
 			latestRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "generation-test-rule"}, latestRule)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "observed-gen-test-rule"}, latestRule)).To(Succeed())
 			Expect(latestRule.Status.ObservedGeneration).To(Equal(initialObservedGeneration),
 				"ObservedGeneration should not change when Generation doesn't change")
 		})
