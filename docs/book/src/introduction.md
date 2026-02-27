@@ -1,6 +1,6 @@
 # Node Readiness Controller
 
-<img style="float: right; margin: auto;" width="180px" src="/logo/node-readiness-controller-logo.svg"/>
+<img style="float: right; margin: auto;" width="180px" src="logo/node-readiness-controller-logo.svg"/>
 
 A Kubernetes controller that provides fine-grained, declarative readiness for nodes. It ensures nodes only accept workloads when all required components (e.g., network agents, GPU drivers, storage drivers, or custom health-checks) are fully ready on the node.
 
@@ -65,8 +65,8 @@ If you're interested in participating in future discussions or development relat
 - **Slack**: [#sig-node-readiness-controller](https://kubernetes.slack.com/messages/sig-node-readiness-controller) (visit [slack.k8s.io](https://slack.k8s.io) for a workspace invitation)
 
 Open Issues / PRs / Discussions here:
-- **Issues**: [GitHub Issues](https://sigs.k8s.io/node-readiness-controller/issues)
-- **Discussions**: [GitHub Discussions](https://sigs.k8s.io/node-readiness-controller/discussions)
+- **Issues**: [GitHub Issues](https://github.com/kubernetes-sigs/node-readiness-controller/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/kubernetes-sigs/node-readiness-controller/discussions)
 
 See the Kubernetes community on the [community page](http://kubernetes.io/community/). You can also engage with SIG Node at [#sig-node](https://kubernetes.slack.com/messages/sig-node) and [mailing list](https://groups.google.com/a/kubernetes.io/g/sig-node).
 
