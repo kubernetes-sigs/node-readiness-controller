@@ -1,0 +1,47 @@
+# Use this file to override the values provided by the helm chart.
+
+# If you need specific binaries in your npd container , use the 
+# npd image as a base image , then add your desired binaries.
+# image: npd_custom_image
+
+extraVolumes:
+- name: static-pod-syncer
+  hostPath:
+    path: /opt/check-staticpods-synced.sh
+    type: File
+
+extraVolumeMounts:
+- name: static-pod-syncer
+  mountPath: /opt/check-staticpods-synced.sh
+
+settings:
+  custom_monitor_definitions:
+    staticpods-syncer.json: |
+      {
+        "plugin": "custom",
+        "pluginconfig": {
+          "invoke_interval": "1m",
+          "timeout": "1m",
+          "max_output_length": 80,
+          "concurrency": 1
+        },
+        "source": "staticpods-custom-plugin-monitor",
+        "conditions": [
+          {
+            "type": "StaticPodsMissing",
+            "reason": "mirrorpodsfound",
+            "message": "all mirros pods were created"
+          }
+        ],
+        "rules": [
+          {
+            "type": "permanent",
+            "condition": "StaticPodsMissing",
+            "reason": "mirrorpodmissing",
+            "path": "/opt/check-staticpods-synced.sh"
+          }
+        ]
+      }
+
+  custom_plugin_monitors:
+  - /custom-config/staticpods-syncer.json

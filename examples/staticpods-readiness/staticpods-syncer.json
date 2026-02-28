@@ -1,0 +1,25 @@
+{
+  "plugin": "custom",
+  "pluginconfig": {
+    "invoke_interval": "1m",
+    "timeout": "1m",
+    "max_output_length": 80,
+    "concurrency": 1
+  },
+  "source": "staticpods-custom-plugin-monitor",
+  "conditions": [
+    {
+      "type": "StaticPodsMissing",
+      "reason": "mirrorpodsfound",
+      "message": "all mirros pods were created"
+    }
+  ],
+  "rules": [
+    {
+      "type": "permanent",
+      "condition": "StaticPodsMissing",
+      "reason": "mirrorpodmissing",
+      "path": "/opt/check-staticpods-synced.sh"
+    }
+  ]
+}
