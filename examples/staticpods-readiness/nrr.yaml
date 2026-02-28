@@ -1,0 +1,16 @@
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: static-pods-readiness-rule
+spec:
+  nodeSelector:
+    matchLabels: {}
+  conditions:
+    - type: "StaticPodsMissing"
+      requiredStatus: "False"
+
+  taint:
+    key: "readiness.k8s.io/StaticPodsMissing"
+    effect: "NoSchedule"
+
+  enforcementMode: "bootstrap-only"
