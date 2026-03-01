@@ -64,6 +64,26 @@ To install the controller, apply the `install.yaml` manifest for this version:
 kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/v0.2.0/install.yaml
 ```
 
+Alternatively, to install with metrics enabled:
+
+```sh
+kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/v0.2.0/install-with-metrics.yaml
+```
+
+To install with secure metrics enabled:
+
+```sh
+kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/v0.2.0/install-with-secure-metrics.yaml
+```
+
+To install with webhook enabled:
+
+```sh
+kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/v0.2.0/install-with-webhook.yaml
+```
+
+Note: secure metrics and webhook requires cert-manager crds to be installed in the cluster.
+
 This will deploy the controller into any available node in the `nrr-system` namespace in your cluster. Check [here](https://node-readiness-controller.sigs.k8s.io/user-guide/installation.html) for more installation instructions.
 
 ### Contributors
