@@ -22,6 +22,26 @@ To install the controller, apply the `install.yaml` manifest:
 kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/install.yaml
 ```
 
+Alternatively, to install with metrics enabled:
+
+```sh
+kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/install-with-metrics.yaml
+```
+
+To install with secure metrics enabled:
+
+```sh
+kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/install-with-secure-metrics.yaml
+```
+
+To install with webhook enabled:
+
+```sh
+kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/install-with-webhook.yaml
+```
+
+Note: Secure metrics and webhooks require cert-manager to be installed in the cluster.
+
 This will deploy the controller into the `nrr-system` namespace on any available node in your cluster.
 
 #### Controller priority
@@ -90,6 +110,15 @@ The controller uses a **finalizer** (`readiness.node.x-k8s.io/cleanup-taints`) o
     ```sh
     # If installed via release manifest
     kubectl delete -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/install.yaml
+    
+    # Or if using the metrics manifest
+    kubectl delete -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/install-with-metrics.yaml
+
+    # Or if using the secure metrics manifest
+    kubectl delete -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/install-with-secure-metrics.yaml
+
+    # Or if using the webhook manifest
+    kubectl delete -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/install-with-webhook.yaml
 
     # OR if using Kustomize
     kubectl delete -k config/default
