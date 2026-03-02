@@ -1,0 +1,47 @@
+# Constrained Impersonation RBAC (KEP-5284)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-readiness-impersonator
+rules:
+- apiGroups: ["authentication.k8s.io"]
+  resources: ["nodes"]
+  verbs: ["impersonate:associated-node"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-status-patcher-constrained
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["impersonate-on:associated-node:get"]
+- apiGroups: [""]
+  resources: ["nodes/status"]
+  verbs: ["impersonate-on:associated-node:update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cni-reporter-impersonator-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: node-readiness-impersonator
+subjects:
+- kind: ServiceAccount
+  name: cni-reporter
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cni-reporter-constrained-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: node-status-patcher-constrained
+subjects:
+- kind: ServiceAccount
+  name: cni-reporter
+  namespace: kube-system
