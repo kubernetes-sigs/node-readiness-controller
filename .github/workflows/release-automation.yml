@@ -1,0 +1,71 @@
+name: Release Automation
+
+on:
+  push:
+    branches:
+      - main
+      - 'release-*'
+    paths:
+      - 'VERSION'
+
+permissions:
+  contents: write
+
+jobs:
+  cut-release:
+    name: Cut Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read Version
+        id: version
+        run: |
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          
+          # Basic semver validation (e.g. v1.2.3)
+          if ! [[ "$VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "Error: Invalid semver format in VERSION file: $VERSION"
+            exit 1
+          fi
+
+          # Extract patch number to determine if we need to cut a new release branch
+          PATCH_NUM=$(echo "$VERSION" | sed -n 's/^v[0-9]*\.[0-9]*\.\([0-9]*\).*/\1/p')
+          echo "patch_num=${PATCH_NUM}" >> $GITHUB_OUTPUT
+
+          echo "Cutting release for version: $VERSION (Patch: $PATCH_NUM)"
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and Push Tag
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          if git ls-remote --tags origin refs/tags/${VERSION} | grep -q "refs/tags/${VERSION}$"; then
+            echo "Tag ${VERSION} already exists. Skipping tag creation."
+          else
+            git tag -a "${VERSION}" -m "Release ${VERSION}"
+            git push origin "${VERSION}"
+            echo "Successfully pushed tag ${VERSION}"
+          fi
+
+      - name: Create and Push Release Branch
+        if: steps.version.outputs.patch_num == '0'
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          BRANCH_NAME="release-${VERSION}"
+          
+          if git ls-remote --heads origin refs/heads/${BRANCH_NAME} | grep -q "refs/heads/${BRANCH_NAME}$"; then
+            echo "Branch ${BRANCH_NAME} already exists. Skipping branch creation."
+          else
+            # We are already on the commit that triggered the workflow (the merge commit).
+            git checkout -b "${BRANCH_NAME}"
+            git push origin "${BRANCH_NAME}"
+            echo "Successfully pushed branch ${BRANCH_NAME}"
+          fi
