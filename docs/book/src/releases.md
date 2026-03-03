@@ -6,7 +6,7 @@ This page details the official releases of the Node Readiness Controller.
 
 **Date:** 2026-02-28
 
-This release brings several new features, including a webhook component, metrics manifests natively integrated with Kustomize, and major documentation improvements.
+This release brings several new features, including a validating admission webhook that validates `NodeReadinessRule` configurations, prevents conflicting rules with overlapping node selectors, and warns against risky `NoExecute` enforcement. It also introduces metrics manifests natively integrated with Kustomize, which includes support for secure metrics via TLS. Finally, this release includes major documentation improvements.
 
 ### Release Notes
 
@@ -52,39 +52,36 @@ registry.k8s.io/node-readiness-controller/node-readiness-reporter:v0.2.0
 
 ### Installation
 
+**Prerequisites**: If you plan to install with all optional features enabled (`install-full.yaml`), you must have [cert-manager](https://cert-manager.io/docs/installation/) installed in your cluster.
+
 To install the CRDs, apply the `crds.yaml` manifest for this version:
 
 ```sh
 kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/v0.2.0/crds.yaml
 ```
 
-To install the controller, apply the `install.yaml` manifest for this version:
+To install the controller, choose one of the following manifests based on your requirements:
+
+| Manifest | Contents | Prerequisites |
+| :--- | :--- | :--- |
+| **`install.yaml`** | Core Controller | None |
+| **`install-full.yaml`** | Core Controller + Metrics (Secure) + Validation Webhook | `cert-manager` |
+
+**Standard Installation (Minimal):**
+The simplest way to deploy the controller with no external dependencies.
 
 ```sh
 kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/v0.2.0/install.yaml
 ```
 
-Alternatively, to install with metrics enabled:
+**Full Installation (Production Ready):**
+Includes secure metrics (TLS-protected) and validating webhooks for rule conflict prevention. **Requires [cert-manager](https://cert-manager.io/docs/installation/)** to be installed in your cluster.
 
 ```sh
-kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/v0.2.0/install-with-metrics.yaml
+kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/v0.2.0/install-full.yaml
 ```
 
-To install with secure metrics enabled:
-
-```sh
-kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/v0.2.0/install-with-secure-metrics.yaml
-```
-
-To install with webhook enabled:
-
-```sh
-kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/v0.2.0/install-with-webhook.yaml
-```
-
-Note: secure metrics and webhook requires cert-manager crds to be installed in the cluster.
-
-This will deploy the controller into any available node in the `nrr-system` namespace in your cluster. Check [here](https://node-readiness-controller.sigs.k8s.io/user-guide/installation.html) for more installation instructions.
+This will deploy the controller into any available node in the `nrr-system` namespace in your cluster. Check [here](https://node-readiness-controller.sigs.k8s.io/user-guide/installation.html) for more detailed installation instructions.
 
 ### Contributors
 
