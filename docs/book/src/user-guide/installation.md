@@ -2,9 +2,13 @@
 
 Follow this guide to install the Node Readiness Controller in your Kubernetes cluster.
 
+## Prerequisites
+
+If you plan to use the `install-full.yaml` option (which includes secure metrics and the validating admission webhook), you must first have [cert-manager](https://cert-manager.io/docs/installation/) installed in your cluster.
+
 ## Deployment Options
 
-### Option 1: Install Official Release (Recommended)
+### Option 1: Official Release (Recommended)
 
 First, to install the CRDs, apply the `crds.yaml` manifest:
 
@@ -16,10 +20,27 @@ kubectl wait --for condition=established --timeout=30s crd/nodereadinessrules.re
 
 ```
 
-To install the controller, apply the `install.yaml` manifest:
+#### 2. Install the Controller
+
+Choose one of the two following manifests based on your requirements:
+
+| Manifest | Contents | Prerequisites |
+| :--- | :--- | :--- |
+| **`install.yaml`** | Core Controller | None |
+| **`install-full.yaml`** | Core Controller + Metrics (Secure) + Validation Webhook | `cert-manager` |
+
+**Standard Installation (Minimal):**
+The simplest way to deploy the controller with no external dependencies.
 
 ```sh
 kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/install.yaml
+```
+
+**Full Installation (Production Ready):**
+Includes secure metrics (TLS-protected) and validating webhooks for rule conflict prevention. **Requires [cert-manager](https://cert-manager.io/docs/installation/)** to be installed in your cluster.
+
+```sh
+kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/install-full.yaml
 ```
 
 This will deploy the controller into the `nrr-system` namespace on any available node in your cluster.
@@ -41,15 +62,21 @@ REPO="registry.k8s.io/node-readiness-controller/node-readiness-controller"
 TAG=$(skopeo list-tags docker://$REPO | jq .'Tags[-1]' | tr -d '"')
 docker pull $REPO:$TAG
 ```
-### Option 2: Deploy Using Kustomize
+### Option 2: Advanced Deployment (Kustomize)
+
+If you need deeper customization, you can use Kustomize directly from the source.
 
 ```sh
-# 1. Install Custom Resource Definitions (CRDs)
+# 1. Install CRDs
 kubectl apply -k config/crd
 
-# 2. Deploy Controller and RBAC
+# 2. Deploy Controller with default configuration
 kubectl apply -k config/default
 ```
+
+You can enable optional components (Metrics, TLS, Webhook) by creating a `kustomization.yaml` that includes the relevant components from the `config/` directory. For reference on how these components can be combined, see the `deploy-with-metrics`, `deploy-with-tls`, `deploy-with-webhook`, and `deploy-full` targets in the projects [`Makefile`](https://github.com/kubernetes-sigs/node-readiness-controller/blob/main/Makefile).
+
+---
 
 ## Verification
 
@@ -90,6 +117,9 @@ The controller uses a **finalizer** (`readiness.node.x-k8s.io/cleanup-taints`) o
     ```sh
     # If installed via release manifest
     kubectl delete -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/install.yaml
+    
+    # Or if using the full manifest
+    kubectl delete -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/install-full.yaml
 
     # OR if using Kustomize
     kubectl delete -k config/default
