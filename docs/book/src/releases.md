@@ -18,6 +18,7 @@ This release brings several new features, including a validating admission webho
 - Enhance Dockerfiles and bump Go module version ([#113](https://github.com/kubernetes-sigs/node-readiness-controller/pull/113))
 - Add `build-installer` make target to create CRD and install manifests ([#95](https://github.com/kubernetes-sigs/node-readiness-controller/pull/95), [#93](https://github.com/kubernetes-sigs/node-readiness-controller/pull/93))
 - Add a pull request template ([#110](https://github.com/kubernetes-sigs/node-readiness-controller/pull/110))
+- Restrict NodeReadinessRuleSpec.Taint to "readiness.k8s.io/" prefix ([#112](https://github.com/kubernetes-sigs/node-readiness-controller/pull/112))
 
 #### Bug Fixes
 - Fix dev-container: disable moby in newer version of debian ([#127](https://github.com/kubernetes-sigs/node-readiness-controller/pull/127))
@@ -27,6 +28,7 @@ This release brings several new features, including a validating admission webho
 #### Code Cleanup & Maintenance
 - Remove unused `globalDryRun` feature ([#123](https://github.com/kubernetes-sigs/node-readiness-controller/pull/123), [#130](https://github.com/kubernetes-sigs/node-readiness-controller/pull/130))
 - Bump versions for devcontainer and golangci-kal ([#132](https://github.com/kubernetes-sigs/node-readiness-controller/pull/132))
+- Add release automation workflow ([#144](https://github.com/kubernetes-sigs/node-readiness-controller/pull/144))
 
 #### Documentation & Examples
 - Document `NoExecute` taint risks and add admission warning ([#120](https://github.com/kubernetes-sigs/node-readiness-controller/pull/120))
