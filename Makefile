@@ -218,10 +218,14 @@ build-installer: build-manifests-temp ## Generate CRDs and deployment manifests 
 	# Generate CRDs only
 	$(KUSTOMIZE) build config/crd > dist/crds.yaml
 	@echo "Generated dist/crds.yaml"
-	# Generate controller deployment without CRDs
+	# Generate standard installation (core controller only) manifest without CRDs
 	cp $(BUILD_DIR)/manifests.yaml dist/install.yaml
 	@echo "Generated dist/install.yaml with image ${IMG_PREFIX}:${IMG_TAG}"
-	@echo "NOTE: Install crds.yaml first, then install.yaml. Deployment runs on any available node by default."
+	# Generate full installation (with features: Metrics, TLS, webhook) manifest
+	$(MAKE) build-manifests-temp ENABLE_METRICS=true ENABLE_TLS=true ENABLE_WEBHOOK=true
+	cp $(BUILD_DIR)/manifests.yaml dist/install-full.yaml
+	@echo "Generated dist/install-full.yaml (Features: Metrics, TLS, Webhook - Requires cert-manager)"
+	@echo "Check https://node-readiness-controller.sigs.k8s.io/user-guide/installation.html for installation instructions."
 
 ## --------------------------------------
 ## Deployment
