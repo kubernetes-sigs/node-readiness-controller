@@ -86,10 +86,12 @@ examples/cni-readiness/apply-calico.sh
 
 ### Step 8: Monitor and Verify Final State
 
-1.  **Check for the new node condition on the application node:**
+1.  **Check for the new node condition on the application worker node:**
     ```bash
-    kubectl get node $NODE -o json | jq '.status.conditions[] | select(.type=="projectcalico.org/CalicoReady")'
-# Look for 'projectcalico.org/CalicoReady   True'
+    kubectl get node nrr-test-worker2 -o json | jq '.status.conditions[] | select(.type=="projectcalico.org/CalicoReady")'
+
+2. **Look for 'projectcalico.org/CalicoReady   True'**
+    ```bash
     kubectl get node nrr-test-worker2 -o jsonpath='Conditions:{"\n"}{range .status.conditions[*]}{.type}{"\t"}{.status}{"\n"}{end}'
     ```
 
