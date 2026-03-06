@@ -133,9 +133,25 @@ taint:
 **Invalid:**
 ```yaml
 taint:
-  key: "network-ready"              # Missing prefix
-  key: "node.kubernetes.io/ready"   # Wrong prefix
+  key: "network-ready"                        # Missing prefix
+  key: "node.kubernetes.io/ready"             # Wrong prefix
+  key: "readiness.k8s.io/system/foo"          # Reserved prefix
+  key: "readiness.k8s.io/network/bar"         # Reserved prefix
+  key: "readiness.k8s.io/storage/not-ready"   # Reserved prefix
 ```
+
+Reserved core prefixes under `readiness.k8s.io/*` are forbidden to avoid conflicts with future controller features:
+- `readiness.k8s.io/system/*`
+- `readiness.k8s.io/core/*`
+- `readiness.k8s.io/node/*`
+- `readiness.k8s.io/device/*`
+- `readiness.k8s.io/network/*`
+- `readiness.k8s.io/storage/*`
+
+Use vendor/user-space keys with DNS-style components, for example:
+- `readiness.k8s.io/example.com/network-not-ready`
+- `readiness.k8s.io/projectcalico.org/cni-ready`
+- `readiness.k8s.io/vendor.io/storage-driver-ready`
 
 
 ## Testing with Dry Run

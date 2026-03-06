@@ -49,7 +49,7 @@ spec:
     - type: "example.com/CNIReady"
       requiredStatus: "True"
   taint:
-    key: "readiness.k8s.io/NetworkReady"
+    key: "readiness.k8s.io/example.com/network-not-ready"
     effect: "NoSchedule"
     value: "pending"
   enforcementMode: "bootstrap-only"

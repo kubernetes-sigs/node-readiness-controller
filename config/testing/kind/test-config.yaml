@@ -9,4 +9,4 @@ nodes:
     kind: JoinConfiguration
     nodeRegistration:
       kubeletExtraArgs:
-        register-with-taints: "readiness.k8s.io/NetworkReady=pending:NoSchedule"
+        register-with-taints: "readiness.k8s.io/projectcalico.org/network-not-ready=pending:NoSchedule"

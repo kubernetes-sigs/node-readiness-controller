@@ -289,7 +289,7 @@ status:
 				if err != nil {
 					return false
 				}
-				return !strings.Contains(output, "readiness.k8s.io/StorageReady")
+				return !strings.Contains(output, "readiness.k8s.io/e2e-test.io/storage-not-ready")
 			}, 10*time.Second, 2*time.Second).Should(BeTrue())
 
 			By("updating node condition to False")
@@ -303,7 +303,7 @@ status:
 				if err != nil {
 					return false
 				}
-				return strings.Contains(output, "readiness.k8s.io/StorageReady")
+				return strings.Contains(output, "readiness.k8s.io/e2e-test.io/storage-not-ready")
 			}, 30*time.Second, 2*time.Second).Should(BeTrue())
 
 			By("updating node condition back to True")
@@ -317,7 +317,7 @@ status:
 				if err != nil {
 					return false
 				}
-				return !strings.Contains(output, "readiness.k8s.io/StorageReady")
+				return !strings.Contains(output, "readiness.k8s.io/e2e-test.io/storage-not-ready")
 			}, 30*time.Second, 2*time.Second).Should(BeTrue())
 
 			By("cleaning up test resources")

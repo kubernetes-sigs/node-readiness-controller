@@ -9,7 +9,7 @@ The test demonstrates a realistic, production-aligned scenario where critical ad
 The test uses a 3-node Kind cluster:
 1.  **`nrr-test-control-plane`**: The Kubernetes control plane. The NRR controller will run here unless specifically configured.
 2.  **`nrr-test-worker` (Platform Node)**: A dedicated node for running cluster-critical addons. It is labeled `reserved-for=platform` and has a corresponding taint to repel normal application workloads. Cert-manager will run here.
-3.  **`nrr-test-worker2` (Application Node)**: A standard worker node that starts with a `readiness.k8s.io/NetworkReady=pending:NoSchedule` taint, simulating a node that is not yet ready for application traffic.
+3.  **`nrr-test-worker2` (Application Node)**: A standard worker node that starts with a `readiness.k8s.io/projectcalico.org/network-not-ready=pending:NoSchedule` taint, simulating a node that is not yet ready for application traffic.
 
 ## Running the Test
 
@@ -94,7 +94,7 @@ kubectl apply -f examples/cni-readiness/network-readiness-rule.yaml
 Check that the application worker node (`nrr-test-worker2`) has the `NetworkReady` taint.
 
 ```bash
-# The output should include 'readiness.k8s.io/NetworkReady'
+# The output should include 'readiness.k8s.io/projectcalico.org/network-not-ready'
 kubectl get node nrr-test-worker2 -o jsonpath='Taints:{"\n"}{range .spec.taints[*]}{.key}{"\n"}{end}'
 ```
 
@@ -120,7 +120,7 @@ examples/cni-readiness/apply-calico.sh
 
 2.  **Verify the taint has been removed from the application node:**
     ```bash
-    # The output should NO LONGER include 'readiness.k8s.io/NetworkReady'
+# The output should NO LONGER include 'readiness.k8s.io/projectcalico.org/network-not-ready'
     kubectl get node nrr-test-worker2 -o jsonpath='Taints:{"\n"}{range .spec.taints[*]}{.key}{"\n"}{end}'
     ```
 
