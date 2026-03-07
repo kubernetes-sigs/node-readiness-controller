@@ -14,7 +14,7 @@ In many Kubernetes clusters, security agents are deployed as DaemonSets. When a 
 ## The Solution
 
 We can use the Node Readiness Controller to enforce a security readiness guardrail:
-1. **Taint** the node with a [startup taint](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/) `readiness.k8s.io/falco.org/security-agent-ready=pending:NoSchedule` as soon as it joins the cluster.
+1. **Taint** the node with a [startup taint](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/) `readiness.k8s.io/security-agent-ready=pending:NoSchedule` as soon as it joins the cluster.
 2. **Monitor** the security agent’s readiness using a sidecar and expose it as a Node Condition.
 3. **Untaint** the node only after the security agent reports that it is ready.
 
@@ -24,13 +24,33 @@ This example uses **Falco** as a representative security agent, but the same pat
 
 > **Note**:  All manifests referenced in this guide are available in the [`examples/security-agent-readiness`](https://github.com/kubernetes-sigs/node-readiness-controller/tree/main/examples/security-agent-readiness) directory.
 
+### Prerequisites
 
+**1. Node Readiness Controller:**
+
+Before starting, ensure the Node Readiness Controller is deployed. See the [Installation Guide](../user-guide/installation.md) for details.
+
+**2. Kubernetes Cluster with Worker Nodes:**
+
+This example requires at least one worker node with the startup taint. For kind clusters, use the provided configuration:
+
+```sh
+kind create cluster --config examples/security-agent-readiness/kind-cluster-config.yaml
+```
+
+This creates a cluster with:
+- 1 control-plane node
+- 1 worker node pre-tainted with `readiness.k8s.io/security-agent-ready=pending:NoSchedule`
+
+See [`examples/security-agent-readiness/kind-cluster-config.yaml`](../../../../examples/security-agent-readiness/kind-cluster-config.yaml) for details.
 
 ### 1. Deploy the Readiness Condition Reporter
 
-To bridge the security agent’s internal health signal to Kubernetes, we deploy a readiness reporter that updates a Node Condition. In this example, the reporter is deployed as a sidecar container in the Falco DaemonSet. Components that natively update Node conditions would not require this additional container.
+To bridge the security agent's internal health signal to Kubernetes, we need to update a Node Condition. You have two options:
 
-This sidecar periodically checks Falco's local health endpoint (`http://localhost:8765/healthz`) and updates a Node Condition `falco.org/FalcoReady`.
+#### Option A: Using Node Readiness Reporter Sidecar
+
+The reporter is deployed as a sidecar container in the Falco DaemonSet. This sidecar periodically checks Falco's local health endpoint (`http://localhost:8765/healthz`) and updates a Node Condition `falco.org/FalcoReady`.
 
 **Patch your Falco DaemonSet:**
 
@@ -59,47 +79,75 @@ This sidecar periodically checks Falco's local health endpoint (`http://localhos
       memory: "32Mi"
 ```
 
-> Note: In this example, the security agent’s health is monitored by a side-car, so the reporter’s lifecycle is the same as the pod lifecycle. If the Falco pod is crashlooping, the sidecar will not run and cannot report readiness. For robust `continuous` readiness reporting, the reporter should be deployed independently of the security agent pod. For example, a separate DaemonSet (similar to Node Problem Detector) can monitor the agent and update Node conditions even if the agent pod crashes.
+**Note:** The sidecar's lifecycle is tied to the Falco pod. If Falco crashes, the sidecar stops reporting. For more robust monitoring, see Option B below.
 
-### 2. Grant Permissions (RBAC)
+#### Option B: Using Node Problem Detector (More Robust)
 
-The readiness reporter sidecar needs permission to update the Node object's status to publish readiness information.
+If you already have Node Problem Detector (NPD) deployed or want robust monitoring that continues even if Falco crashes, use NPD with a custom plugin.
+
+**Deploy NPD with Falco monitoring plugin:**
 
 ```yaml
-# security-agent-node-status-rbac.yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+# npd-falco-config.yaml
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: node-status-patch-role
-rules:
-- apiGroups: [""]
-  resources: ["nodes"]
-  verbs: ["get"]
-- apiGroups: [""]
-  resources: ["nodes/status"]
-  verbs: ["patch", "update"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: security-agent-node-status-patch-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: node-status-patch-role
-subjects:
-# Bind to security agent's ServiceAccount
-- kind: ServiceAccount
-  name: falco
-  namespace: kube-system
+  name: npd-falco-config
+  namespace: falco
+data:
+  # NPD uses problem-oriented conditions (like MemoryPressure, DiskPressure).
+  # falco.org/FalcoNotReady=False means Falco is healthy, falco.org/FalcoNotReady=True means there's an issue.
+  falco-plugin.json: |
+    {
+      "plugin": "custom",
+      "pluginConfig": {
+        "invoke_interval": "10s",
+        "timeout": "5s",
+        "max_output_length": 80,
+        "concurrency": 1
+      },
+      "source": "falco-monitor",
+      "conditions": [
+        {
+          "type": "falco.org/FalcoNotReady",
+          "reason": "FalcoHealthy",
+          "message": "Falco security monitoring is functional"
+        }
+      ],
+      "rules": [
+        {
+          "type": "permanent",
+          "condition": "falco.org/FalcoNotReady",
+          "reason": "FalcoNotDeployed",
+          "path": "/config/plugin/check-falco.sh"
+        }
+      ]
+    }
+  
+  check-falco.sh: |
+    #!/bin/bash
+    # Check if Falco is deployed and healthy
+    # Exit 0 when healthy (FalcoNotReady=False, i.e., Falco IS ready)
+    # Exit 1 when NOT healthy/deployed (FalcoNotReady=True, i.e., Falco is NOT ready)
+    timeout 2 bash -c '</dev/tcp/127.0.0.1/8765' 2>/dev/null
+    if [ $? -eq 0 ]; then
+      exit 0  # Falco is healthy
+    else
+      echo "Falco is not deployed or not responding on port 8765"
+      exit 1  # Falco has a problem
+    fi
 ```
 
-### 3. Create the Node Readiness Rule
+Then deploy NPD DaemonSet and RBAC. See complete NPD manifests in [`examples/security-agent-readiness/npd-variant/`](../../../../examples/security-agent-readiness/npd-variant/).
 
-Next, define a NodeReadinessRule that enforces the security readiness requirement. This rule instructs the controller: *"Keep the `readiness.k8s.io/falco.org/security-agent-ready` taint on the node until the `falco.org/FalcoReady` condition becomes True."*
+### 2. Create the Node Readiness Rule
+
+Next, define a NodeReadinessRule that enforces the security readiness requirement.
+
+**For Option A (Sidecar Reporter):**
 
 ```yaml
-# security-agent-readiness-rule.yaml
+# nrr-variant/security-agent-readiness-rule.yaml
 apiVersion: readiness.node.x-k8s.io/v1alpha1
 kind: NodeReadinessRule
 metadata:
@@ -112,7 +160,7 @@ spec:
 
   # Taint managed by this rule
   taint:
-    key: "readiness.k8s.io/falco.org/security-agent-ready"
+    key: "readiness.k8s.io/security-agent-ready"
     effect: "NoSchedule"
     value: "pending"
 
@@ -126,30 +174,103 @@ spec:
       node-role.kubernetes.io/worker: ""
 ```
 
+**For Option B (Node Problem Detector):**
+
+```yaml
+# npd-variant/security-agent-readiness-rule-npd.yaml
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: security-agent-readiness-rule-npd
+spec:
+  # Conditions that must be satisfied before the taint is removed
+  conditions:
+    - type: "falco.org/FalcoNotReady"
+      requiredStatus: "False"  # Remove taint when Falco is NOT NotReady (i.e., ready)
+
+  # Taint managed by this rule
+  taint:
+    key: "readiness.k8s.io/security-agent-ready"
+    effect: "NoSchedule"
+    value: "pending"
+
+  # "bootstrap-only" means: once the security agent is ready, we stop enforcing.
+  # Use "continuous" mode if you want to re-taint the node if Falco crashes later.
+  enforcementMode: "continuous"
+
+  # Update to target only the nodes that need to be protected by this guardrail
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/worker: ""
+```
+
 ## How to Apply
 
-1.  **Create the Node Readiness Rule**:
-```sh
-   cd examples/security-agent-readiness
-   kubectl apply -f security-agent-readiness-rule.yaml
-   ```
+**For Option A (Sidecar Reporter):**
 
-2. **Install Falco and Apply the RBAC**:
 ```sh
-chmod +x apply-falco.sh
-sh apply-falco.sh
+# Install Falco with sidecar reporter
+USE_NRR=true examples/security-agent-readiness/setup-falco.sh
+
+# Apply the NodeReadinessRule
+kubectl apply -f examples/security-agent-readiness/nrr-variant/security-agent-readiness-rule.yaml
+
+# Add toleration to Falco so it can start on tainted nodes
+examples/security-agent-readiness/add-falco-toleration.sh
+```
+
+**For Option B (Node Problem Detector):**
+
+```sh
+# Install Falco with NPD monitoring
+USE_NPD=true examples/security-agent-readiness/setup-falco.sh
+
+# Apply the NodeReadinessRule for NPD
+kubectl apply -f examples/security-agent-readiness/npd-variant/security-agent-readiness-rule-npd.yaml
+
+# Add toleration to Falco so it can start on tainted nodes
+examples/security-agent-readiness/add-falco-toleration.sh
 ```
 
 ## Verification
 
-To verify that the guardrail is working, add a new node to the cluster.
+To verify that the guardrail is working, you need a tainted node. You have two options:
+
+**Option 1: Manually taint an existing node:**
+
+```sh
+kubectl taint nodes <node-name> readiness.k8s.io/security-agent-ready=pending:NoSchedule
+```
+
+**Option 2: Configure nodes to register with taints at startup:**
+
+For kind clusters, use kubeadm config patches. See [kind documentation on kubeadm config patches](https://kind.sigs.k8s.io/docs/user/configuration/#kubeadm-config-patches) for details.
+
+---
+
+Once the node is tainted:
 
 1. **Check the Node Taints**:
-Immediately after the node joins, it should have the taint:
-`readiness.k8s.io/falco.org/security-agent-ready=pending:NoSchedule`.
+   Verify the taint is applied:
+   ```sh
+   kubectl get nodes -o custom-columns=NAME:.metadata.name,TAINTS:.spec.taints
+   ```
+   Should show: `readiness.k8s.io/security-agent-ready=pending:NoSchedule`.
 
 2. **Check Node Conditions**:
-Observe the node’s conditions. You will initially see `falco.org/FalcoReady` as `False` or missing. Once Falco initializes, the sidecar reporter updates the condition to `True`.
+   
+   **For Option A (Sidecar):**
+   ```sh
+   kubectl get node <node-name> -o jsonpath='{.status.conditions[?(@.type=="falco.org/FalcoReady")]}' | jq .
+   ```
+   You will initially see `falco.org/FalcoReady` as `False`. Once Falco initializes, it becomes `True`.
+
+   **For Option B (NPD):**
+   ```sh
+   kubectl get node <node-name> -o jsonpath='{.status.conditions[?(@.type=="falco.org/FalcoNotReady")]}' | jq .
+   ```
+   You will initially see `falco.org/FalcoNotReady=True` (not ready). Once Falco is healthy, it becomes `falco.org/FalcoNotReady=False` (ready).
+
 
 3. **Check Taint Removal**:
-As soon as the condition becomes `True`, the Node Readiness Controller removes the taint, allowing workloads to be scheduled on the node.
+   As soon as the condition reaches the required status, the Node Readiness Controller removes the taint, allowing workloads to be scheduled on the node.
