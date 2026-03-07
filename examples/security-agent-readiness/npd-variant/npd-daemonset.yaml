@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-problem-detector-falco
+  namespace: falco
+  labels:
+    app: node-problem-detector
+    component: falco-monitor
+spec:
+  selector:
+    matchLabels:
+      app: node-problem-detector
+      component: falco-monitor
+  template:
+    metadata:
+      labels:
+        app: node-problem-detector
+        component: falco-monitor
+    spec:
+      serviceAccountName: node-problem-detector
+      hostNetwork: true
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+      containers:
+      - name: node-problem-detector
+        image: registry.k8s.io/node-problem-detector/node-problem-detector:v0.8.19
+        command:
+        - /node-problem-detector
+        - --logtostderr
+        - --config.custom-plugin-monitor=/config/falco-plugin.json
+        securityContext:
+          privileged: true
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        - name: plugin
+          mountPath: /config/plugin
+          readOnly: true
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 20m
+            memory: 64Mi
+      volumes:
+      - name: config
+        configMap:
+          name: npd-falco-config
+          items:
+          - key: falco-plugin.json
+            path: falco-plugin.json
+      - name: plugin
+        configMap:
+          name: npd-falco-config
+          defaultMode: 0755
+          items:
+          - key: check-falco.sh
+            path: check-falco.sh

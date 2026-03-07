@@ -1,0 +1,17 @@
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: security-agent-readiness-rule-npd
+spec:
+  conditions:
+  - type: falco.org/FalcoNotReady
+    requiredStatus: "False"  # Remove taint when Falco is NOT NotReady (i.e., Falco IS ready)
+  taint:
+    key: "readiness.k8s.io/security-agent-ready"
+    value: "pending"
+    effect: "NoSchedule"
+  enforcementMode: "continuous"
+  nodeSelector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: DoesNotExist

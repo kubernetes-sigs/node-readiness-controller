@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: npd-falco-config
+  namespace: falco
+data:
+  # NPD uses problem-oriented conditions (like MemoryPressure, DiskPressure).
+  # falco.org/FalcoNotReady=False means Falco is healthy, falco.org/FalcoNotReady=True means there's an issue.
+  falco-plugin.json: |
+    {
+      "plugin": "custom",
+      "pluginConfig": {
+        "invoke_interval": "10s",
+        "timeout": "5s",
+        "max_output_length": 80,
+        "concurrency": 1
+      },
+      "source": "falco-monitor",
+      "conditions": [
+        {
+          "type": "falco.org/FalcoNotReady",
+          "reason": "FalcoHealthy",
+          "message": "Falco security monitoring is functional"
+        }
+      ],
+      "rules": [
+        {
+          "type": "permanent",
+          "condition": "falco.org/FalcoNotReady",
+          "reason": "FalcoNotDeployed",
+          "path": "/config/plugin/check-falco.sh"
+        }
+      ]
+    }
+  
+  check-falco.sh: |
+    #!/bin/bash
+    # Check if Falco is deployed and healthy
+    # Exit 0 when healthy (FalcoNotReady=False, i.e., Falco IS ready)
+    # Exit 1 when NOT healthy/deployed (FalcoNotReady=True, i.e., Falco is NOT ready)
+    timeout 2 bash -c '</dev/tcp/127.0.0.1/8765' 2>/dev/null
+    if [ $? -eq 0 ]; then
+      exit 0  # Falco is healthy
+    else
+      echo "Falco is not deployed or not responding on port 8765"
+      exit 1  # Falco has a problem
+    fi
