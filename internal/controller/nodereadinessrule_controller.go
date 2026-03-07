@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -56,6 +57,8 @@ type RuleReadinessController struct {
 	// Cache for efficient rule lookup
 	ruleCacheMutex sync.RWMutex
 	ruleCache      map[string]*readinessv1alpha1.NodeReadinessRule // ruleName -> rule
+
+	recorder record.EventRecorder
 }
 
 // RuleReconciler handles NodeReadinessRule reconciliation.
@@ -72,6 +75,7 @@ func NewRuleReadinessController(mgr ctrl.Manager, clientset kubernetes.Interface
 		Scheme:    mgr.GetScheme(),
 		clientset: clientset,
 		ruleCache: make(map[string]*readinessv1alpha1.NodeReadinessRule),
+		recorder:  mgr.GetEventRecorderFor("node-readiness-controller"),
 	}
 }
 
@@ -87,6 +91,7 @@ func (r *RuleReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager)
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules/finalizers,verbs=update
+// +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 
 func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -157,12 +162,6 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
-	// Clean up status for deleted nodes
-	if err := r.Controller.cleanupDeletedNodes(ctx, rule); err != nil {
-		log.Error(err, "Failed to clean up deleted nodes", "rule", rule.Name)
-		return ctrl.Result{RequeueAfter: time.Minute}, err
-	}
-
 	return ctrl.Result{}, nil
 }
 
@@ -196,62 +195,6 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	return ctrl.Result{}, nil
 }
 
-// cleanupDeletedNodes removes status entries for nodes that no longer exist.
-func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
-	log := ctrl.LoggerFrom(ctx)
-
-	nodeList := &corev1.NodeList{}
-	if err := r.List(ctx, nodeList); err != nil {
-		return err
-	}
-
-	existingNodes := make(map[string]bool)
-	for _, node := range nodeList.Items {
-		existingNodes[node.Name] = true
-	}
-
-	// Filter out deleted nodes
-	var newNodeEvaluations []readinessv1alpha1.NodeEvaluation
-	for _, evaluation := range rule.Status.NodeEvaluations {
-		if existingNodes[evaluation.NodeName] {
-			newNodeEvaluations = append(newNodeEvaluations, evaluation)
-		}
-	}
-
-	if len(newNodeEvaluations) == len(rule.Status.NodeEvaluations) {
-		log.V(4).Info("No deleted nodes to clean up", "rule", rule.Name)
-		return nil
-	}
-
-	log.V(4).Info("Cleaning up deleted nodes from rule status",
-		"rule", rule.Name,
-		"before", len(rule.Status.NodeEvaluations),
-		"after", len(newNodeEvaluations))
-
-	// Use retry on conflict to update status to avoid race conditions from node updates
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		fresh := &readinessv1alpha1.NodeReadinessRule{}
-		if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, fresh); err != nil {
-			return err
-		}
-
-		var freshNodeEvaluations []readinessv1alpha1.NodeEvaluation
-		for _, evaluation := range fresh.Status.NodeEvaluations {
-			if existingNodes[evaluation.NodeName] {
-				freshNodeEvaluations = append(freshNodeEvaluations, evaluation)
-			}
-		}
-
-		if len(freshNodeEvaluations) == len(fresh.Status.NodeEvaluations) {
-			return nil
-		}
-
-		patch := client.MergeFrom(fresh.DeepCopy())
-		fresh.Status.NodeEvaluations = freshNodeEvaluations
-		return r.Status().Patch(ctx, fresh, patch)
-	})
-}
-
 // processAllNodesForRule processes all nodes when a rule changes.
 func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
 	log := ctrl.LoggerFrom(ctx)
@@ -269,17 +212,19 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 			appliedNodes = append(appliedNodes, node.Name)
 			log.Info("Processing node for rule", "rule", rule.Name, "node", node.Name)
 			if err := r.evaluateRuleForNode(ctx, rule, &node); err != nil {
-				// Log error but continue with other nodes
-				log.Error(err, "Failed to evaluate node for rule", "rule", rule.Name, "node", node.Name)
-				r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
+				// Log error and record event but continue with other nodes.
+				log.Error(err, "Failed to evaluate node for rule",
+					"rule", rule.Name, "node", node.Name)
+				r.recorder.Eventf(&node, corev1.EventTypeWarning, "NodeReadinessRuleEvaluationError", "Failed to evaluate rule for node: %v", err)
 				metrics.Failures.WithLabelValues(rule.Name, "EvaluationError").Inc()
 			}
+			r.recorder.Eventf(&node, corev1.EventTypeNormal, "NodeReadinessRuleApplied", "Rule applied to Node %s", node.Name)
 		}
 	}
 
 	// Update status
 	rule.Status.ObservedGeneration = rule.Generation
-	rule.Status.AppliedNodes = appliedNodes
+	rule.Status.LastEvaluationTime = metav1.NewTime(time.Now())
 
 	if !rule.Spec.DryRun {
 		rule.Status.DryRunResults = readinessv1alpha1.DryRunResults{}
@@ -297,7 +242,6 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 
 	// Evaluate all conditions (ALL logic)
 	allConditionsSatisfied := true
-	conditionResults := make([]readinessv1alpha1.ConditionEvaluationResult, 0, len(rule.Spec.Conditions))
 
 	for _, condReq := range rule.Spec.Conditions {
 		currentStatus := r.getConditionStatus(node, condReq.Type)
@@ -306,12 +250,6 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		if !satisfied {
 			allConditionsSatisfied = false
 		}
-
-		conditionResults = append(conditionResults, readinessv1alpha1.ConditionEvaluationResult{
-			Type:           condReq.Type,
-			CurrentStatus:  currentStatus,
-			RequiredStatus: condReq.RequiredStatus,
-		})
 
 		log.V(1).Info("Condition evaluation", "node", node.Name, "rule", rule.Name,
 			"conditionType", condReq.Type, "current", currentStatus, "required", condReq.RequiredStatus,
@@ -356,47 +294,7 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 			"shouldRemove", shouldRemoveTaint, "hasTaint", currentlyHasTaint)
 	}
 
-	// Determine observed taint status after any actions
-	var taintStatus readinessv1alpha1.TaintStatus
-	if r.hasTaintBySpec(node, rule.Spec.Taint) {
-		taintStatus = readinessv1alpha1.TaintStatusPresent
-	} else {
-		taintStatus = readinessv1alpha1.TaintStatusAbsent
-	}
-
-	// Update evaluation status
-	r.updateNodeEvaluationStatus(rule, node.Name, conditionResults, taintStatus)
-
 	return nil
-}
-
-// updateNodeEvaluationStatus updates the evaluation status for a specific node.
-func (r *RuleReadinessController) updateNodeEvaluationStatus(
-	rule *readinessv1alpha1.NodeReadinessRule,
-	nodeName string,
-	conditionResults []readinessv1alpha1.ConditionEvaluationResult,
-	taintStatus readinessv1alpha1.TaintStatus,
-) {
-	// Find existing evaluation or create new
-	var nodeEval *readinessv1alpha1.NodeEvaluation
-	for i := range rule.Status.NodeEvaluations {
-		if rule.Status.NodeEvaluations[i].NodeName == nodeName {
-			nodeEval = &rule.Status.NodeEvaluations[i]
-			break
-		}
-	}
-
-	if nodeEval == nil {
-		rule.Status.NodeEvaluations = append(rule.Status.NodeEvaluations, readinessv1alpha1.NodeEvaluation{
-			NodeName: nodeName,
-		})
-		nodeEval = &rule.Status.NodeEvaluations[len(rule.Status.NodeEvaluations)-1]
-	}
-
-	// Update evaluation
-	nodeEval.ConditionResults = conditionResults
-	nodeEval.TaintStatus = taintStatus
-	nodeEval.LastEvaluationTime = metav1.Now()
 }
 
 // getApplicableRulesForNode returns all rules applicable to a node.
@@ -471,9 +369,7 @@ func (r *RuleReadinessController) updateRuleStatus(ctx context.Context, rule *re
 	log := ctrl.LoggerFrom(ctx)
 
 	log.V(1).Info("Updating rule status",
-		"rule", rule.Name,
-		"nodeEvaluations", len(rule.Status.NodeEvaluations),
-		"appliedNodes", len(rule.Status.AppliedNodes))
+		"rule", rule.Name)
 
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		latestRule := &readinessv1alpha1.NodeReadinessRule{}
@@ -483,9 +379,6 @@ func (r *RuleReadinessController) updateRuleStatus(ctx context.Context, rule *re
 
 		patch := client.MergeFrom(latestRule.DeepCopy())
 
-		latestRule.Status.NodeEvaluations = rule.Status.NodeEvaluations
-		latestRule.Status.AppliedNodes = rule.Status.AppliedNodes
-		latestRule.Status.FailedNodes = rule.Status.FailedNodes
 		latestRule.Status.ObservedGeneration = rule.Status.ObservedGeneration
 		latestRule.Status.DryRunResults = rule.Status.DryRunResults
 
