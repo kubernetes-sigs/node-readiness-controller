@@ -20,9 +20,9 @@
 
 - [Release Notes](./releases.md)
 
-<!-- # Operations -->
+# Operations
 
-<!-- - [Monitoring](./operations/monitoring.md) -->
+- [Monitoring](./operations/monitoring.md)
 <!-- - [Troubleshooting](./operations/troubleshooting.md) -->
 <!-- - [Security](./operations/security.md) -->
 
