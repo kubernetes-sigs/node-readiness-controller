@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -50,8 +51,9 @@ const (
 // RuleReadinessController manages node taints based on readiness rules.
 type RuleReadinessController struct {
 	client.Client
-	Scheme    *runtime.Scheme
-	clientset kubernetes.Interface
+	Scheme        *runtime.Scheme
+	clientset     kubernetes.Interface
+	EventRecorder record.EventRecorder
 
 	// Cache for efficient rule lookup
 	ruleCacheMutex sync.RWMutex
@@ -68,10 +70,11 @@ type RuleReconciler struct {
 // NewRuleReadinessController creates a new controller.
 func NewRuleReadinessController(mgr ctrl.Manager, clientset kubernetes.Interface) *RuleReadinessController {
 	return &RuleReadinessController{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		clientset: clientset,
-		ruleCache: make(map[string]*readinessv1alpha1.NodeReadinessRule),
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		clientset:     clientset,
+		EventRecorder: mgr.GetEventRecorderFor("node-readiness-controller"),
+		ruleCache:     make(map[string]*readinessv1alpha1.NodeReadinessRule),
 	}
 }
 
@@ -87,6 +90,7 @@ func (r *RuleReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager)
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -325,13 +329,15 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 	log.Info("Evaluation result", "node", node.Name, "rule", rule.Name,
 		"allConditionsSatisfied", allConditionsSatisfied, "hasTaint", currentlyHasTaint)
 
+	isFirstEvaluation := r.getPreviousNodeEvaluation(rule, node.Name) == nil
+
 	var err error
 
 	switch {
 	case shouldRemoveTaint && currentlyHasTaint:
 		log.Info("Removing taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
 
-		if err = r.removeTaintBySpec(ctx, node, rule.Spec.Taint); err != nil {
+		if err = r.removeTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name); err != nil {
 			metrics.Failures.WithLabelValues(rule.Name, "RemoveTaintError").Inc()
 			return fmt.Errorf("failed to remove taint: %w", err)
 		}
@@ -345,11 +351,19 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 	case !shouldRemoveTaint && !currentlyHasTaint:
 		log.Info("Adding taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
 
-		if err = r.addTaintBySpec(ctx, node, rule.Spec.Taint); err != nil {
+		if err = r.addTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name); err != nil {
 			metrics.Failures.WithLabelValues(rule.Name, "AddTaintError").Inc()
 			return fmt.Errorf("failed to add taint: %w", err)
 		}
 		metrics.TaintOperations.WithLabelValues(rule.Name, "add").Inc()
+
+	case !shouldRemoveTaint && currentlyHasTaint:
+		if isFirstEvaluation {
+			log.Info("Adopting pre-existing taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
+
+			message := fmt.Sprintf("Taint '%s:%s' is now managed by rule '%s'", rule.Spec.Taint.Key, rule.Spec.Taint.Effect, rule.Name)
+			r.EventRecorder.Event(node, corev1.EventTypeNormal, "TaintAdopted", message)
+		}
 
 	default:
 		log.Info("No taint action needed", "node", node.Name, "rule", rule.Name,
@@ -598,7 +612,7 @@ func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule
 				"rule", rule.Name,
 				"taint", rule.Spec.Taint.Key)
 
-			if err := r.removeTaintBySpec(ctx, &node, rule.Spec.Taint); err != nil {
+			if err := r.removeTaintBySpec(ctx, &node, rule.Spec.Taint, rule.Name); err != nil {
 				errors = append(errors, fmt.Sprintf("node %s: %v", node.Name, err))
 			}
 		}
@@ -650,7 +664,7 @@ func (r *RuleReadinessController) cleanupNodesAfterSelectorChange(ctx context.Co
 					"rule", newRule.Name,
 					"taint", newRule.Spec.Taint.Key)
 
-				if err := r.removeTaintBySpec(ctx, &node, newRule.Spec.Taint); err != nil {
+				if err := r.removeTaintBySpec(ctx, &node, newRule.Spec.Taint, newRule.Name); err != nil {
 					errors = append(errors, fmt.Sprintf("node %s: %v", node.Name, err))
 				}
 			}
@@ -680,4 +694,15 @@ func (r *RuleReconciler) ensureFinalizer(ctx context.Context, rule *readinessv1a
 		return false, err
 	}
 	return true, nil
+}
+
+// getPreviousNodeEvaluation retrieves the previous evaluation result for a specific node from the rule status.
+// It returns nil (if the node is evaluated for the first time) otherwsie, return the previously evaluated node data.
+func (r *RuleReadinessController) getPreviousNodeEvaluation(rule *readinessv1alpha1.NodeReadinessRule, nodeName string) *readinessv1alpha1.NodeEvaluation {
+	for i := range rule.Status.NodeEvaluations {
+		if rule.Status.NodeEvaluations[i].NodeName == nodeName {
+			return &rule.Status.NodeEvaluations[i]
+		}
+	}
+	return nil
 }

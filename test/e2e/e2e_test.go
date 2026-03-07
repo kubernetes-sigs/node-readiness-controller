@@ -525,6 +525,125 @@ status:
 			exec.Command("kubectl", "delete", "node", nodeName).Run()
 			exec.Command("kubectl", "delete", "nodereadinessrule", "dryrun-test-rule").Run()
 		})
+
+		It("should emit events for taint operations", func() {
+			nodeName := "event-test-node"
+
+			By("creating a test node with pre-existing taint")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(`
+apiVersion: v1
+kind: Node
+metadata:
+  name: %s
+  labels:
+    e2e-test: "events"
+spec:
+  taints:
+    - key: readiness.k8s.io/EventTest
+      effect: NoSchedule
+      value: pending
+status:
+  conditions:
+    - type: EventTest
+      status: "False"
+      lastHeartbeatTime: %s
+      lastTransitionTime: %s
+`, nodeName, time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339)))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("applying the rule to adopt pre-existing taint")
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(`
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: event-test-rule
+spec:
+  conditions:
+    - type: EventTest
+      requiredStatus: "True"
+  taint:
+    key: readiness.k8s.io/EventTest
+    effect: NoSchedule
+    value: pending
+  enforcementMode: "continuous"
+  nodeSelector:
+    matchLabels:
+      e2e-test: "events"
+`)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying TaintAdopted event is emitted")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "events", "--field-selector",
+					fmt.Sprintf("involvedObject.name=%s", nodeName), "-o", "json")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "TaintAdopted") &&
+					strings.Contains(output, "event-test-rule")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("updating node condition to True to trigger taint removal")
+			err = patchNodeCondition(nodeName, "EventTest", "True")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying taint is removed")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return !strings.Contains(output, "readiness.k8s.io/EventTest")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("verifying TaintRemoved event is emitted")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "events", "--field-selector",
+					fmt.Sprintf("involvedObject.name=%s", nodeName), "-o", "json")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "TaintRemoved") &&
+					strings.Contains(output, "event-test-rule")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("updating node condition back to False to trigger taint re-addition")
+			err = patchNodeCondition(nodeName, "EventTest", "False")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying taint is re-added")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "readiness.k8s.io/EventTest")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("verifying TaintAdded event is emitted")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "events", "--field-selector",
+					fmt.Sprintf("involvedObject.name=%s", nodeName), "-o", "json")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "TaintAdded") &&
+					strings.Contains(output, "event-test-rule")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("cleaning up test resources")
+			exec.Command("kubectl", "delete", "node", nodeName).Run()
+			exec.Command("kubectl", "delete", "nodereadinessrule", "event-test-rule").Run()
+		})
 	})
 })
 

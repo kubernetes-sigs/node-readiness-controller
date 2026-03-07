@@ -242,14 +242,21 @@ func (r *RuleReadinessController) hasTaintBySpec(node *corev1.Node, taintSpec co
 }
 
 // addTaintBySpec adds a taint to a node.
-func (r *RuleReadinessController) addTaintBySpec(ctx context.Context, node *corev1.Node, taintSpec corev1.Taint) error {
+func (r *RuleReadinessController) addTaintBySpec(ctx context.Context, node *corev1.Node, taintSpec corev1.Taint, ruleName string) error {
 	patch := client.StrategicMergeFrom(node.DeepCopy())
 	node.Spec.Taints = append(node.Spec.Taints, taintSpec)
-	return r.Patch(ctx, node, patch)
+	if err := r.Patch(ctx, node, patch); err != nil {
+		return err
+	}
+
+	message := fmt.Sprintf("Taint '%s:%s' added by rule '%s'", taintSpec.Key, taintSpec.Effect, ruleName)
+	r.EventRecorder.Event(node, corev1.EventTypeNormal, "TaintAdded", message)
+
+	return nil
 }
 
 // removeTaintBySpec removes a taint from a node.
-func (r *RuleReadinessController) removeTaintBySpec(ctx context.Context, node *corev1.Node, taintSpec corev1.Taint) error {
+func (r *RuleReadinessController) removeTaintBySpec(ctx context.Context, node *corev1.Node, taintSpec corev1.Taint, ruleName string) error {
 	patch := client.StrategicMergeFrom(node.DeepCopy())
 	var newTaints []corev1.Taint
 	for _, taint := range node.Spec.Taints {
@@ -258,7 +265,14 @@ func (r *RuleReadinessController) removeTaintBySpec(ctx context.Context, node *c
 		}
 	}
 	node.Spec.Taints = newTaints
-	return r.Patch(ctx, node, patch)
+	if err := r.Patch(ctx, node, patch); err != nil {
+		return err
+	}
+
+	message := fmt.Sprintf("Taint '%s:%s' removed by rule '%s'", taintSpec.Key, taintSpec.Effect, ruleName)
+	r.EventRecorder.Event(node, corev1.EventTypeNormal, "TaintRemoved", message)
+
+	return nil
 }
 
 // Bootstrap completion tracking.
