@@ -26,6 +26,10 @@ ROOT_DIR=$(dirname "${BASH_SOURCE[0]}")/..
 
 cd "$ROOT_DIR"
 
+# Create temp directory to download lychee binary
+TEMP_DIR=$(mktemp -d)
+trap 'rm -rf "${TEMP_DIR}"' EXIT
+
 # Detect OS and architecture
 os=$(go env GOOS)
 arch=$(go env GOARCH)
@@ -34,7 +38,7 @@ arch=$(go env GOARCH)
 LYCHEE_VERSION="${LYCHEE_VERSION:-0.23.0}"
 LYCHEE_BINARY="lychee"
 EXT="tar.gz"
-EXTRACT_CMD="tar -C /tmp -xzf"
+EXTRACT_CMD="tar -C ${TEMP_DIR} -xzf"
 case "${os}-${arch}" in
 linux-amd64)
     LYCHEE_BASENAME="${LYCHEE_BINARY}-x86_64-unknown-linux-gnu"
@@ -45,10 +49,6 @@ linux-arm64)
 darwin-arm64)
     LYCHEE_BASENAME="${LYCHEE_BINARY}-arm64-macos"
     ;;
-windows-amd64)
-    echo "skipping verify-links for windows"
-    exit 0
-    ;;
 *)
     echo "Unsupported platform: ${os}-${arch}" >&2
     exit 1
@@ -58,21 +58,16 @@ esac
 LYCHEE_URL="https://github.com/lycheeverse/lychee/releases/download/lychee-v${LYCHEE_VERSION}/${LYCHEE_BASENAME}.${EXT}"
 
 echo "downloading ${LYCHEE_BASENAME}.${EXT} from ${LYCHEE_URL}"
-set -x
-curl -fL -o /tmp/${LYCHEE_BINARY}.${EXT} "${LYCHEE_URL}"
+if ! curl -fL -o ${TEMP_DIR}/${LYCHEE_BINARY}.${EXT} "${LYCHEE_URL}"; then
+    echo "Failed to downlowd lychee from ${LYCHEE_URL}" >&2
+    exit 1
+fi
 
-${EXTRACT_CMD} "/tmp/${LYCHEE_BINARY}.${EXT}"
-chmod +x /tmp/${LYCHEE_BINARY}
-
-
-# Remove artifacts
-rm -rf /tmp/${LYCHEE_BINARY}.${EXT}
-rm -rf /tmp/docs
-
-# Change back to root directory
-cd "$ROOT_DIR"
+if ! ${EXTRACT_CMD} "${TEMP_DIR}/${LYCHEE_BINARY}.${EXT}"; then
+    echo "Failed to extract lychee binary from ${TEMP_DIR}/${LYCHEE_BINARY}.${EXT}" >&2
+    exit 1
+fi
+chmod +x ${TEMP_DIR}/${LYCHEE_BINARY}
 
 echo "Checking links in Markdown files..."
-"/tmp/${LYCHEE_BINARY}" --no-progress --timeout 30 --format detailed  '**/*.md'
-
-rm -rf /tmp/${LYCHEE_BINARY}
+"${TEMP_DIR}/${LYCHEE_BINARY}" --no-progress --timeout 30 --format detailed  '**/*.md'
