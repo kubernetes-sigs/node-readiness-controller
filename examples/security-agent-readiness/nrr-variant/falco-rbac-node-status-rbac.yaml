@@ -21,5 +21,5 @@ roleRef:
 subjects:
 # Bind to security agent's ServiceAccount
 - kind: ServiceAccount
-  name: falco-node
-  namespace: kube-system
+  name: falco
+  namespace: falco
