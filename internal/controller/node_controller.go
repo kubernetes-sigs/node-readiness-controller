@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -128,6 +129,9 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 		if r.isBootstrapCompleted(ctx, node.Name, rule.Name) && rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
 			log.Info("Skipping bootstrap-only rule - already completed",
 				"node", node.Name, "rule", rule.Name)
+			// Update metrics to reflect current state even when skipping
+			r.updateNodesByStateMetrics(ctx, rule)
+			metrics.RuleLastReconciliationTime.WithLabelValues(rule.Name).Set(float64(time.Now().Unix()))
 			continue
 		}
 
@@ -212,6 +216,8 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 				"resourceVersion", rule.ResourceVersion)
 			// continue with other rules
 		} else {
+			r.updateNodesByStateMetrics(ctx, rule)
+			metrics.RuleLastReconciliationTime.WithLabelValues(rule.Name).Set(float64(time.Now().Unix()))
 			log.V(4).Info("Successfully persisted rule status from node reconciler",
 				"node", node.Name,
 				"rule", rule.Name,

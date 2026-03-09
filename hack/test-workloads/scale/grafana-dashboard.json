@@ -1,0 +1,406 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {"type": "grafana", "uid": "-- Grafana --"},
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "title": "NRR Ready Nodes (%)",
+      "type": "stat",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0},
+      "id": 1,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "100 * sum(node_readiness_nodes_by_state{state=\"ready\"}) / clamp_min(sum(node_readiness_nodes_by_state), 1)",
+          "legendFormat": "Ready %"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "green", "value": 95}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "SLI: Fast Evaluations (% under 50ms)",
+      "type": "stat",
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 0},
+      "id": 2,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(node_readiness_evaluation_duration_seconds_bucket{le=\"0.05\"}[5m])) / sum(rate(node_readiness_evaluation_duration_seconds_count[5m])) * 100",
+          "legendFormat": "Evaluations < 50ms"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 95},
+              {"color": "green", "value": 99}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Bootstrap Completions",
+      "type": "stat",
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 0},
+      "id": 3,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(node_readiness_bootstrap_completed_total)",
+          "legendFormat": "Completed"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "blue", "value": null},
+              {"color": "green", "value": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Nodes by Readiness State",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "id": 4,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum by (state) (node_readiness_nodes_by_state)",
+          "legendFormat": "{{state}}"
+        }
+      ],
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right"},
+        "tooltip": {"mode": "multi"}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "stacking": {"group": "A", "mode": "normal"}
+          }
+        }
+      }
+    },
+    {
+      "title": "Nodes by Rule and State",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "id": 5,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum by (rule, state) (node_readiness_nodes_by_state)",
+          "legendFormat": "{{rule}} / {{state}}"
+        }
+      ],
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right"},
+        "tooltip": {"mode": "multi"}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "stacking": {"group": "A", "mode": "normal"}
+          }
+        }
+      }
+    },
+    {
+      "title": "Reconciliation Latency (P50/P95/P99)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+      "id": 6,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, operation) (rate(node_readiness_reconciliation_latency_seconds_bucket[5m])))",
+          "legendFormat": "P50 {{operation}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(node_readiness_reconciliation_latency_seconds_bucket[5m])))",
+          "legendFormat": "P95 {{operation}}"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, operation) (rate(node_readiness_reconciliation_latency_seconds_bucket[5m])))",
+          "legendFormat": "P99 {{operation}}"
+        }
+      ],
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom"}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2}
+        }
+      }
+    },
+    {
+      "title": "Evaluation Rate by Rule",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+      "id": 7,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum by (rule) (rate(node_readiness_evaluation_duration_seconds_count[5m]))",
+          "legendFormat": "{{rule}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {"drawStyle": "line", "fillOpacity": 15, "lineWidth": 2}
+        }
+      }
+    },
+    {
+      "title": "Taint Operations (Throughput)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 22},
+      "id": 8,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum by (operation) (rate(node_readiness_taint_operations_total[1m]))",
+          "legendFormat": "{{operation}} rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {"drawStyle": "bars", "fillOpacity": 80}
+        }
+      }
+    },
+    {
+      "title": "Failures & Errors",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 22},
+      "id": 9,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum by (reason) (rate(node_readiness_failures_total[1m])) or vector(0)",
+          "legendFormat": "{{reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {"drawStyle": "line", "fillOpacity": 20, "lineWidth": 2}
+        }
+      }
+    },
+    {
+      "title": "Rule Reconciliation Age",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 30},
+      "id": 10,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "time() - node_readiness_rule_last_reconciliation_timestamp_seconds",
+          "legendFormat": "{{rule}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {"drawStyle": "line", "fillOpacity": 20}
+        }
+      }
+    },
+    {
+      "title": "Workqueue Depth (Backlog)",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 30},
+      "id": 11,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(workqueue_depth)",
+          "legendFormat": "Queue Depth"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "fillOpacity": 30}
+        }
+      }
+    },
+    {
+      "title": "Controller Memory Usage",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 30},
+      "id": 12,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(container_memory_working_set_bytes{namespace=\"nrr-system\", container=\"manager\"})",
+          "legendFormat": "Container Working Set"
+        },
+        {
+          "expr": "process_resident_memory_bytes",
+          "legendFormat": "Process RSS"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {"drawStyle": "line", "fillOpacity": 20}
+        }
+      }
+    },
+    {
+      "title": "Controller CPU Usage",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 37},
+      "id": 13,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"nrr-system\", container=\"manager\"}[1m]))",
+          "legendFormat": "Container CPU"
+        },
+        {
+          "expr": "rate(process_cpu_seconds_total[1m])",
+          "legendFormat": "Process CPU"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {"drawStyle": "line", "fillOpacity": 20}
+        }
+      }
+    },
+    {
+      "title": "Bootstrap Duration by Rule (P95)",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 37},
+      "id": 14,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, rule) (rate(node_readiness_bootstrap_duration_seconds_bucket[5m])))",
+          "legendFormat": "P95 {{rule}}"
+        }
+      ],
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom"}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {"drawStyle": "line", "fillOpacity": 15, "lineWidth": 2}
+        }
+      }
+    },
+    {
+      "title": "Bootstrap Duration Rate / Samples",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 44},
+      "id": 15,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(node_readiness_bootstrap_duration_seconds_count[5m]))",
+          "legendFormat": "bootstrap samples/sec"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {"drawStyle": "line", "fillOpacity": 20}
+        }
+      }
+    },
+    {
+      "title": "Total Taint Operations",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 44},
+      "id": 16,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(node_readiness_taint_operations_total{operation=\"add\"})",
+          "legendFormat": "adds"
+        },
+        {
+          "expr": "sum(node_readiness_taint_operations_total{operation=\"remove\"})",
+          "legendFormat": "removes"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {"drawStyle": "line", "fillOpacity": 20}
+        }
+      }
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 38,
+  "tags": ["nrr", "kubernetes", "scale-test"],
+  "time": {"from": "now-15m", "to": "now"},
+  "timepicker": {"refresh_intervals": ["5s", "10s", "30s", "1m"]},
+  "title": "Node Readiness Controller - Production Scale",
+  "uid": "nrr-scale-dashboard",
+  "version": 1
+}
