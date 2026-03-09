@@ -96,7 +96,7 @@ generated: config/rbac/*.yaml (multiple files via kubebuilder)
 ### Build and Deploy
 
 * `make build` - builds controller binary
-* `make docker-build` - builds container image
+* `make container-build` - builds container image
 * `make deploy` - deploys to current kubectl context
 * `make undeploy` - removes deployment
 

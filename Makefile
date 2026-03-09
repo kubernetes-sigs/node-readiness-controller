@@ -62,8 +62,12 @@ CONTROLLER_GEN_PKG := sigs.k8s.io/controller-tools/cmd/controller-gen
 IMG_PREFIX ?= controller
 IMG_TAG ?= latest
 
-# ENABLE_METRICS: If set to true, includes Prometheus Service resources.
+# Kind cluster name for loading images
+KIND_CLUSTER ?= nrr-local
+
+# ENABLE_METRICS: If set to true, includes Prometheus Service and ServiceMonitor resources.
 ENABLE_METRICS ?= false
+# ENABLE_TLS: If set to true (and ENABLE_METRICS is true), configures metrics to use HTTPS with CertManager.
 ENABLE_TLS ?= false
 # ENABLE_WEBHOOK: If set to true, includes validating webhook. Requires ENABLE_TLS=true.
 ENABLE_WEBHOOK ?= false
@@ -173,11 +177,16 @@ run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
-# (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
+# (i.e. docker build --platform linux/arm64 or podman build --platform linux/arm64).
+# However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
-.PHONY: docker-build
-docker-build: ## Build docker image with the manager.
+.PHONY: container-build
+container-build: ## Build container image with the manager.
+ifeq ($(CONTAINER_TOOL),podman)
+	$(CONTAINER_TOOL) build -t localhost/${IMG_PREFIX}:${IMG_TAG} .
+else
 	DOCKER_BUILDKIT=1 $(CONTAINER_TOOL) build -t ${IMG_PREFIX}:${IMG_TAG} .
+endif
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -197,9 +206,29 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG_PREFIX}:${IMG_TAG} .
 	- $(CONTAINER_TOOL) buildx rm nrrcontroller-builder
 
-.PHONY: docker-build-reporter
-docker-build-reporter: ## Build docker image with the reporter.
+.PHONY: kind-load
+kind-load: ## Load the built image into kind cluster
+ifeq ($(CONTAINER_TOOL),podman)
+	@echo "Loading Podman image into kind cluster: $(KIND_CLUSTER)"
+	@echo "Saving image to temporary tar archive..."
+	@$(CONTAINER_TOOL) save -o /tmp/controller-image.tar localhost/$(IMG_PREFIX):$(IMG_TAG)
+	@echo "Loading tar archive into kind cluster..."
+	@kind load image-archive /tmp/controller-image.tar --name $(KIND_CLUSTER)
+	@echo "Cleaning up temporary tar archive..."
+	@rm /tmp/controller-image.tar
+	@echo "Image loaded successfully!"
+else
+	@echo "Loading Docker image into kind cluster: $(KIND_CLUSTER)"
+	@kind load docker-image $(IMG_PREFIX):$(IMG_TAG) --name $(KIND_CLUSTER)
+endif
+
+.PHONY: container-build-reporter
+container-build-reporter: ## Build container image with the reporter.
+ifeq ($(CONTAINER_TOOL),podman)
+	$(CONTAINER_TOOL) build -f Dockerfile.reporter -t ${IMG_PREFIX}:${IMG_TAG} .
+else
 	DOCKER_BUILDKIT=1 $(CONTAINER_TOOL) build -f Dockerfile.reporter -t ${IMG_PREFIX}:${IMG_TAG} .
+endif
 
 .PHONY: docker-push-reporter
 docker-push-reporter: ## Push docker image with the reporter.

@@ -60,7 +60,7 @@ func TestE2E(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	By("building the manager(Operator) image")
-	cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG_PREFIX=%s", imagePrefix), fmt.Sprintf("IMG_TAG=%s", imageTag))
+	cmd := exec.Command("make", "container-build", fmt.Sprintf("IMG_PREFIX=%s", imagePrefix), fmt.Sprintf("IMG_TAG=%s", imageTag))
 	_, err := utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager(Operator) image")
 
