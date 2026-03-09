@@ -5,7 +5,7 @@
 A Kubernetes controller that provides fine-grained, declarative readiness for nodes. It ensures nodes only accept workloads when all required components eg: network agents, GPU drivers,
 storage drivers or custom health-checks, are fully ready on the node.
 
-This project implements the proposed [NodeReadinessGates](https://github.com/kubernetes/enhancements/pull/5416) API (KEP 5416) as an out-of-band solution and brings it to any Kubernetes cluster.
+This project implements the proposed [NodeReadinessGates](https://github.com/kubernetes/enhancements/pull/5416) API (KEP 5233) as an out-of-band solution and brings it to any Kubernetes cluster.
 
 Use it to orchestrate complex bootstrap steps in your node-init workflow, enforce node health and improve workload reliability.
 
