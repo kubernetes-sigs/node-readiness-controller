@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -56,10 +57,11 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 		fakeClientset = fake.NewSimpleClientset()
 		readinessController = &RuleReadinessController{
-			Client:    k8sClient,
-			Scheme:    scheme,
-			clientset: fakeClientset,
-			ruleCache: make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+			Client:        k8sClient,
+			Scheme:        scheme,
+			clientset:     fakeClientset,
+			ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+			EventRecorder: record.NewFakeRecorder(10),
 		}
 
 		ruleReconciler = &RuleReconciler{

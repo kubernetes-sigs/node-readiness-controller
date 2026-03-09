@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	nodereadinessiov1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
@@ -115,10 +116,11 @@ var _ = Describe("Node Controller", func() {
 
 			fakeClientset = fake.NewSimpleClientset()
 			readinessController = &RuleReadinessController{
-				Client:    k8sClient,
-				Scheme:    k8sClient.Scheme(),
-				clientset: fakeClientset,
-				ruleCache: make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				clientset:     fakeClientset,
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
 			}
 
 			nodeReconciler = &NodeReconciler{
@@ -377,10 +379,11 @@ var _ = Describe("Node Controller", func() {
 
 			fakeClientset = fake.NewSimpleClientset()
 			readinessController = &RuleReadinessController{
-				Client:    k8sClient,
-				Scheme:    k8sClient.Scheme(),
-				clientset: fakeClientset,
-				ruleCache: make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				clientset:     fakeClientset,
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
 			}
 
 			nodeReconciler = &NodeReconciler{
@@ -526,10 +529,11 @@ var _ = Describe("Node Controller", func() {
 
 			fakeClientset = fake.NewSimpleClientset()
 			readinessController = &RuleReadinessController{
-				Client:    k8sClient,
-				Scheme:    k8sClient.Scheme(),
-				clientset: fakeClientset,
-				ruleCache: make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				clientset:     fakeClientset,
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
 			}
 
 			nodeReconciler = &NodeReconciler{
