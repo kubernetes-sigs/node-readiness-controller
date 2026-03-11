@@ -5,8 +5,8 @@
 ## TL;DR:
 
 ```shell
-helm repo add nrr-controller https://kubernetes-sigs.github.io/nrr-controller/
-helm install my-release --namespace kube-system nrr-controller/nrr-controller
+helm repo add node-readiness-controller https://kubernetes-sigs.github.io/node-readiness-controller/
+helm install my-release --namespace kube-system node-readiness-controller/nrr-controller
 ```
 
 ## Introduction
@@ -22,7 +22,7 @@ This chart bootstraps a [node-readiness-controller](https://github.com/kubernete
 To install the chart with the release name `my-release`:
 
 ```shell
-helm install --namespace kube-system my-release nrr-controller/nrr-controller
+helm install --namespace kube-system my-release node-readiness-controller/nrr-controller
 ```
 
 The command deploys the _node-readiness-controller_ on the Kubernetes cluster in the default configuration. The [configuration](#configuration) section lists the parameters that can be configured during installation.
