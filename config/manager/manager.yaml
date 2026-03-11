@@ -56,6 +56,8 @@ spec:
       #             values:
       #               - platform    # Modify this value based on your platform node labels.
       priorityClassName: system-cluster-critical
+      # TODO: In the future, this could be replaced with tolerate only readiness.k8s.io/* taints specifically, when wildcard support is available in K8s.
+      # (ref: https://github.com/kubernetes/enhancements/issues/5500)
       tolerations:
       - operator: Exists
         effect: NoSchedule
