@@ -101,17 +101,19 @@ example on deploying the controller as a static pod in a kind cluster.
 ---
 ## Verification
 
-After installation, verify that the controller is running successfully.
+After installation, verify that the controller is running successfully. 
+
+> **Note**: Replace `${NAMESPACE}` with the namespace where the controller is deployed (typically `nrr-system` for standard deployments, or `kube-system` for static pods).
 
 1.  **Check Pod Status**:
     ```sh
-    kubectl get pods -n nrr-system
+    kubectl get pods -n ${NAMESPACE} -l component=node-readiness-controller
     ```
-    You should see a pod named `nrr-controller-manager-...` in `Running` status.
+    You should see the controller pods in `Running` status.
 
 2.  **Check Logs**:
     ```sh
-    kubectl logs -n nrr-system -l control-plane=controller-manager
+    kubectl logs -n ${NAMESPACE} -l component=node-readiness-controller
     ```
     Look for "Starting EventSource" or "Starting Controller" messages indicating the manager is active.
 
@@ -121,9 +123,9 @@ After installation, verify that the controller is running successfully.
     ```
 
 4. **Verify High Availability**:
-    In a HA cluster, you could verify one instance has acquired the leader lease
-    as below:
+    In an HA cluster, verify that one instance has acquired the leader lease:
     ```sh
+    # The lease namespace should match the controller's namespace (configured via --leader-election-namespace)
     kubectl get lease -n ${NAMESPACE} ba65f13e.readiness.node.x-k8s.io
     ```
 
@@ -151,6 +153,9 @@ The controller uses a **finalizer** (`readiness.node.x-k8s.io/cleanup-taints`) o
 
     # OR if using Kustomize
     kubectl delete -k config/default
+
+    # OR if using Static Pods
+    # Remove the manifest from /etc/kubernetes/manifests/ on all control-plane nodes
     ```
 
 3.  **Uninstall CRDs** (Optional):
