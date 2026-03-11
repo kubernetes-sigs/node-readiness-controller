@@ -1,0 +1,37 @@
+{{- if .Values.certManager.enabled }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "nrr-controller.fullname" . }}-{{ .Values.certManager.metricsCertificate.name }}
+  namespace: {{ include "nrr-controller.namespace" . }}
+  labels:
+    {{- include "nrr-controller.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.metrics.certSecretName }}
+  dnsNames:
+    - {{ include "nrr-controller.fullname" . }}-metrics-service.{{ include "nrr-controller.namespace" . }}.svc
+    - {{ include "nrr-controller.fullname" . }}-metrics-service.{{ include "nrr-controller.namespace" . }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ include "nrr-controller.fullname" . }}-{{ .Values.certManager.issuer.name }}
+
+{{- if and .Values.webhook.enabled .Values.certManager.webhookCertificate.create }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "nrr-controller.fullname" . }}-{{ .Values.certManager.webhookCertificate.name }}
+  namespace: {{ include "nrr-controller.namespace" . }}
+  labels:
+    {{- include "nrr-controller.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.webhook.certSecretName }}
+  dnsNames:
+    - {{ include "nrr-controller.fullname" . }}-webhook-service.{{ include "nrr-controller.namespace" . }}.svc
+    - {{ include "nrr-controller.fullname" . }}-webhook-service.{{ include "nrr-controller.namespace" . }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ include "nrr-controller.fullname" . }}-{{ .Values.certManager.issuer.name }}
+{{- end }}
+{{- end }}

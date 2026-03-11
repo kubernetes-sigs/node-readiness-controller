@@ -1,0 +1,42 @@
+suite: Test Node Readiness Controller Pod Annotations and Labels
+
+templates:
+  - "*.yaml"
+
+release:
+  name: nrr-controller
+
+tests:
+  - it: adds pod annotations and labels when set
+    template: templates/deployment.yaml
+    set:
+      podAnnotations:
+        monitoring.company.com/scrape: "true"
+        description: "test pod"
+      podLabels:
+        environment: "test"
+        team: "platform"
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["monitoring.company.com/scrape"]
+          value: "true"
+      - equal:
+          path: spec.template.metadata.annotations.description
+          value: "test pod"
+      - equal:
+          path: spec.template.metadata.labels.environment
+          value: "test"
+      - equal:
+          path: spec.template.metadata.labels.team
+          value: "platform"
+
+  - it: does not add metadata when not set
+    template: templates/deployment.yaml
+    asserts:
+      - isNull:
+          path: spec.template.metadata.annotations
+      - isNotNull:
+          path: spec.template.metadata.labels
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/name"]
+          value: nrr-controller

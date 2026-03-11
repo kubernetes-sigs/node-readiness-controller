@@ -1,0 +1,17 @@
+{{- if .Values.nodeReadinessRules }}
+{{- range $rule := .Values.nodeReadinessRules }}
+---
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: {{ $rule.name | quote }}
+spec:
+  conditions:
+{{- toYaml $rule.conditions | nindent 4 }}
+  taint:
+{{- toYaml $rule.taint | nindent 4 }}
+  enforcementMode: {{ $rule.enforcementMode | quote }}
+  nodeSelector:
+{{- toYaml $rule.nodeSelector | nindent 4 }}
+{{- end }}
+{{- end }}

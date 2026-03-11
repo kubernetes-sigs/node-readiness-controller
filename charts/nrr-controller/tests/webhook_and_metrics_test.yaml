@@ -1,0 +1,27 @@
+suite: Test Node Readiness Controller Webhook and Metrics Config
+
+templates:
+  - "*.yaml"
+
+release:
+  name: nrr-controller
+
+set:
+  webhook:
+    enabled: true
+  metrics:
+    secure: true
+
+tests:
+  - it: mounts webhook cert volume when webhook enabled
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes[0].name
+          content: cert
+  - it: mounts metrics cert volume when metrics.secure enabled
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes[?(@.name=="metrics-certs")].name
+          content: metrics-certs
