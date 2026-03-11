@@ -76,8 +76,36 @@ kubectl apply -k config/default
 
 You can enable optional components (Metrics, TLS, Webhook) by creating a `kustomization.yaml` that includes the relevant components from the `config/` directory. For reference on how these components can be combined, see the `deploy-with-metrics`, `deploy-with-tls`, `deploy-with-webhook`, and `deploy-full` targets in the projects [`Makefile`](https://github.com/kubernetes-sigs/node-readiness-controller/blob/main/Makefile).
 
----
+### Option 3: Deploy as a Static Pod (Control Plane)
 
+Running the controller as a **Static Pod** on control-plane nodes is useful for self-managed clusters (e.g., `kubeadm`) where you want the controller to be available alongside core components like the API server.
+
+#### Key Features of this Setup
+
+1.  **Non-Root Security:** The controller container runs as a non-root user (`UID 65532`).
+2.  **Permissions Handling:** Since `/etc/kubernetes/admin.conf` is typically restricted to `root:root (0600)`, an `initContainer` is used to copy the kubeconfig to a shared `emptyDir` volume and set readable permissions (`0644`) for the non-root manager process.
+3.  **High Availability:** The configuration is compatible with multi-master HA setups, using leader election to ensure only one instance is active.
+
+#### Deployment Steps
+
+1.  **Install CRDs**:
+    ```sh
+    kubectl apply -k config/crd
+    ```
+
+2.  **Prepare the Manifest**:
+    Use the example manifest in `examples/static-pod/node-readiness-controller.yaml`. This manifest includes the `initContainer` and necessary flags for leader election.
+
+3.  **Deploy to Nodes**:
+    Copy the manifest to the `/etc/kubernetes/manifests/` directory on each control-plane node. The Kubelet will automatically detect and start the pod.
+
+4.  **Verify High Availability**:
+    In an HA setup, verify that one instance has acquired the leader lease:
+    ```sh
+    kubectl get lease -n kube-system ba65f13e.readiness.node.x-k8s.io
+    ```
+
+---
 ## Verification
 
 After installation, verify that the controller is running successfully.
