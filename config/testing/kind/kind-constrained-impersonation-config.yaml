@@ -1,0 +1,28 @@
+# Kind cluster configuration for testing Constrained Impersonation (KEP-5284).
+# Requires Kubernetes v1.35+ (Alpha) or v1.36+ (Beta).
+# The ConstrainedImpersonation feature gate must be enabled on the API server.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: nrr-constrained-impersonation
+kubeadmConfigPatches:
+- |
+  kind: ClusterConfiguration
+  apiServer:
+    extraArgs:
+      feature-gates: "ConstrainedImpersonation=true"
+nodes:
+- role: control-plane
+- role: worker
+  kubeadmConfigPatches:
+  - |
+    kind: JoinConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        register-with-taints: "readiness.k8s.io/NetworkReady=pending:NoSchedule"
+- role: worker
+  kubeadmConfigPatches:
+  - |
+    kind: JoinConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        register-with-taints: "readiness.k8s.io/NetworkReady=pending:NoSchedule"

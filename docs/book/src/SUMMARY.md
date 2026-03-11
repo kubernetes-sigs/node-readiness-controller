@@ -15,6 +15,7 @@
 <!-- - [Storage Drivers](./examples/storage-readiness.md) -->
 - [Security Agent](./examples/security-agent-readiness.md)
 <!-- - [Device Drivers](./examples/dra-readiness.md) -->
+- [Constrained Impersonation](./examples/constrained-impersonation.md)
 
 # Releases
 
@@ -24,7 +25,7 @@
 
 - [Monitoring](./operations/monitoring.md)
 <!-- - [Troubleshooting](./operations/troubleshooting.md) -->
-<!-- - [Security](./operations/security.md) -->
+- [Security](./operations/security.md)
 
 <!-- # Development -->
 

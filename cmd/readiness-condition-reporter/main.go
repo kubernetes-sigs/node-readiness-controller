@@ -37,6 +37,7 @@ const (
 	envConditionType     = "CONDITION_TYPE"
 	envCheckEndpoint     = "CHECK_ENDPOINT"
 	envCheckInterval     = "CHECK_INTERVAL"
+	envImpersonateNode   = "IMPERSONATE_NODE"
 	defaultCheckInterval = 30 * time.Second
 	defaultHTTPTimeout   = 10 * time.Second
 )
@@ -88,6 +89,14 @@ func main() {
 	if err != nil {
 		klog.ErrorS(err, "Failed to create in-cluster config")
 		os.Exit(1)
+	}
+
+	// Set the constrained impersonation config
+	if os.Getenv(envImpersonateNode) == "true" {
+		config.Impersonate = rest.ImpersonationConfig{
+			UserName: "system:node:" + nodeName,
+		}
+		klog.InfoS("Node impersonation enabled", "impersonating", config.Impersonate.UserName)
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
