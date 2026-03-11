@@ -80,30 +80,23 @@ You can enable optional components (Metrics, TLS, Webhook) by creating a `kustom
 
 Running the controller as a **Static Pod** on control-plane nodes is useful for self-managed clusters (e.g., `kubeadm`) where you want the controller to be available alongside core components like the API server.
 
-#### Key Features of this Setup
-
-1.  **Non-Root Security:** The controller container runs as a non-root user (`UID 65532`).
-2.  **Permissions Handling:** Since `/etc/kubernetes/admin.conf` is typically restricted to `root:root (0600)`, an `initContainer` is used to copy the kubeconfig to a shared `emptyDir` volume and set readable permissions (`0644`) for the non-root manager process.
-3.  **High Availability:** The configuration is compatible with multi-master HA setups, using leader election to ensure only one instance is active.
+Refer to the `examples/static-pod/node-readiness-controller.yaml` for a detailed
+example on deploying the controller as a static pod in a kind cluster.
 
 #### Deployment Steps
 
-1.  **Install CRDs**:
+1.  **Prepare the Manifest**:
+    Refer the example manifest in
+    `examples/static-pod/node-readiness-controller.yaml`. This manifest handles kubeconfig with a `initContainer` and necessary flags for leader election.
+
+2.  **Deploy to Nodes**:
+    Use Ansible / Terraform to copy the manifest to the `/etc/kubernetes/manifests/` directory on each control-plane node. The Kubelet will automatically detect and start the pod.
+
+3.  **Install CRDs**:
     ```sh
     kubectl apply -k config/crd
     ```
-
-2.  **Prepare the Manifest**:
-    Use the example manifest in `examples/static-pod/node-readiness-controller.yaml`. This manifest includes the `initContainer` and necessary flags for leader election.
-
-3.  **Deploy to Nodes**:
-    Copy the manifest to the `/etc/kubernetes/manifests/` directory on each control-plane node. The Kubelet will automatically detect and start the pod.
-
-4.  **Verify High Availability**:
-    In an HA setup, verify that one instance has acquired the leader lease:
-    ```sh
-    kubectl get lease -n kube-system ba65f13e.readiness.node.x-k8s.io
-    ```
+    This is typically handled via a bootstrap script or post-install job in a `kubeadm` setup.
 
 ---
 ## Verification
@@ -125,6 +118,13 @@ After installation, verify that the controller is running successfully.
 3.  **Verify CRDs**:
     ```sh
     kubectl get crd nodereadinessrules.readiness.node.x-k8s.io
+    ```
+
+4. **Verify High Availability**:
+    In a HA cluster, you could verify one instance has acquired the leader lease
+    as below:
+    ```sh
+    kubectl get lease -n ${NAMESPACE} ba65f13e.readiness.node.x-k8s.io
     ```
 
 ## Uninstallation
