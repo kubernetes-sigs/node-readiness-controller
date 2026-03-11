@@ -1,0 +1,148 @@
+# Default values for node-readiness-controller.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+image:
+  repository: registry.k8s.io/node-readiness-controller/node-readiness-controller
+  # Overrides the image tag whose default is the chart version
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+#   - name: container-registry-secret
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 128Mi
+
+nameOverride: ""
+
+fullnameOverride: ""
+
+# -- Override the deployment namespace; defaults to .Release.Namespace
+namespaceOverride: ""
+
+commonLabels: {}
+
+# Specifies the replica count for Deployment
+# Enable leaderElection if you want to use more than 1 replica
+# Set affinity.podAntiAffinity rule if you want to schedule onto a node
+replicaCount: 1
+
+priorityClassName: system-cluster-critical
+
+podAnnotations:
+  kubectl.kubernetes.io/default-container: manager
+
+podLabels: {}
+
+# podSecurityContext -- [Security context for pod](https://kubernetes.io/docs/tasks/configure-pod-container/security-context/)
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+terminationGracePeriodSeconds: 10
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Enable leader election to support multiple replicas
+leaderElection:
+  enabled: false
+
+# Enable the webhook server
+healthProbeBindAddress: ":8081"
+
+# Liveness probe configuration
+livenessProbe:
+  path: /healthz
+  initialDelaySeconds: 15
+  periodSeconds: 20
+
+# Readiness probe configuration
+readinessProbe:
+  path: /readyz
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# Metrics server configuration
+metrics:
+  secure: false
+  bindAddress: ":8443"
+  service:
+    port: 8443
+    targetPort: 8443
+  certDir: /tmp/k8s-metrics-server/metrics-certs
+  certSecretName: metrics-server-cert
+
+# Webhook server configuration
+webhook:
+  enabled: false
+  port: 9443
+  service:
+    port: 8443
+    targetPort: 9443
+  certDir: /tmp/k8s-webhook-server/serving-certs
+  certSecretName: webhook-server-certs
+
+# cert-manager configuration for generating TLS certificates for the webhook and metrics server
+certManager:
+  enabled: false
+  issuer:
+    create: true
+    name: selfsigned-issuer
+  metricsCertificate:
+    create: true
+    name: metrics-certs
+  webhookCertificate:
+    create: true
+    name: serving-cert
+
+validatingWebhook:
+  enabled: false
+  name: validating-webhook-configuration
+  webhookName: vnodereadinessrule.kb.io
+  failurePolicy: Fail
+  sideEffects: None
+  path: /validate-readiness-node-x-k8s-io-v1alpha1-nodereadinessrule
+  admissionReviewVersions:
+    - v1
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# NOTE: Before enabling these rules. The CRD `nodereadinessrules.readiness.node.x-k8s.io` must already be installed in the cluster
+# If the CRD is not installed, Helm will fail during installation.
+nodeReadinessRules: []
+  # - name: kube-proxy-unhealthy-noschedule
+  #   conditions:
+  #     - type: "KubeProxyUnhealthy"
+  #       requiredStatus: "False"
+  #   taint:
+  #     key: "readiness.k8s.io/KubeProxyUnhealthy"
+  #     value: "true"
+  #     effect: "NoSchedule"
+  #   enforcementMode: "continuous"
+  #   nodeSelector:
+  #     matchLabels:
+  #       kubernetes.io/os: linux
