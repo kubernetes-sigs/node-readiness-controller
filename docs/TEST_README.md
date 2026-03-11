@@ -40,11 +40,11 @@ Build the controller image and load it into the Kind cluster nodes.
 
 **Using Docker:**
 ```bash
-# Build the image
-make container-build IMG_PREFIX=controller IMG_TAG=latest
+# Build the image (uses defaults: IMG_PREFIX=controller IMG_TAG=latest)
+make docker-build
 
-# Load the image into the kind cluster
-make kind-load IMG_PREFIX=controller IMG_TAG=latest KIND_CLUSTER=nrr-test
+# Load the image into the kind cluster (uses default: KIND_CLUSTER=nrr-test)
+make kind-load
 
 # Verify the image is loaded
 docker exec -it nrr-test-control-plane crictl images | grep controller
@@ -52,11 +52,11 @@ docker exec -it nrr-test-control-plane crictl images | grep controller
 
 **Using Podman:**
 ```bash
-# Build the image
-make container-build CONTAINER_TOOL=podman IMG_PREFIX=controller IMG_TAG=latest
+# Build the image (uses defaults: IMG_PREFIX=controller IMG_TAG=latest)
+make podman-build
 
-# Load the image into the kind cluster
-make kind-load CONTAINER_TOOL=podman IMG_PREFIX=controller IMG_TAG=latest KIND_CLUSTER=nrr-test
+# Load the image into the kind cluster (uses default: KIND_CLUSTER=nrr-test)
+make kind-load CONTAINER_TOOL=podman
 
 # Verify the image is loaded
 podman exec -it nrr-test-control-plane crictl images | grep controller

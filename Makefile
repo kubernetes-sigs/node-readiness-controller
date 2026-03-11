@@ -63,7 +63,7 @@ IMG_PREFIX ?= controller
 IMG_TAG ?= latest
 
 # Kind cluster name for loading images
-KIND_CLUSTER ?= nrr-local
+KIND_CLUSTER ?= nrr-test
 
 # ENABLE_METRICS: If set to true, includes Prometheus Service and ServiceMonitor resources.
 ENABLE_METRICS ?= false
@@ -180,13 +180,13 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # (i.e. docker build --platform linux/arm64 or podman build --platform linux/arm64).
 # However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
-.PHONY: container-build
-container-build: ## Build container image with the manager.
-ifeq ($(CONTAINER_TOOL),podman)
-	$(CONTAINER_TOOL) build -t localhost/${IMG_PREFIX}:${IMG_TAG} .
-else
-	DOCKER_BUILDKIT=1 $(CONTAINER_TOOL) build -t ${IMG_PREFIX}:${IMG_TAG} .
-endif
+.PHONY: docker-build
+docker-build: ## Build container image with Docker.
+	DOCKER_BUILDKIT=1 docker build -t ${IMG_PREFIX}:${IMG_TAG} .
+
+.PHONY: podman-build
+podman-build: ## Build container image with Podman.
+	podman build -t localhost/${IMG_PREFIX}:${IMG_TAG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -222,13 +222,13 @@ else
 	@kind load docker-image $(IMG_PREFIX):$(IMG_TAG) --name $(KIND_CLUSTER)
 endif
 
-.PHONY: container-build-reporter
-container-build-reporter: ## Build container image with the reporter.
-ifeq ($(CONTAINER_TOOL),podman)
-	$(CONTAINER_TOOL) build -f Dockerfile.reporter -t ${IMG_PREFIX}:${IMG_TAG} .
-else
-	DOCKER_BUILDKIT=1 $(CONTAINER_TOOL) build -f Dockerfile.reporter -t ${IMG_PREFIX}:${IMG_TAG} .
-endif
+.PHONY: docker-build-reporter
+docker-build-reporter: ## Build reporter container image with Docker.
+	DOCKER_BUILDKIT=1 docker build -f Dockerfile.reporter -t ${IMG_PREFIX}:${IMG_TAG} .
+
+.PHONY: podman-build-reporter
+podman-build-reporter: ## Build reporter container image with Podman.
+	podman build -f Dockerfile.reporter -t ${IMG_PREFIX}:${IMG_TAG} .
 
 .PHONY: docker-push-reporter
 docker-push-reporter: ## Push docker image with the reporter.

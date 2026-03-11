@@ -1,5 +1,8 @@
 # More info: https://docs.docker.com/engine/reference/builder/#dockerignore-file
-# Ignore build artifacts and unnecessary files
+# Compatible with both Docker and Podman
+# Use explicit exclusions (not negation patterns) for better compatibility
+
+# Build artifacts and unnecessary files
 bin/
 dist/
 .git/
@@ -15,8 +18,19 @@ test/
 *.svg
 *.png
 
-# Keep test files out of the image
+# Test files
 **/*_test.go
 
-# Keep Go module cache out
+# Cache directories
 .cache/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
