@@ -1,0 +1,17 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nrr-controller.fullname" . }}-webhook-service
+  namespace: {{ include "nrr-controller.namespace" . }}
+  labels:
+    {{- include "nrr-controller.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: https
+      port: {{ .Values.webhook.service.port }}
+      protocol: TCP
+      targetPort: {{ .Values.webhook.service.targetPort }}
+  selector:
+    {{- include "nrr-controller.selectorLabels" . | nindent 4 }}
+{{- end }}

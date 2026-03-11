@@ -1,0 +1,11 @@
+{{- if and .Values.certManager.enabled .Values.certManager.issuer.create }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "nrr-controller.fullname" . }}-{{ .Values.certManager.issuer.name }}
+  namespace: {{ include "nrr-controller.namespace" . }}
+  labels:
+    {{- include "nrr-controller.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+{{- end }}
