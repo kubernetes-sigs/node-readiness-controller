@@ -66,7 +66,7 @@ func main() {
 	var enableWebhook bool
 	var metricsSecure bool
 	var metricsCertDir string
-	var kubeconfig string
+	var kubeconfigFlag string
 	var leaderElectionNamespace string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -81,7 +81,7 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&enableWebhook, "enable-webhook", false,
 		"Enable validation webhook. Requires TLS certificates to be configured.")
-	flag.StringVar(&kubeconfig, "kubeconfig", "", "Paths to a kubeconfig. Only required if out-of-cluster.")
+	flag.StringVar(&kubeconfigFlag, "kubeconfig", "", "Paths to a kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&leaderElectionNamespace, "leader-election-namespace", "", "The namespace where the leader election resource will be created.")
 
 	opts := zap.Options{
@@ -96,8 +96,8 @@ func main() {
 
 	var cfg *rest.Config
 	var err error
-	if kubeconfig != "" {
-		cfg, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if kubeconfigFlag != "" {
+		cfg, err = clientcmd.BuildConfigFromFlags("", kubeconfigFlag)
 	} else {
 		cfg, err = ctrl.GetConfig()
 	}
