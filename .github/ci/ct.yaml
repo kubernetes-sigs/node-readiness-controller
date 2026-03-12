@@ -2,4 +2,4 @@ chart-dirs:
   - charts
 helm-extra-args: "--timeout=5m"
 check-version-increment: false
-target-branch: master
+target-branch: main
