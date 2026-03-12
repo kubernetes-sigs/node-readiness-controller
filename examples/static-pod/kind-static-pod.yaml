@@ -4,17 +4,17 @@ name: nrr-static-test
 nodes:
 - role: control-plane
   extraMounts:
-  - hostPath: ./static-manifests/node-readiness-controller.yaml
+  - hostPath: ./examples/static-pod/node-readiness-controller.yaml
     containerPath: /etc/kubernetes/manifests/node-readiness-controller.yaml
     readOnly: true
 - role: control-plane
   extraMounts:
-  - hostPath: ./static-manifests/node-readiness-controller.yaml
+  - hostPath: ./examples/static-pod/node-readiness-controller.yaml
     containerPath: /etc/kubernetes/manifests/node-readiness-controller.yaml
     readOnly: true
 - role: control-plane
   extraMounts:
-  - hostPath: ./static-manifests/node-readiness-controller.yaml
+  - hostPath: ./examples/static-pod/node-readiness-controller.yaml
     containerPath: /etc/kubernetes/manifests/node-readiness-controller.yaml
     readOnly: true
 - role: worker
