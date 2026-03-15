@@ -40,7 +40,7 @@ spec:
   - name: taintKeys
     expression: |
       ("taint-keys" in params.data) && params.data["taint-keys"] != "" ?
-        params.data["taint-keys"].split(",") : []
+        params.data["taint-keys"].split(",").filter(key, key != "") : []
   
   # Create tolerations from taint keys (as plain maps since CEL has issues with complex types)
   - name: tolerationsToInject
