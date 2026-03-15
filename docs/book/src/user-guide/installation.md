@@ -76,27 +76,57 @@ kubectl apply -k config/default
 
 You can enable optional components (Metrics, TLS, Webhook) by creating a `kustomization.yaml` that includes the relevant components from the `config/` directory. For reference on how these components can be combined, see the `deploy-with-metrics`, `deploy-with-tls`, `deploy-with-webhook`, and `deploy-full` targets in the projects [`Makefile`](https://github.com/kubernetes-sigs/node-readiness-controller/blob/main/Makefile).
 
----
+### Option 3: Deploy as a Static Pod (Control Plane)
 
+Running the controller as a **Static Pod** on control-plane nodes is useful for self-managed clusters (e.g., `kubeadm`) where you want the controller to be available alongside core components like the API server.
+
+Refer to the `examples/static-pod/node-readiness-controller.yaml` for a detailed
+example on deploying the controller as a static pod in a kind cluster.
+
+#### Deployment Steps
+
+1.  **Prepare the Manifest**:
+    Refer the example manifest in
+    `examples/static-pod/node-readiness-controller.yaml`. This manifest handles kubeconfig with a `initContainer` and necessary flags for leader election.
+
+2.  **Deploy to Nodes**:
+    Use Ansible / Terraform to copy the manifest to the `/etc/kubernetes/manifests/` directory on each control-plane node. The Kubelet will automatically detect and start the pod.
+
+3.  **Install CRDs**:
+    ```sh
+    kubectl apply -k config/crd
+    ```
+    This is typically handled via a bootstrap script or post-install job in a `kubeadm` setup.
+
+---
 ## Verification
 
-After installation, verify that the controller is running successfully.
+After installation, verify that the controller is running successfully. 
+
+> **Note**: Replace `${NAMESPACE}` with the namespace where the controller is deployed (typically `nrr-system` for standard deployments, or `kube-system` for static pods).
 
 1.  **Check Pod Status**:
     ```sh
-    kubectl get pods -n nrr-system
+    kubectl get pods -n ${NAMESPACE} -l component=node-readiness-controller
     ```
-    You should see a pod named `nrr-controller-manager-...` in `Running` status.
+    You should see the controller pods in `Running` status.
 
 2.  **Check Logs**:
     ```sh
-    kubectl logs -n nrr-system -l control-plane=controller-manager
+    kubectl logs -n ${NAMESPACE} -l component=node-readiness-controller
     ```
     Look for "Starting EventSource" or "Starting Controller" messages indicating the manager is active.
 
 3.  **Verify CRDs**:
     ```sh
     kubectl get crd nodereadinessrules.readiness.node.x-k8s.io
+    ```
+
+4. **Verify High Availability**:
+    In an HA cluster, verify that one instance has acquired the leader lease:
+    ```sh
+    # The lease namespace should match the controller's namespace (configured via --leader-election-namespace)
+    kubectl get lease -n ${NAMESPACE} ba65f13e.readiness.node.x-k8s.io
     ```
 
 ## Uninstallation
@@ -123,6 +153,9 @@ The controller uses a **finalizer** (`readiness.node.x-k8s.io/cleanup-taints`) o
 
     # OR if using Kustomize
     kubectl delete -k config/default
+
+    # OR if using Static Pods
+    # Remove the manifest from /etc/kubernetes/manifests/ on all control-plane nodes
     ```
 
 3.  **Uninstall CRDs** (Optional):
