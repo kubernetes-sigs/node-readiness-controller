@@ -16,7 +16,7 @@ The high-level steps are:
 
 This example uses **Calico**, but the pattern applies to any CNI.
 
-> **Note**: You can find all the manifests used in this guide in the [`examples/cni-readiness`](https://github.com/kubernetes-sigs/node-readiness-controller/tree/main/examples/cni-readiness) directory.
+> **Note**: You can find all the manifests used in this guide in the [`examples/cni-readiness`](../../../../examples/cni-readiness) directory.
 
 ### 1. Deploy the Readiness Condition Reporter
 

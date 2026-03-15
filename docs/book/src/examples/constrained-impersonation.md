@@ -8,7 +8,7 @@ This guide walks through a CNI readiness example that uses constrained impersona
 
 > **Prerequisites**: Kubernetes v1.35+ with the `ConstrainedImpersonation` feature gate enabled, or v1.36+ where it is Beta and enabled by default.
 
-> **Note**: You can find all the manifests used in this guide in the [`examples/constrained-impersonation`](https://github.com/kubernetes-sigs/node-readiness-controller/tree/main/examples/constrained-impersonation) directory.
+> **Note**: You can find all the manifests used in this guide in the [`examples/constrained-impersonation`](../../../../examples/constrained-impersonation) directory.
 
 ## Step-by-Step Guide
 
