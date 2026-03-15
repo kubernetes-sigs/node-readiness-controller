@@ -14,6 +14,9 @@
 
 .DEFAULT_GOAL:=help
 
+# Force using a specific toolchain version to avoid issues with local installations.
+export GOTOOLCHAIN := go1.25.8
+
 #
 # Directories.
 #
