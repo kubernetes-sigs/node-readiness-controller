@@ -65,6 +65,7 @@ type NodeReadinessRuleSpec struct {
 	// "continuous" ensures the state is monitored and corrected throughout the resource lifecycle.
 	//
 	// +required
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="enforcementMode is immutable"
 	EnforcementMode EnforcementMode `json:"enforcementMode,omitempty"`
 
 	// taint defines the specific Taint (Key, Value, and Effect) to be managed

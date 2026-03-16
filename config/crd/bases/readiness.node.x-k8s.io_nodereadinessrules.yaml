@@ -109,6 +109,9 @@ spec:
                 - bootstrap-only
                 - continuous
                 type: string
+                x-kubernetes-validations:
+                - message: enforcementMode is immutable
+                  rule: self == oldSelf
               nodeSelector:
                 description: nodeSelector limits the scope of this rule to a specific
                   subset of Nodes.
