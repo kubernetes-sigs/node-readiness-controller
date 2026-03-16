@@ -169,6 +169,7 @@ func (w *NodeReadinessRuleWebhook) nodSelectorsOverlap(selector1, selector2 meta
 // generateNoExecuteWarnings generates admission warnings for NoExecute taint usage.
 // NoExecute taints cause immediate pod eviction, which can be disruptive when
 // used with continuous enforcement mode.
+// Note: This is only called on CREATE since taint.effect is immutable after creation.
 func (w *NodeReadinessRuleWebhook) generateNoExecuteWarnings(spec readinessv1alpha1.NodeReadinessRuleSpec) admission.Warnings {
 	var warnings admission.Warnings
 
@@ -225,9 +226,8 @@ func (w *NodeReadinessRuleWebhook) ValidateUpdate(ctx context.Context, oldObj, n
 		return nil, fmt.Errorf("validation failed: %v", allErrs)
 	}
 
-	// Generate warnings for NoExecute taint usage
-	warnings := w.generateNoExecuteWarnings(rule.Spec)
-	return warnings, nil
+	// No warnings on update - taint fields are immutable
+	return nil, nil
 }
 
 func (w *NodeReadinessRuleWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {

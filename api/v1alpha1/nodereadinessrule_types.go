@@ -56,6 +56,7 @@ type NodeReadinessRuleSpec struct {
 	// +listMapKey=type
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="conditions is immutable"
 	Conditions []ConditionRequirement `json:"conditions"` //nolint:kubeapilinter
 
 	// enforcementMode specifies how the controller maintains the desired state.
@@ -86,11 +87,15 @@ type NodeReadinessRuleSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self.key.split('/')[1].matches('^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$')",message="taint key name part must consist of alphanumeric characters, '-', '_' or '.', and must start and end with an alphanumeric character"
 	// +kubebuilder:validation:XValidation:rule="!has(self.value) || self.value.size() <= 63",message="taint value length must be at most 63 characters"
 	// +kubebuilder:validation:XValidation:rule="self.effect in ['NoSchedule', 'PreferNoSchedule', 'NoExecute']",message="taint effect must be one of 'NoSchedule', 'PreferNoSchedule', 'NoExecute'"
+	// +kubebuilder:validation:XValidation:rule="!has(oldSelf.key) || self.key == oldSelf.key",message="taint key is immutable"
+	// +kubebuilder:validation:XValidation:rule="!has(oldSelf.effect) || self.effect == oldSelf.effect",message="taint effect is immutable"
+	// +kubebuilder:validation:XValidation:rule="!has(oldSelf.value) || self.value == oldSelf.value",message="taint value is immutable"
 	Taint corev1.Taint `json:"taint,omitempty,omitzero"`
 
 	// nodeSelector limits the scope of this rule to a specific subset of Nodes.
 	//
 	// +required
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="nodeSelector is immutable"
 	NodeSelector metav1.LabelSelector `json:"nodeSelector,omitempty,omitzero"`
 
 	// dryRun when set to true, The controller will evaluate Node conditions and log intended taint modifications
