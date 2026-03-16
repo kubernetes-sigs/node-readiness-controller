@@ -580,9 +580,9 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			Expect(warnings).To(BeEmpty()) // No warnings for PreferNoSchedule
 		})
 
-		It("should warn on update when changing to NoExecute with continuous", func() {
-			oldRule := &readinessv1alpha1.NodeReadinessRule{
-				ObjectMeta: metav1.ObjectMeta{Name: "update-noexecute"},
+		It("should warn when creating with NoExecute effect and continuous mode", func() {
+			rule := &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "create-noexecute-continuous"},
 				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
@@ -593,17 +593,14 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "test-key",
-						Effect: corev1.TaintEffectNoSchedule,
+						Key:    "readiness.k8s.io/test-key",
+						Effect: corev1.TaintEffectNoExecute,
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
 				},
 			}
 
-			newRule := oldRule.DeepCopy()
-			newRule.Spec.Taint.Effect = corev1.TaintEffectNoExecute // Changed to NoExecute
-
-			warnings, err := webhook.ValidateUpdate(ctx, oldRule, newRule)
+			warnings, err := webhook.ValidateCreate(ctx, rule)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(warnings).To(HaveLen(1))
 			Expect(warnings[0]).To(ContainSubstring("CAUTION"))

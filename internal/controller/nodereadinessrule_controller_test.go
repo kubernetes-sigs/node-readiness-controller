@@ -445,7 +445,6 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				Key:    "readiness.k8s.io/missing-key",
 				Effect: corev1.TaintEffectNoSchedule,
 			}
-
 			hasTaint = readinessController.hasTaintBySpec(node, nonExistentTaint)
 			Expect(hasTaint).To(BeFalse())
 		})
@@ -958,7 +957,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		})
 	})
 
-	Context("when a rule's nodeSelector changes", func() {
+	Context("when a rule's nodeSelector is modified", func() {
 		var rule *nodereadinessiov1alpha1.NodeReadinessRule
 		var prodNode, devNode *corev1.Node
 
@@ -1016,78 +1015,93 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			_ = k8sClient.Delete(ctx, rule)
 		})
 
-		It("should remove taints from nodes that no longer match the selector", func() {
-			// Initial reconcile - prod node should be managed, dev node should not
-			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "selector-change-rule"}})
-			Expect(err).NotTo(HaveOccurred())
-
-			// Verify prod node still has taint (condition not met)
-			Eventually(func() bool {
-				updatedNode := &corev1.Node{}
-				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "prod-node"}, updatedNode); err != nil {
-					return false
-				}
-				for _, taint := range updatedNode.Spec.Taints {
-					if taint.Key == selectorChangeTaintKey {
-						return true
-					}
-				}
-				return false
-			}, time.Second*5).Should(BeTrue(), "Prod node should have taint")
-
-			// Verify dev node does not have taint (not selected)
-			Consistently(func() bool {
-				updatedNode := &corev1.Node{}
-				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "dev-node"}, updatedNode); err != nil {
-					return false
-				}
-				for _, taint := range updatedNode.Spec.Taints {
-					if taint.Key == selectorChangeTaintKey {
-						return false // Taint found (unexpected)
-					}
-				}
-				return true // No taint (expected)
-			}, time.Second*2).Should(BeTrue(), "Dev node should not have taint")
-
-			// Update rule to target dev nodes instead of prod nodes
+		It("should reject attempts to change the nodeSelector (immutable)", func() {
 			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "selector-change-rule"}, updatedRule)).To(Succeed())
 			updatedRule.Spec.NodeSelector = metav1.LabelSelector{
 				MatchLabels: map[string]string{"env": "dev"},
 			}
-			Expect(k8sClient.Update(ctx, updatedRule)).To(Succeed())
+			err := k8sClient.Update(ctx, updatedRule)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("nodeSelector is immutable"))
+		})
+	})
 
-			// Trigger reconciliation
-			_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "selector-change-rule"}})
-			Expect(err).NotTo(HaveOccurred())
+	Context("when attempting to modify immutable fields", func() {
+		var rule *nodereadinessiov1alpha1.NodeReadinessRule
 
-			// Verify taint is removed from prod node (no longer selected)
-			Eventually(func() bool {
-				updatedNode := &corev1.Node{}
-				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "prod-node"}, updatedNode); err != nil {
-					return false
-				}
-				for _, taint := range updatedNode.Spec.Taints {
-					if taint.Key == selectorChangeTaintKey {
-						return false // Taint still exists
-					}
-				}
-				return true // Taint removed
-			}, time.Second*10).Should(BeTrue(), "Prod node taint should be removed after selector change")
+		BeforeEach(func() {
+			rule = &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "immutability-test-rule",
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/immutable",
+						Effect: corev1.TaintEffectNoSchedule,
+						Value:  "test-value",
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"test": "immutable"},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+		})
 
-			// Verify dev node now gets taint (newly selected, condition not met)
-			Eventually(func() bool {
-				updatedNode := &corev1.Node{}
-				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "dev-node"}, updatedNode); err != nil {
-					return false
-				}
-				for _, taint := range updatedNode.Spec.Taints {
-					if taint.Key == selectorChangeTaintKey {
-						return true
-					}
-				}
-				return false
-			}, time.Second*10).Should(BeTrue(), "Dev node should now have taint after selector change")
+		AfterEach(func() {
+			_ = k8sClient.Delete(ctx, rule)
+		})
+
+		It("should reject attempts to change taint.key", func() {
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "immutability-test-rule"}, updatedRule)).To(Succeed())
+			updatedRule.Spec.Taint.Key = "readiness.k8s.io/different-key"
+			err := k8sClient.Update(ctx, updatedRule)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("taint key is immutable"))
+		})
+
+		It("should reject attempts to change taint.effect", func() {
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "immutability-test-rule"}, updatedRule)).To(Succeed())
+			updatedRule.Spec.Taint.Effect = corev1.TaintEffectNoExecute
+			err := k8sClient.Update(ctx, updatedRule)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("taint effect is immutable"))
+		})
+
+		It("should reject attempts to change taint.value", func() {
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "immutability-test-rule"}, updatedRule)).To(Succeed())
+			updatedRule.Spec.Taint.Value = "different-value"
+			err := k8sClient.Update(ctx, updatedRule)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("taint value is immutable"))
+		})
+
+		It("should reject attempts to change conditions", func() {
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "immutability-test-rule"}, updatedRule)).To(Succeed())
+			updatedRule.Spec.Conditions = []nodereadinessiov1alpha1.ConditionRequirement{
+				{Type: "DiskPressure", RequiredStatus: corev1.ConditionFalse},
+			}
+			err := k8sClient.Update(ctx, updatedRule)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("conditions is immutable"))
+		})
+
+		It("should reject attempts to change enforcementMode", func() {
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "immutability-test-rule"}, updatedRule)).To(Succeed())
+			updatedRule.Spec.EnforcementMode = nodereadinessiov1alpha1.EnforcementModeContinuous
+			err := k8sClient.Update(ctx, updatedRule)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("enforcementMode is immutable"))
 		})
 	})
 
