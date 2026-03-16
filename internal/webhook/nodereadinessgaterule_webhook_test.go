@@ -65,7 +65,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			Expect(allErrs).To(HaveLen(5)) // conditions, nodeSelector, taint.key, taint.effect, enforcementMode
 
 			// Check specific errors
-			var foundErrors []string
+			foundErrors := make([]string, 0, len(allErrs))
 			for _, err := range allErrs {
 				foundErrors = append(foundErrors, err.Field)
 			}
@@ -101,7 +101,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			allErrs := webhook.validateSpec(rule.Spec)
 			Expect(allErrs).To(HaveLen(2)) // condition.type and condition.requiredStatus
 
-			var foundErrors []string
+			foundErrors := make([]string, 0, len(allErrs))
 			for _, err := range allErrs {
 				foundErrors = append(foundErrors, err.Field)
 			}

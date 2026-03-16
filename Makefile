@@ -45,7 +45,7 @@ SETUP_ENVTEST_PKG := sigs.k8s.io/controller-runtime/tools/setup-envtest
 KUBEBUILDER_ENVTEST_KUBERNETES_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 
 GOLANGCI_LINT_BIN := golangci-lint
-GOLANGCI_LINT_VER ?= v2.4.0
+GOLANGCI_LINT_VER ?= v2.9.0
 GOLANGCI_LINT := $(abspath $(TOOLS_BIN_DIR)/$(GOLANGCI_LINT_BIN)-$(GOLANGCI_LINT_VER))
 GOLANGCI_LINT_PKG := github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 
