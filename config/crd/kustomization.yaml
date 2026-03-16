@@ -3,4 +3,5 @@
 # It should be run by config/default
 resources:
 - bases/readiness.node.x-k8s.io_nodereadinessrules.yaml
+- bases/readiness.node.x-k8s.io_nodereadinessrulereports.yaml
 # +kubebuilder:scaffold:crdkustomizeresource

@@ -40,6 +40,7 @@ rules:
 - apiGroups:
   - readiness.node.x-k8s.io
   resources:
+  - nodereadinessrulereports
   - nodereadinessrules
   verbs:
   - create
@@ -52,12 +53,14 @@ rules:
 - apiGroups:
   - readiness.node.x-k8s.io
   resources:
+  - nodereadinessrulereports/finalizers
   - nodereadinessrules/finalizers
   verbs:
   - update
 - apiGroups:
   - readiness.node.x-k8s.io
   resources:
+  - nodereadinessrulereports/status
   - nodereadinessrules/status
   verbs:
   - get

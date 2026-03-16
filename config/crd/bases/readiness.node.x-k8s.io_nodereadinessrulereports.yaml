@@ -1,0 +1,195 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: nodereadinessrulereports.readiness.node.x-k8s.io
+spec:
+  group: readiness.node.x-k8s.io
+  names:
+    kind: NodeReadinessRuleReport
+    listKind: NodeReadinessRuleReportList
+    plural: nodereadinessrulereports
+    shortNames:
+    - nrrp
+    singular: nodereadinessrulereport
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - description: The Node this report belongs to.
+      jsonPath: .spec.nodeName
+      name: Node
+      type: string
+    - description: Number of rules matching this node.
+      jsonPath: .status.summary.matchedRules
+      name: Matched Rules
+      type: integer
+    - description: Number of rules not matching this node.
+      jsonPath: .status.summary.unMatchedRules
+      name: UnMatched Rules
+      type: integer
+    - description: Number of taints currently applied.
+      jsonPath: .status.summary.appliedTaints
+      name: Applied Taints
+      type: integer
+    - description: Number of evaluation errors.
+      jsonPath: .status.summary.errors
+      name: Errors
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: NodeReadinessRuleReport is the Schema for the nodereadinessrulereports
+          API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of NodeReadinessRuleReport
+            properties:
+              nodeName:
+                description: |-
+                  nodeName specifies the exact name of the target Kubernetes Node.
+                  This object establishes a strict 1:1 relationship with the specified node,
+                  acting as the single source of truth for all rules and statuses applied to it.
+                  Because it binds this resource to a specific  physical or virtual machine, it cannot be changed once set.
+
+                  The validation constraints enforce standard Kubernetes resource naming
+                  (RFC 1123 DNS Subdomain format), as defined in upstream apimachinery:
+                  https://github.com/kubernetes/apimachinery/blob/master/pkg/util/validation/validation.go#L198
+                maxLength: 253
+                minLength: 1
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                type: string
+                x-kubernetes-validations:
+                - message: nodeName is immutable and cannot be changed once set
+                  rule: self == oldSelf
+            required:
+            - nodeName
+            type: object
+          status:
+            description: status defines the observed state of NodeReadinessRuleReport
+            minProperties: 1
+            properties:
+              readinessReports:
+                description: |-
+                  readinessReports provides detailed insight into the rule's assessment for individual Nodes.
+                  This is primarily used for auditing and debugging why specific Nodes were or
+                  were not targeted by the rule.
+                items:
+                  description: ReadinessReport defines the outcome of evaluating a
+                    single NodeReadinessRule against a specific Node.
+                  properties:
+                    lastEvaluationTime:
+                      description: |-
+                        lastEvaluationTime records the exact moment the controller most recently
+                        assessed this rule against the Node. This helps identify stale reports.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a comprehensive, human-readable explanation providing further
+                        context about the evaluation result or any specific errors encountered.
+                      maxLength: 10240
+                      minLength: 1
+                      type: string
+                    reason:
+                      description: |-
+                        reason contains a concise, machine-readable string detailing the primary outcome
+                        of the evaluation (e.g., "SelectorMismatch", "CriteriaMet", "ConditionNotFound").
+                      maxLength: 256
+                      minLength: 1
+                      type: string
+                    ruleName:
+                      description: |-
+                        ruleName is the name of the NodeReadinessRule being evaluated.
+                        It acts as a direct reference to the NodeReadinessRule that generated this report entry.
+                      maxLength: 253
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                      type: string
+                    ruleStatus:
+                      description: |-
+                        ruleStatus indicates the overall outcome of the rule's criteria against the Node.
+                        This reflects whether the Node successfully matched the rule's NodeSelector and Conditions.
+                      enum:
+                      - Matched
+                      - Unmatched
+                      - Error
+                      type: string
+                    taintStatus:
+                      description: |-
+                        taintStatus reflects the observed state of the rule's specified taint on the Node.
+                        It indicates whether the taint is currently Present or Absent.
+                      enum:
+                      - Present
+                      - Absent
+                      type: string
+                  required:
+                  - lastEvaluationTime
+                  - ruleName
+                  - ruleStatus
+                  - taintStatus
+                  type: object
+                maxItems: 100
+                type: array
+                x-kubernetes-list-map-keys:
+                - ruleName
+                x-kubernetes-list-type: map
+              summary:
+                description: summary provides a quick overview of the rules applied
+                  to this node.
+                minProperties: 1
+                properties:
+                  appliedTaints:
+                    description: appliedTaints is the total number of taints successfully
+                      applied by the controller.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  errors:
+                    description: errors is the total number of rules that failed to
+                      evaluate properly.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  matchedRules:
+                    description: matchedRules is the total number of rules currently
+                      matching this node.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  unMatchedRules:
+                    description: unMatchedRules is the total number of rules currently
+                      not matching this node.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                type: object
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
