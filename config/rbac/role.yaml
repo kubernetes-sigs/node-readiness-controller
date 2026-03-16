@@ -14,10 +14,16 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - nodes
+  - events
   verbs:
   - create
-  - delete
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - nodes
+  verbs:
   - get
   - list
   - patch
