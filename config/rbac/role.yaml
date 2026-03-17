@@ -16,8 +16,6 @@ rules:
   resources:
   - nodes
   verbs:
-  - create
-  - delete
   - get
   - list
   - patch
@@ -26,24 +24,14 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - nodes/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - ""
-  resources:
   - nodes/status
   verbs:
   - get
-  - patch
-  - update
 - apiGroups:
   - readiness.node.x-k8s.io
   resources:
   - nodereadinessrules
   verbs:
-  - create
-  - delete
   - get
   - list
   - patch
