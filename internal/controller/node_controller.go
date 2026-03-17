@@ -307,14 +307,15 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 			}
 		}
 
+		patch := client.MergeFrom(node.DeepCopy())
+
 		// Initialize annotations if nil
 		if node.Annotations == nil {
 			node.Annotations = make(map[string]string)
 		}
 
 		node.Annotations[annotationKey] = "true"
-		// TODO: consider replacing this with SSA
-		return r.Update(ctx, node)
+		return r.Patch(ctx, node, patch)
 	})
 
 	if err != nil {

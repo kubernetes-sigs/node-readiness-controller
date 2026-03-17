@@ -544,6 +544,36 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			cancel()
 			Expect(readinessController.isBootstrapCompleted(cancelledCtx, nodeName, ruleName)).To(BeFalse())
 		})
+
+		It("should set bootstrap annotation via patch in markBootstrapCompleted", func() {
+			nodeName := "bootstrap-patch-test-node"
+			ruleName := "bootstrap-patch-test-rule"
+
+			// Create a node with existing annotations that should be preserved
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nodeName,
+					Annotations: map[string]string{
+						"existing-annotation": "should-be-preserved",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			// Mark bootstrap completed
+			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName)
+
+			// Verify annotation was added and existing annotation is preserved
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, updatedNode)).To(Succeed())
+				g.Expect(updatedNode.Annotations).To(HaveKeyWithValue(
+					"readiness.k8s.io/bootstrap-completed-"+ruleName, "true"))
+				g.Expect(updatedNode.Annotations).To(HaveKeyWithValue(
+					"existing-annotation", "should-be-preserved"))
+			}).Should(Succeed())
+		})
 	})
 
 	Context("when a new rule is created", func() {
