@@ -499,7 +499,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			ruleName := "bootstrap-test-rule"
 
 			// Initially not completed
-			completed := readinessController.isBootstrapCompleted(nodeName, ruleName)
+			completed := readinessController.isBootstrapCompleted(ctx, nodeName, ruleName)
 			Expect(completed).To(BeFalse())
 
 			// Create a node for testing
@@ -516,8 +516,33 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			// Should now be completed
 			Eventually(func() bool {
-				return readinessController.isBootstrapCompleted(nodeName, ruleName)
+				return readinessController.isBootstrapCompleted(ctx, nodeName, ruleName)
 			}).Should(BeTrue())
+		})
+
+		It("should return false when context is cancelled", func() {
+			nodeName := "bootstrap-ctx-test-node"
+			ruleName := "bootstrap-ctx-test-rule"
+
+			// Create a node with the bootstrap annotation already set
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nodeName,
+					Annotations: map[string]string{
+						"readiness.k8s.io/bootstrap-completed-" + ruleName: "true",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			// Verify it returns true with a valid context
+			Expect(readinessController.isBootstrapCompleted(ctx, nodeName, ruleName)).To(BeTrue())
+
+			// A cancelled context should cause the Get to fail, returning false
+			cancelledCtx, cancel := context.WithCancel(ctx)
+			cancel()
+			Expect(readinessController.isBootstrapCompleted(cancelledCtx, nodeName, ruleName)).To(BeFalse())
 		})
 	})
 

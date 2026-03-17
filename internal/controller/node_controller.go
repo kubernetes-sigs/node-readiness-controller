@@ -126,7 +126,7 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 		}
 
 		// Skip if bootstrap-only and already completed
-		if r.isBootstrapCompleted(node.Name, rule.Name) && rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
+		if r.isBootstrapCompleted(ctx, node.Name, rule.Name) && rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
 			log.Info("Skipping bootstrap-only rule - already completed",
 				"node", node.Name, "rule", rule.Name)
 			continue
@@ -276,10 +276,10 @@ func (r *RuleReadinessController) removeTaintBySpec(ctx context.Context, node *c
 }
 
 // Bootstrap completion tracking.
-func (r *RuleReadinessController) isBootstrapCompleted(nodeName, ruleName string) bool {
+func (r *RuleReadinessController) isBootstrapCompleted(ctx context.Context, nodeName, ruleName string) bool {
 	// Check node annotation
 	node := &corev1.Node{}
-	if err := r.Get(context.TODO(), client.ObjectKey{Name: nodeName}, node); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Name: nodeName}, node); err != nil {
 		return false
 	}
 
