@@ -83,6 +83,29 @@ func TestCheckHealth(t *testing.T) {
 	}
 }
 
+func TestCheckHealthCancelledContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	httpClient := &http.Client{Timeout: 1 * time.Second}
+	health, err := checkHealth(ctx, httpClient, server.URL)
+	// checkHealth wraps connection errors into a HealthResponse rather than returning an error
+	if err != nil {
+		t.Fatalf("checkHealth() returned unexpected error: %v", err)
+	}
+	if health.Healthy {
+		t.Error("checkHealth() with cancelled context should report unhealthy")
+	}
+	if health.Reason != "EndpointConnectionError" {
+		t.Errorf("checkHealth() reason = %v, want EndpointConnectionError", health.Reason)
+	}
+}
+
 func TestUpdateNodeCondition(t *testing.T) {
 	nodeName := "test-node"
 	conditionType := "TestCondition"
@@ -134,7 +157,7 @@ func TestUpdateNodeCondition(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := fake.NewSimpleClientset(tt.existingNode)
 
-			err := updateNodeCondition(client, nodeName, conditionType, tt.health)
+			err := updateNodeCondition(context.Background(), client, nodeName, conditionType, tt.health)
 			if err != nil {
 				t.Errorf("updateNodeCondition() error = %v", err)
 			}

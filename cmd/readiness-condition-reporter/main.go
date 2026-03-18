@@ -22,6 +22,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -109,29 +111,42 @@ func main() {
 		Timeout: defaultHTTPTimeout,
 	}
 
+	// Create a context that cancels on SIGTERM or SIGINT
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
+
 	klog.InfoS("Starting readiness condition reporter", "node", nodeName, "condition", conditionType, "interval", interval)
 
-	// Main loop to check health and update condition
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	// Run immediately on startup, then on each tick
+	runCheck(ctx, httpClient, clientset, checkEndpoint, nodeName, conditionType)
 	for {
-		// Check health
-		health, err := checkHealth(context.TODO(), httpClient, checkEndpoint)
-		if err != nil {
-			klog.ErrorS(err, "Health check failed", "endpoint", checkEndpoint)
-			// Report unhealthy on error
-			health = &HealthResponse{
-				Healthy: false,
-				Reason:  "HealthCheckFailed",
-				Message: fmt.Sprintf("Health check failed: %v", err),
-			}
+		select {
+		case <-ctx.Done():
+			klog.InfoS("Shutting down readiness condition reporter", "reason", ctx.Err())
+			return
+		case <-ticker.C:
+			runCheck(ctx, httpClient, clientset, checkEndpoint, nodeName, conditionType)
 		}
+	}
+}
 
-		// Update node condition
-		if err := updateNodeCondition(clientset, nodeName, conditionType, health); err != nil {
-			klog.ErrorS(err, "Failed to update node condition", "node", nodeName, "condition", conditionType)
+// runCheck performs a single health check and updates the node condition.
+func runCheck(ctx context.Context, httpClient *http.Client, clientset kubernetes.Interface, checkEndpoint, nodeName, conditionType string) {
+	health, err := checkHealth(ctx, httpClient, checkEndpoint)
+	if err != nil {
+		klog.ErrorS(err, "Health check failed", "endpoint", checkEndpoint)
+		health = &HealthResponse{
+			Healthy: false,
+			Reason:  "HealthCheckFailed",
+			Message: fmt.Sprintf("Health check failed: %v", err),
 		}
+	}
 
-		// Wait for next check
-		time.Sleep(interval)
+	if err := updateNodeCondition(ctx, clientset, nodeName, conditionType, health); err != nil {
+		klog.ErrorS(err, "Failed to update node condition", "node", nodeName, "condition", conditionType)
 	}
 }
 
@@ -183,10 +198,10 @@ func checkHealth(ctx context.Context, client *http.Client, endpoint string) (*He
 }
 
 // updateNodeCondition updates the node condition based on health check.
-func updateNodeCondition(client kubernetes.Interface, nodeName, conditionType string, health *HealthResponse) error {
+func updateNodeCondition(ctx context.Context, client kubernetes.Interface, nodeName, conditionType string, health *HealthResponse) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		// Get the node
-		node, err := client.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
+		node, err := client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
@@ -237,7 +252,7 @@ func updateNodeCondition(client kubernetes.Interface, nodeName, conditionType st
 			node.Status.Conditions = append(node.Status.Conditions, condition)
 		}
 
-		_, err = client.CoreV1().Nodes().UpdateStatus(context.TODO(), node, metav1.UpdateOptions{})
+		_, err = client.CoreV1().Nodes().UpdateStatus(ctx, node, metav1.UpdateOptions{})
 		return err
 	})
 }
