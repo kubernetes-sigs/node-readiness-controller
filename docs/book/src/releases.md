@@ -2,6 +2,69 @@
 
 This page details the official releases of the Node Readiness Controller.
 
+## v0.3.0
+
+**Date:** 2026-03-18
+
+This release focuses on security hardening, observability, and flexibility. Key updates include immutability for `NodeReadinessRule` spec fields, constrained impersonation for secure node status updates, and support for static pod installation flows. It also introduces node events for taint operations and several maintenance updates to address vulnerabilities.
+
+### Release Notes
+
+#### Features & Enhancements
+- Make `NodeReadinessRule` spec fields immutable ([#164](https://github.com/kubernetes-sigs/node-readiness-controller/pull/164))
+- Add graceful shutdown and propagate context in readiness-condition-reporter ([#174](https://github.com/kubernetes-sigs/node-readiness-controller/pull/174))
+- Propagate context and use merge patch in bootstrap completion tracking ([#173](https://github.com/kubernetes-sigs/node-readiness-controller/pull/173))
+- Improve security posture by pruning unnecessary RBAC ([#172](https://github.com/kubernetes-sigs/node-readiness-controller/pull/172))
+- Add CEL validation for taint key format against Kubernetes qualified name rule ([#155](https://github.com/kubernetes-sigs/node-readiness-controller/pull/155))
+- Support static pod installation flow for control-plane nodes ([#162](https://github.com/kubernetes-sigs/node-readiness-controller/pull/162))
+- Add Podman support ([#157](https://github.com/kubernetes-sigs/node-readiness-controller/pull/157))
+- Constrained impersonation for secure node status updates ([#143](https://github.com/kubernetes-sigs/node-readiness-controller/pull/143))
+- Add node events for taint operations (TaintAdded, TaintRemoved, TaintAdopted) ([#158](https://github.com/kubernetes-sigs/node-readiness-controller/pull/158))
+- Restrict `NodeReadinessRuleSpec.Taint` to "readiness.k8s.io/" prefix ([#112](https://github.com/kubernetes-sigs/node-readiness-controller/pull/112))
+- Add TLS and webhook installation support to Makefile ([#146](https://github.com/kubernetes-sigs/node-readiness-controller/pull/146))
+
+#### Code Cleanup & Maintenance
+- Update `manager.yaml` to modify nodeSelector and tolerations ([#129](https://github.com/kubernetes-sigs/node-readiness-controller/pull/129))
+- Bump golang version to address vulnerabilities ([#169](https://github.com/kubernetes-sigs/node-readiness-controller/pull/169))
+- Fix linter and bump golangci-lint version ([#168](https://github.com/kubernetes-sigs/node-readiness-controller/pull/168))
+- CVE fix: update otel sdk to 1.40.0 ([#170](https://github.com/kubernetes-sigs/node-readiness-controller/pull/170))
+- Add release automation workflow ([#144](https://github.com/kubernetes-sigs/node-readiness-controller/pull/144))
+
+#### Documentation & Examples
+- Add NPD (node problem detector) variant for security-agent-readiness example ([#154](https://github.com/kubernetes-sigs/node-readiness-controller/pull/154))
+- Add link checker to fix broken links in markdown ([#140](https://github.com/kubernetes-sigs/node-readiness-controller/pull/140))
+- Update release notes for checking image promotion ([#149](https://github.com/kubernetes-sigs/node-readiness-controller/pull/149))
+- Add controller metrics reference ([#153](https://github.com/kubernetes-sigs/node-readiness-controller/pull/153))
+- Add installation steps for deploy-full target ([#147](https://github.com/kubernetes-sigs/node-readiness-controller/pull/147))
+- Update `Test_README` file with small format change
+  ([#145](https://github.com/kubernetes-sigs/node-readiness-controller/pull/145))
+- Fix NodeReadinessGates KEP number - KEP-5233 ([#156](https://github.com/kubernetes-sigs/node-readiness-controller/pull/156))
+
+### Images
+
+The following container images are published as part of this release.
+
+```
+// Node readiness controller
+registry.k8s.io/node-readiness-controller/node-readiness-controller:v0.3.0
+
+// Report component readiness condition from the node
+registry.k8s.io/node-readiness-controller/node-readiness-reporter:v0.3.0
+```
+
+### Contributors
+
+- ajaysundar.k
+- Ali Abbasi Alaei
+- Anish Ramasekar
+- Avinesh Tripathi
+- Karthik Bhat
+- Mohammad Faraz
+- Priyanka Saggu
+- Rohit Chaudhari
+- Sathvik S
+- Swarom
+
 ## v0.2.0
 
 **Date:** 2026-02-28
@@ -47,7 +110,6 @@ registry.k8s.io/node-readiness-controller/node-readiness-controller:v0.2.0
 
 // Report component readiness condition from the node
 registry.k8s.io/node-readiness-controller/node-readiness-reporter:v0.2.0
-
 ```
 
 ### Installation
@@ -123,7 +185,6 @@ registry.k8s.io/node-readiness-controller/node-readiness-controller:v0.1.1
 
 // Report component readiness condition from the node
 registry.k8s.io/node-readiness-controller/node-readiness-reporter:v0.1.1
-
 ```
 
 ### Installation
@@ -171,7 +232,6 @@ registry.k8s.io/node-readiness-controller/node-readiness-controller:v0.1.0
 
 // Report component readiness condition from the node
 registry.k8s.io/node-readiness-controller/node-readiness-reporter:v0.1.0
-
 ```
 
 ### Installation
@@ -188,7 +248,10 @@ To install the controller, apply the `install.yaml` manifest for this version:
 kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/v0.1.0/install.yaml
 ```
 
-This will deploy the controller into any available node in the `nrr-system` namespace in your cluster. Check [here](https://node-readiness-controller.sigs.k8s.io/user-guide/installation.html) for more installation instructions.
+This will deploy the controller into any available node in the `nrr-system`
+namespace in your cluster. Check
+[here](https://node-readiness-controller.sigs.k8s.io/user-guide/installation.html)
+for more installation instructions.
 
 ### Contributors
 
