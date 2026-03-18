@@ -91,6 +91,9 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: conditions is immutable
+                  rule: self == oldSelf
               dryRun:
                 description: |-
                   dryRun when set to true, The controller will evaluate Node conditions and log intended taint modifications
@@ -106,6 +109,9 @@ spec:
                 - bootstrap-only
                 - continuous
                 type: string
+                x-kubernetes-validations:
+                - message: enforcementMode is immutable
+                  rule: self == oldSelf
               nodeSelector:
                 description: nodeSelector limits the scope of this rule to a specific
                   subset of Nodes.
@@ -153,6 +159,9 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-map-type: atomic
+                x-kubernetes-validations:
+                - message: nodeSelector is immutable
+                  rule: self == oldSelf
               taint:
                 description: |-
                   taint defines the specific Taint (Key, Value, and Effect) to be managed
@@ -207,6 +216,12 @@ spec:
                 - message: taint effect must be one of 'NoSchedule', 'PreferNoSchedule',
                     'NoExecute'
                   rule: self.effect in ['NoSchedule', 'PreferNoSchedule', 'NoExecute']
+                - message: taint key is immutable
+                  rule: '!has(oldSelf.key) || self.key == oldSelf.key'
+                - message: taint effect is immutable
+                  rule: '!has(oldSelf.effect) || self.effect == oldSelf.effect'
+                - message: taint value is immutable
+                  rule: '!has(oldSelf.value) || self.value == oldSelf.value'
             required:
             - conditions
             - enforcementMode

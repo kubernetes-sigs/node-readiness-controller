@@ -44,8 +44,6 @@ func NewNodeReadinessRuleWebhook(c client.Client) *NodeReadinessRuleWebhook {
 	}
 }
 
-// +kubebuilder:webhook:path=/validate-readiness-node-x-k8s-io-v1alpha1-nodereadinessrule,mutating=false,failurePolicy=fail,sideEffects=None,groups=readiness.node.x-k8s.io,resources=nodereadinessrules,verbs=create;update,versions=v1alpha1,name=vnodereadinessrule.kb.io,admissionReviewVersions=v1
-
 // validateNodeReadinessRule performs validation logic.
 func (w *NodeReadinessRuleWebhook) validateNodeReadinessRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, isUpdate bool) field.ErrorList {
 	var allErrs field.ErrorList
@@ -59,54 +57,17 @@ func (w *NodeReadinessRuleWebhook) validateNodeReadinessRule(ctx context.Context
 	return allErrs
 }
 
-// validateSpec validates the spec fields.
+// validateSpec validates the spec fields that CRD CEL based XValidation cannot handle.
 func (w *NodeReadinessRuleWebhook) validateSpec(spec readinessv1alpha1.NodeReadinessRuleSpec) field.ErrorList {
 	var allErrs field.ErrorList
-	specField := field.NewPath("spec")
 
-	// Validate conditions
-	if len(spec.Conditions) == 0 {
-		allErrs = append(allErrs, field.Required(specField.Child("conditions"), "at least one condition is required"))
-	}
-
-	for i, condition := range spec.Conditions {
-		condField := specField.Child("conditions").Index(i)
-		if condition.Type == "" {
-			allErrs = append(allErrs, field.Required(condField.Child("type"), "condition type cannot be empty"))
-		}
-		if condition.RequiredStatus == "" {
-			allErrs = append(allErrs, field.Required(condField.Child("requiredStatus"), "required status cannot be empty"))
-		}
-	}
-
-	// Validate nodeSelector
+	// validate that the nodeSelector isn't empty
 	selector, err := metav1.LabelSelectorAsSelector(&spec.NodeSelector)
 	if err != nil {
-		allErrs = append(allErrs, field.Invalid(specField.Child("nodeSelector"), spec.NodeSelector, err.Error()))
+		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "nodeSelector"), spec.NodeSelector, err.Error()))
 	}
-
-	// Validate that the nodeSelector isn't empty.
 	if selector != nil && selector.Empty() {
-		allErrs = append(allErrs, field.Required(specField.Child("nodeSelector"), "nodeSelector must not be empty"))
-	}
-
-	// Validate taint
-	taintField := specField.Child("taint")
-	if spec.Taint.Key == "" {
-		allErrs = append(allErrs, field.Required(taintField.Child("key"), "taint key cannot be empty"))
-	}
-	if spec.Taint.Effect == "" {
-		allErrs = append(allErrs, field.Required(taintField.Child("effect"), "taint effect cannot be empty"))
-	}
-
-	// Validate enforcement mode
-	if spec.EnforcementMode != readinessv1alpha1.EnforcementModeBootstrapOnly &&
-		spec.EnforcementMode != readinessv1alpha1.EnforcementModeContinuous {
-		allErrs = append(allErrs, field.Invalid(
-			specField.Child("enforcementMode"),
-			spec.EnforcementMode,
-			"must be 'bootstrap-only' or 'continuous'",
-		))
+		allErrs = append(allErrs, field.Required(field.NewPath("spec", "nodeSelector"), "nodeSelector must not be empty"))
 	}
 
 	return allErrs
@@ -169,6 +130,7 @@ func (w *NodeReadinessRuleWebhook) nodSelectorsOverlap(selector1, selector2 meta
 // generateNoExecuteWarnings generates admission warnings for NoExecute taint usage.
 // NoExecute taints cause immediate pod eviction, which can be disruptive when
 // used with continuous enforcement mode.
+// Note: This is only called on CREATE since taint.effect is immutable after creation.
 func (w *NodeReadinessRuleWebhook) generateNoExecuteWarnings(spec readinessv1alpha1.NodeReadinessRuleSpec) admission.Warnings {
 	var warnings admission.Warnings
 
@@ -189,6 +151,7 @@ func (w *NodeReadinessRuleWebhook) generateNoExecuteWarnings(spec readinessv1alp
 	return warnings
 }
 
+// +kubebuilder:webhook:path=/validate-readiness-node-x-k8s-io-v1alpha1-nodereadinessrule,mutating=false,failurePolicy=fail,sideEffects=None,groups=readiness.node.x-k8s.io,resources=nodereadinessrules,verbs=create;update,versions=v1alpha1,name=vnodereadinessrule.kb.io,admissionReviewVersions=v1
 // SetupWithManager sets up the webhook with the manager.
 func (w *NodeReadinessRuleWebhook) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
@@ -216,18 +179,18 @@ func (w *NodeReadinessRuleWebhook) ValidateCreate(ctx context.Context, obj runti
 }
 
 func (w *NodeReadinessRuleWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	rule, ok := newObj.(*readinessv1alpha1.NodeReadinessRule)
+	// Update validations are handled at the API level, so we can skip them here to avoid redundant checks.
+
+	newRule, ok := newObj.(*readinessv1alpha1.NodeReadinessRule)
 	if !ok {
 		return nil, fmt.Errorf("expected NodeReadinessRule, got %T", newObj)
 	}
 
-	if allErrs := w.validateNodeReadinessRule(ctx, rule, true); len(allErrs) > 0 {
+	if allErrs := w.validateNodeReadinessRule(ctx, newRule, true); len(allErrs) > 0 {
 		return nil, fmt.Errorf("validation failed: %v", allErrs)
 	}
 
-	// Generate warnings for NoExecute taint usage
-	warnings := w.generateNoExecuteWarnings(rule.Spec)
-	return warnings, nil
+	return nil, nil
 }
 
 func (w *NodeReadinessRuleWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {

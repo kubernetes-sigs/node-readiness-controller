@@ -54,60 +54,33 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 	})
 
 	Context("Spec Validation", func() {
-		It("should validate required fields", func() {
+		It("should validate nodeSelector is not empty", func() {
 			rule := &readinessv1alpha1.NodeReadinessRule{
 				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
-					// Missing conditions, taint, and enforcement mode
+					NodeSelector: metav1.LabelSelector{
+						// Empty selector
+					},
 				},
 			}
 
 			allErrs := webhook.validateSpec(rule.Spec)
-			Expect(allErrs).To(HaveLen(5)) // conditions, nodeSelector, taint.key, taint.effect, enforcementMode
-
-			// Check specific errors
-			foundErrors := make([]string, 0, len(allErrs))
-			for _, err := range allErrs {
-				foundErrors = append(foundErrors, err.Field)
-			}
-
-			Expect(foundErrors).To(ContainElement("spec.conditions"))
-			Expect(foundErrors).To(ContainElement("spec.nodeSelector"))
-			Expect(foundErrors).To(ContainElement("spec.taint.key"))
-			Expect(foundErrors).To(ContainElement("spec.taint.effect"))
-			Expect(foundErrors).To(ContainElement("spec.enforcementMode"))
+			Expect(allErrs).To(HaveLen(1))
+			Expect(allErrs[0].Field).To(Equal("spec.nodeSelector"))
 		})
 
-		It("should validate condition requirements", func() {
+		It("should accept valid nodeSelector", func() {
 			rule := &readinessv1alpha1.NodeReadinessRule{
 				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
-					Conditions: []readinessv1alpha1.ConditionRequirement{
-						{
-							// Missing type and requiredStatus
-						},
-					},
 					NodeSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{
 							"node-role.kubernetes.io/worker": "",
 						},
 					},
-					Taint: corev1.Taint{
-						Key:    "readiness.k8s.io/test-key",
-						Effect: corev1.TaintEffectNoSchedule,
-					},
-					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
 				},
 			}
 
 			allErrs := webhook.validateSpec(rule.Spec)
-			Expect(allErrs).To(HaveLen(2)) // condition.type and condition.requiredStatus
-
-			foundErrors := make([]string, 0, len(allErrs))
-			for _, err := range allErrs {
-				foundErrors = append(foundErrors, err.Field)
-			}
-
-			Expect(foundErrors).To(ContainElement("spec.conditions[0].type"))
-			Expect(foundErrors).To(ContainElement("spec.conditions[0].requiredStatus"))
+			Expect(allErrs).To(BeEmpty())
 		})
 
 		Context("Validate nodeSelector", func() {
@@ -154,31 +127,6 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 				Expect(allErrs[0].Field).To(Equal("spec.nodeSelector"))
 				Expect(allErrs[0].Type).To(Equal(field.ErrorTypeInvalid))
 			})
-		})
-
-		It("should validate enforcement mode values", func() {
-			rule := &readinessv1alpha1.NodeReadinessRule{
-				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
-					Conditions: []readinessv1alpha1.ConditionRequirement{
-						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
-					},
-					NodeSelector: metav1.LabelSelector{
-						MatchLabels: map[string]string{
-							"node-role.kubernetes.io/worker": "",
-						},
-					},
-					Taint: corev1.Taint{
-						Key:    "readiness.k8s.io/test-key",
-						Effect: corev1.TaintEffectNoSchedule,
-					},
-					EnforcementMode: "invalid-mode",
-				},
-			}
-
-			allErrs := webhook.validateSpec(rule.Spec)
-			Expect(allErrs).To(HaveLen(1))
-			Expect(allErrs[0].Field).To(Equal("spec.enforcementMode"))
-			Expect(allErrs[0].Type).To(Equal(field.ErrorTypeInvalid))
 		})
 
 		It("should pass validation for valid spec", func() {
@@ -441,11 +389,12 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						Effect: corev1.TaintEffectNoSchedule,
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
+					DryRun:          false,
 				},
 			}
 
 			newRule := oldRule.DeepCopy()
-			newRule.Spec.EnforcementMode = readinessv1alpha1.EnforcementModeContinuous
+			newRule.Spec.DryRun = true
 
 			warnings, err := webhook.ValidateUpdate(ctx, oldRule, newRule)
 			Expect(err).NotTo(HaveOccurred())
@@ -580,9 +529,9 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			Expect(warnings).To(BeEmpty()) // No warnings for PreferNoSchedule
 		})
 
-		It("should warn on update when changing to NoExecute with continuous", func() {
-			oldRule := &readinessv1alpha1.NodeReadinessRule{
-				ObjectMeta: metav1.ObjectMeta{Name: "update-noexecute"},
+		It("should warn when creating with NoExecute effect and continuous mode", func() {
+			rule := &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "create-noexecute-continuous"},
 				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
@@ -593,17 +542,14 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "test-key",
-						Effect: corev1.TaintEffectNoSchedule,
+						Key:    "readiness.k8s.io/test-key",
+						Effect: corev1.TaintEffectNoExecute,
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
 				},
 			}
 
-			newRule := oldRule.DeepCopy()
-			newRule.Spec.Taint.Effect = corev1.TaintEffectNoExecute // Changed to NoExecute
-
-			warnings, err := webhook.ValidateUpdate(ctx, oldRule, newRule)
+			warnings, err := webhook.ValidateCreate(ctx, rule)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(warnings).To(HaveLen(1))
 			Expect(warnings[0]).To(ContainSubstring("CAUTION"))
@@ -711,16 +657,25 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			Expect(allErrs).To(HaveLen(1))
 			Expect(allErrs[0].Field).To(Equal("spec.taint.key"))
 
-			// Test invalid spec
+			// Test empty nodeSelector
 			invalidRule := &readinessv1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "invalid-comprehensive"},
-				Spec:       readinessv1alpha1.NodeReadinessRuleSpec{
-					// Missing required fields
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{}, // Empty selector
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/test-key",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
 				},
 			}
 
 			allErrs = webhook.validateNodeReadinessRule(ctx, invalidRule, false)
-			Expect(allErrs).To(HaveLen(5)) // Multiple validation failures
+			Expect(allErrs).To(HaveLen(1)) // Empty nodeSelector validation
+			Expect(allErrs[0].Field).To(Equal("spec.nodeSelector"))
 		})
 	})
 })
