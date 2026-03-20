@@ -127,7 +127,11 @@ validatingWebhook:
 
 nodeSelector: {}
 
-tolerations: []
+tolerations:
+  - effect: NoSchedule
+    operator: Exists
+  - effect: NoExecute
+    operator: Exists
 
 affinity: {}
 
