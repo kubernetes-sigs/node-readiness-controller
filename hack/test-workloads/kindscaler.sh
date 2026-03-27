@@ -71,7 +71,8 @@ for i in $(seq $start_index $end_index); do
     docker cp $TEMPLATE_NODE_NAME:/kind/kubeadm.conf kubeadm-$i.conf > /dev/null 2>&1
 
     # Replace the container role name with specific node name in the kubeadm file
-    sed -i "s/$TEMPLATE_NODE_NAME$/$NEW_NODE_NAME/g" "./kubeadm-$i.conf"
+    sed -i.bak "s/$TEMPLATE_NODE_NAME$/$NEW_NODE_NAME/g" "./kubeadm-$i.conf"
+    rm -f "./kubeadm-$i.conf.bak"
 
     IMAGE=$(docker ps | grep $CLUSTER_NAME | awk '{print $2}' | head -1)
 	
@@ -84,6 +85,22 @@ for i in $(seq $start_index $end_index); do
     --detach --tty --label io.x-k8s.kind.cluster=$CLUSTER_NAME --net kind \
     --restart=on-failure:1 --init=false $IMAGE > /dev/null 2>&1
 
+    # wait for cgroupv2 initialization before docker exec
+    wait_count=0
+    while [ $wait_count -lt 30 ]; do
+        status=$(docker exec $NEW_NODE_NAME systemctl is-system-running 2>/dev/null || true)
+        if [[ "$status" == "running" ]]; then
+            break
+        fi
+        sleep 2
+        wait_count=$((wait_count + 1))
+    done
+    status=$(docker exec $NEW_NODE_NAME systemctl is-system-running 2>/dev/null || true)
+    if [[ $wait_count -ge 30 ]] && [ "$status" != "running" ]; then
+        echo "Container $NEW_NODE_NAME failed to initialize systemd"
+        echo "Review $NEW_NODE_NAME logs and remove container"
+        exit 1
+    fi
     docker cp kubeadm-$i.conf $NEW_NODE_NAME:/kind/kubeadm.conf > /dev/null 2>&1
     docker exec --privileged $NEW_NODE_NAME kubeadm join --config /kind/kubeadm.conf --skip-phases=preflight --v=6 > /dev/null 2>&1
     rm -f kubeadm-*.conf
