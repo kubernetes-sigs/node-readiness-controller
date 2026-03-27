@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -25,9 +26,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	nodereadinessiov1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
@@ -687,6 +692,214 @@ var _ = Describe("Node Controller", func() {
 				return nodeEval.ConditionResults[0].CurrentStatus == corev1.ConditionTrue &&
 					nodeEval.TaintStatus == nodereadinessiov1alpha1.TaintStatusAbsent
 			}, time.Second*5).Should(BeTrue(), "NodeEvaluation should be updated with new condition and taint status")
+		})
+	})
+
+	// These tests use the controller-runtime fake client (not envtest's
+	// k8sClient) with interceptors to simulate concurrent node modifications.
+	// The fake client enforces resourceVersion checks, so when
+	// MergeFromWithOptimisticLock is used and another write bumps the
+	// resourceVersion, the patch fails with a Conflict error — the same
+	// behavior a real API server would produce.
+	Context("optimistic locking on taint operations", func() {
+		var (
+			ctx        context.Context
+			testScheme *runtime.Scheme
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			testScheme = runtime.NewScheme()
+			Expect(corev1.AddToScheme(testScheme)).To(Succeed())
+		})
+
+		It("should return a conflict error from removeTaintBySpec when the node is modified concurrently", func() {
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "ol-remove-conflict"},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: "readiness.k8s.io/test", Effect: corev1.TaintEffectNoSchedule},
+						{Key: "other-controller/taint", Effect: corev1.TaintEffectNoSchedule},
+					},
+				},
+			}
+
+			var patchCount atomic.Int32
+
+			// The interceptor simulates a concurrent modification: on the
+			// first Patch call it updates the node (bumping resourceVersion)
+			// before delegating to the real Patch. Because
+			// MergeFromWithOptimisticLock embeds the original resourceVersion,
+			// the fake client detects the mismatch and returns a Conflict.
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if obj.GetName() == "ol-remove-conflict" && patchCount.Add(1) == 1 {
+							// Simulate Karpenter removing its startup taint.
+							current := &corev1.Node{}
+							Expect(c.Get(ctx, types.NamespacedName{Name: obj.GetName()}, current)).To(Succeed())
+							current.Spec.Taints = []corev1.Taint{
+								{Key: "readiness.k8s.io/test", Effect: corev1.TaintEffectNoSchedule},
+							}
+							Expect(c.Update(ctx, current)).To(Succeed())
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, node)).To(Succeed())
+
+			err := controller.removeTaintBySpec(ctx, node, corev1.Taint{
+				Key:    "readiness.k8s.io/test",
+				Effect: corev1.TaintEffectNoSchedule,
+			}, "test-rule")
+
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsConflict(err)).To(BeTrue(),
+				"expected Conflict error due to optimistic locking, got: %v", err)
+		})
+
+		It("should return a conflict error from addTaintBySpec when the node is modified concurrently", func() {
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "ol-add-conflict"},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: "other-controller/taint", Effect: corev1.TaintEffectNoSchedule},
+					},
+				},
+			}
+
+			var patchCount atomic.Int32
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if obj.GetName() == "ol-add-conflict" && patchCount.Add(1) == 1 {
+							current := &corev1.Node{}
+							Expect(c.Get(ctx, types.NamespacedName{Name: obj.GetName()}, current)).To(Succeed())
+							current.Spec.Taints = append(current.Spec.Taints, corev1.Taint{
+								Key: "concurrent-controller/new-taint", Effect: corev1.TaintEffectNoSchedule,
+							})
+							Expect(c.Update(ctx, current)).To(Succeed())
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, node)).To(Succeed())
+
+			err := controller.addTaintBySpec(ctx, node, corev1.Taint{
+				Key:    "readiness.k8s.io/test",
+				Effect: corev1.TaintEffectNoSchedule,
+			}, "test-rule")
+
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsConflict(err)).To(BeTrue(),
+				"expected Conflict error due to optimistic locking, got: %v", err)
+		})
+
+		It("should succeed when no concurrent modification occurs", func() {
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "ol-no-conflict"},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: "readiness.k8s.io/test", Effect: corev1.TaintEffectNoSchedule},
+						{Key: "other/taint", Effect: corev1.TaintEffectNoSchedule},
+					},
+				},
+			}
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, node)).To(Succeed())
+
+			err := controller.removeTaintBySpec(ctx, node, corev1.Taint{
+				Key:    "readiness.k8s.io/test",
+				Effect: corev1.TaintEffectNoSchedule,
+			}, "test-rule")
+			Expect(err).NotTo(HaveOccurred())
+
+			updated := &corev1.Node{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, updated)).To(Succeed())
+			Expect(updated.Spec.Taints).To(HaveLen(1))
+			Expect(updated.Spec.Taints[0].Key).To(Equal("other/taint"))
+		})
+
+		It("should skip patch when removing a taint that does not exist", func() {
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "ol-noop"},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: "other/taint", Effect: corev1.TaintEffectNoSchedule},
+					},
+				},
+			}
+
+			var patchCalled atomic.Bool
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if obj.GetName() == "ol-noop" {
+							patchCalled.Store(true)
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, node)).To(Succeed())
+
+			err := controller.removeTaintBySpec(ctx, node, corev1.Taint{
+				Key:    "readiness.k8s.io/nonexistent",
+				Effect: corev1.TaintEffectNoSchedule,
+			}, "test-rule")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(patchCalled.Load()).To(BeFalse(),
+				"Patch should not be called when taint removal is a no-op")
 		})
 	})
 })

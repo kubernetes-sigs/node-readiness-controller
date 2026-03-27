@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/retry"
@@ -241,10 +242,15 @@ func (r *RuleReadinessController) hasTaintBySpec(node *corev1.Node, taintSpec co
 }
 
 // addTaintBySpec adds a taint to a node.
+// We use client.MergeFromWithOptimisticLock because patching a list with a
+// JSON merge patch can cause races due to the fact that it fully replaces
+// the list on a change. Optimistic locking ensures the patch fails with a
+// conflict error if the node was modified concurrently, allowing the
+// controller to retry with fresh state.
 func (r *RuleReadinessController) addTaintBySpec(ctx context.Context, node *corev1.Node, taintSpec corev1.Taint, ruleName string) error {
-	patch := client.StrategicMergeFrom(node.DeepCopy())
+	stored := node.DeepCopy()
 	node.Spec.Taints = append(node.Spec.Taints, taintSpec)
-	if err := r.Patch(ctx, node, patch); err != nil {
+	if err := r.Patch(ctx, node, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
 		return err
 	}
 
@@ -255,8 +261,13 @@ func (r *RuleReadinessController) addTaintBySpec(ctx context.Context, node *core
 }
 
 // removeTaintBySpec removes a taint from a node.
+// We use client.MergeFromWithOptimisticLock because patching a list with a
+// JSON merge patch can cause races due to the fact that it fully replaces
+// the list on a change. Optimistic locking ensures the patch fails with a
+// conflict error if the node was modified concurrently, allowing the
+// controller to retry with fresh state.
 func (r *RuleReadinessController) removeTaintBySpec(ctx context.Context, node *corev1.Node, taintSpec corev1.Taint, ruleName string) error {
-	patch := client.StrategicMergeFrom(node.DeepCopy())
+	stored := node.DeepCopy()
 	var newTaints []corev1.Taint
 	for _, taint := range node.Spec.Taints {
 		if taint.Key != taintSpec.Key || taint.Effect != taintSpec.Effect {
@@ -264,7 +275,10 @@ func (r *RuleReadinessController) removeTaintBySpec(ctx context.Context, node *c
 		}
 	}
 	node.Spec.Taints = newTaints
-	if err := r.Patch(ctx, node, patch); err != nil {
+	if equality.Semantic.DeepEqual(stored, node) {
+		return nil
+	}
+	if err := r.Patch(ctx, node, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
 		return err
 	}
 
