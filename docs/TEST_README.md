@@ -100,7 +100,7 @@ kubectl get node nrr-test-worker2 -o jsonpath='Taints:{"\n"}{range .spec.taints[
 
 ### Step 7: Deploy Calico CNI with Readiness Reporter
 
-This script injects the readiness sidecar into the Calico deployment.
+This script installs calico and deploy CNI readiness reporter DaemonSet that updates node condition based on CNI readiness.
 
 ```bash
 chmod +x examples/cni-readiness/apply-calico.sh
