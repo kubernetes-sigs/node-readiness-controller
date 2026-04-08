@@ -1,0 +1,17 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+- role: worker
+  extraMounts:
+  - hostPath: examples/staticpods-readiness/test-staticpod.yaml
+    containerPath: /etc/kubernetes/manifests/test-staticpod.yaml
+    readOnly: true
+  kubeadmConfigPatches:
+  - |
+    kind: JoinConfiguration
+    nodeRegistration:
+      taints:
+      - key: "readiness.k8s.io/StaticPodsMissing"
+        value: "pending"
+        effect: "NoSchedule"  
