@@ -1,0 +1,28 @@
+{{- if and .Values.webhook.enabled .Values.validatingWebhook.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "nrr-controller.fullname" . }}-{{ .Values.validatingWebhook.name }}
+  labels:
+    {{- include "nrr-controller.labels" . | nindent 4 }}
+  {{- if .Values.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ include "nrr-controller.namespace" . }}/{{ include "nrr-controller.fullname" . }}-{{ .Values.certManager.webhookCertificate.name }}
+  {{- end }}
+webhooks:
+  - name: {{ .Values.validatingWebhook.webhookName }}
+    admissionReviewVersions:
+      {{- toYaml .Values.validatingWebhook.admissionReviewVersions | nindent 6 }}
+    clientConfig:
+      service:
+        name: {{ include "nrr-controller.fullname" . }}-webhook-service
+        namespace: {{ include "nrr-controller.namespace" . }}
+        path: {{ .Values.validatingWebhook.path }}
+    failurePolicy: {{ .Values.validatingWebhook.failurePolicy }}
+    sideEffects: {{ .Values.validatingWebhook.sideEffects }}
+    rules:
+      - apiGroups: ["readiness.node.x-k8s.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["nodereadinessrules"]
+{{- end }}
