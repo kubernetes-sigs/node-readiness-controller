@@ -19,6 +19,7 @@ package webhook
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -68,6 +69,29 @@ func (w *NodeReadinessRuleWebhook) validateSpec(spec readinessv1alpha1.NodeReadi
 	}
 	if selector != nil && selector.Empty() {
 		allErrs = append(allErrs, field.Required(field.NewPath("spec", "nodeSelector"), "nodeSelector must not be empty"))
+	}
+
+	// Validate taint - reserved prefix validation (defense in depth, also validated by CRD)
+	taintField := field.NewPath("spec", "taint")
+	if spec.Taint.Key != "" {
+		if !strings.HasPrefix(spec.Taint.Key, "readiness.k8s.io/") {
+			allErrs = append(allErrs, field.Invalid(taintField.Child("key"), spec.Taint.Key, "taint key must start with 'readiness.k8s.io/'"))
+		} else {
+			reserved := []string{
+				"readiness.k8s.io/system/",
+				"readiness.k8s.io/core/",
+				"readiness.k8s.io/node/",
+				"readiness.k8s.io/device/",
+				"readiness.k8s.io/network/",
+				"readiness.k8s.io/storage/",
+			}
+			for _, p := range reserved {
+				if strings.HasPrefix(spec.Taint.Key, p) {
+					allErrs = append(allErrs, field.Invalid(taintField.Child("key"), spec.Taint.Key, fmt.Sprintf("reserved taint prefix '%s*' is not allowed", p)))
+					break
+				}
+			}
+		}
 	}
 
 	return allErrs
@@ -197,3 +221,5 @@ func (w *NodeReadinessRuleWebhook) ValidateDelete(ctx context.Context, obj runti
 	// No validation needed for delete operations
 	return nil, nil
 }
+
+// Made with Bob

@@ -258,7 +258,7 @@ spec:
     - type: "network.kubernetes.io/NetworkProxyReady"
       requiredStatus: "True"
   taint:
-    key: "readiness.k8s.io/NetworkReady"
+    key: "readiness.k8s.io/network/not-ready"
     effect: "NoSchedule"
     value: "pending"
   enforcementMode: "bootstrap-only"
@@ -278,7 +278,7 @@ spec:
     - type: "storage.kubernetes.io/CSIReady"
       requiredStatus: "True"
   taint:
-    key: "readiness.k8s.io/StorageReady"
+    key: "readiness.k8s.io/storage/not-ready"
     effect: "NoSchedule"
   enforcementMode: "continuous"
   gracePeriod: "60s"

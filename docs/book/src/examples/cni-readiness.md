@@ -8,8 +8,8 @@ In many Kubernetes clusters, the CNI plugin runs as a DaemonSet. When a new node
 This guide demonstrates how to use the Node Readiness Controller to prevent pods from being scheduled on a node until the Container Network Interface (CNI) plugin (e.g., Calico) is fully initialized and ready.
 
 The high-level steps are:
-1.  Node is bootstrapped with a [startup taint](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/) `readiness.k8s.io/NetworkReady=pending:NoSchedule` immediately upon joining.
-2.  A reporter DaemonSet is deployed to monitor the CNI's health and report it to the API server as node-condition (`projectcalico.org/CalicoReady`). 
+1.  Node is bootstrapped with a [startup taint](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/) `readiness.k8s.io/projectcalico.org/network-not-ready=pending:NoSchedule` immediately upon joining.
+2.  A reporter DaemonSet is deployed to monitor the CNI's health and report it to the API server as node-condition (`projectcalico.org/CalicoReady`).
 3. Node Readiness Controller will untaint the node only when the CNI reports it is ready.
 
 ## Step-by-Step Guide
@@ -85,7 +85,7 @@ subjects:
 
 ### 3. Create the Node Readiness Rule
 
-Now define the rule that enforces the requirement. This tells the controller: *"Keep the `readiness.k8s.io/NetworkReady` taint on the node until `projectcalico.org/CalicoReady` is True."*
+Now define the rule that enforces the requirement. This tells the controller: *"Keep the `readiness.k8s.io/projectcalico.org/network-not-ready` taint on the node until `projectcalico.org/CalicoReady` is True."*
 
 ```yaml
 # network-readiness-rule.yaml
@@ -101,7 +101,7 @@ spec:
   
   # The taint to manage
   taint:
-    key: "readiness.k8s.io/NetworkReady"
+    key: "readiness.k8s.io/projectcalico.org/network-not-ready"
     effect: "NoSchedule"
     value: "pending"
   
@@ -135,7 +135,7 @@ To test this, add a new node to the cluster.
 
 1.  **Check the Node Taints**:
     Immediately upon joining, the node should have the taint:
-    `readiness.k8s.io/NetworkReady=pending:NoSchedule`.
+    `readiness.k8s.io/projectcalico.org/network-not-ready=pending:NoSchedule`.
 
 2.  **Check Node Conditions**:
     Watch the node conditions. You will initially see `projectcalico.org/CalicoReady` as `False` or missing.
