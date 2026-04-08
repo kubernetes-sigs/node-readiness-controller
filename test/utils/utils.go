@@ -149,6 +149,15 @@ func LoadImageToKindClusterWithName(name string) error {
 	return err
 }
 
+// GetEnvOrDefault returns the value of the environment variable if it exists,
+// otherwise it returns the provided default value.
+func GetEnvOrDefault(key, defaultValue string) string {
+	if v, ok := os.LookupEnv(key); ok {
+		return v
+	}
+	return defaultValue
+}
+
 // GetNonEmptyLines converts given command output string into individual objects
 // according to line breakers, and ignores the empty elements in it.
 func GetNonEmptyLines(output string) []string {
