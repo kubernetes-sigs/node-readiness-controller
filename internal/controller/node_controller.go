@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/retry"
@@ -248,16 +247,32 @@ func (r *RuleReadinessController) hasTaintBySpec(node *corev1.Node, taintSpec co
 // conflict error if the node was modified concurrently, allowing the
 // controller to retry with fresh state.
 func (r *RuleReadinessController) addTaintBySpec(ctx context.Context, node *corev1.Node, taintSpec corev1.Taint, ruleName string) error {
-	stored := node.DeepCopy()
-	node.Spec.Taints = append(node.Spec.Taints, taintSpec)
-	if err := r.Patch(ctx, node, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
-		return err
-	}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Fetch latest node state
+		latestNode := &corev1.Node{}
+		if err := r.Get(ctx, client.ObjectKey{Name: node.Name}, latestNode); err != nil {
+			return err
+		}
 
-	message := fmt.Sprintf("Taint '%s:%s' added by rule '%s'", taintSpec.Key, taintSpec.Effect, ruleName)
-	r.EventRecorder.Event(node, corev1.EventTypeNormal, "TaintAdded", message)
+		// Check if taint already exists
+		if r.hasTaintBySpec(latestNode, taintSpec) {
+			return nil
+		}
 
-	return nil
+		stored := latestNode.DeepCopy()
+		latestNode.Spec.Taints = append(latestNode.Spec.Taints, taintSpec)
+		if err := r.Patch(ctx, latestNode, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
+			return err
+		}
+
+		message := fmt.Sprintf("Taint '%s:%s' added by rule '%s'", taintSpec.Key, taintSpec.Effect, ruleName)
+		r.EventRecorder.Event(latestNode, corev1.EventTypeNormal, "TaintAdded", message)
+
+		// Update the original node reference with the latest state
+		*node = *latestNode
+
+		return nil
+	})
 }
 
 // removeTaintBySpec removes a taint from a node.
@@ -267,25 +282,38 @@ func (r *RuleReadinessController) addTaintBySpec(ctx context.Context, node *core
 // conflict error if the node was modified concurrently, allowing the
 // controller to retry with fresh state.
 func (r *RuleReadinessController) removeTaintBySpec(ctx context.Context, node *corev1.Node, taintSpec corev1.Taint, ruleName string) error {
-	stored := node.DeepCopy()
-	var newTaints []corev1.Taint
-	for _, taint := range node.Spec.Taints {
-		if taint.Key != taintSpec.Key || taint.Effect != taintSpec.Effect {
-			newTaints = append(newTaints, taint)
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Fetch latest node state
+		latestNode := &corev1.Node{}
+		if err := r.Get(ctx, client.ObjectKey{Name: node.Name}, latestNode); err != nil {
+			return err
 		}
-	}
-	node.Spec.Taints = newTaints
-	if equality.Semantic.DeepEqual(stored, node) {
+
+		// Check if taint is already absent
+		if !r.hasTaintBySpec(latestNode, taintSpec) {
+			return nil
+		}
+
+		stored := latestNode.DeepCopy()
+		var newTaints []corev1.Taint
+		for _, taint := range latestNode.Spec.Taints {
+			if taint.Key != taintSpec.Key || taint.Effect != taintSpec.Effect {
+				newTaints = append(newTaints, taint)
+			}
+		}
+		latestNode.Spec.Taints = newTaints
+		if err := r.Patch(ctx, latestNode, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
+			return err
+		}
+
+		message := fmt.Sprintf("Taint '%s:%s' removed by rule '%s'", taintSpec.Key, taintSpec.Effect, ruleName)
+		r.EventRecorder.Event(latestNode, corev1.EventTypeNormal, "TaintRemoved", message)
+
+		// Update the original node reference with the latest state
+		*node = *latestNode
+
 		return nil
-	}
-	if err := r.Patch(ctx, node, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
-		return err
-	}
-
-	message := fmt.Sprintf("Taint '%s:%s' removed by rule '%s'", taintSpec.Key, taintSpec.Effect, ruleName)
-	r.EventRecorder.Event(node, corev1.EventTypeNormal, "TaintRemoved", message)
-
-	return nil
+	})
 }
 
 // Bootstrap completion tracking.

@@ -713,7 +713,7 @@ var _ = Describe("Node Controller", func() {
 			Expect(corev1.AddToScheme(testScheme)).To(Succeed())
 		})
 
-		It("should return a conflict error from removeTaintBySpec when the node is modified concurrently", func() {
+		It("should retry and succeed when removeTaintBySpec encounters a conflict", func() {
 			node := &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{Name: "ol-remove-conflict"},
 				Spec: corev1.NodeSpec{
@@ -731,18 +731,19 @@ var _ = Describe("Node Controller", func() {
 			// before delegating to the real Patch. Because
 			// MergeFromWithOptimisticLock embeds the original resourceVersion,
 			// the fake client detects the mismatch and returns a Conflict.
+			// The retry logic should handle this and succeed on the second attempt.
 			fc := fakeclient.NewClientBuilder().
 				WithScheme(testScheme).
 				WithObjects(node).
 				WithInterceptorFuncs(interceptor.Funcs{
 					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 						if obj.GetName() == "ol-remove-conflict" && patchCount.Add(1) == 1 {
-							// Simulate Karpenter removing its startup taint.
+							// Simulate concurrent modification by another controller.
 							current := &corev1.Node{}
 							Expect(c.Get(ctx, types.NamespacedName{Name: obj.GetName()}, current)).To(Succeed())
-							current.Spec.Taints = []corev1.Taint{
-								{Key: "readiness.k8s.io/test", Effect: corev1.TaintEffectNoSchedule},
-							}
+							current.Spec.Taints = append(current.Spec.Taints, corev1.Taint{
+								Key: "concurrent-controller/new-taint", Effect: corev1.TaintEffectNoSchedule,
+							})
 							Expect(c.Update(ctx, current)).To(Succeed())
 						}
 						return c.Patch(ctx, obj, patch, opts...)
@@ -765,12 +766,28 @@ var _ = Describe("Node Controller", func() {
 				Effect: corev1.TaintEffectNoSchedule,
 			}, "test-rule")
 
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsConflict(err)).To(BeTrue(),
-				"expected Conflict error due to optimistic locking, got: %v", err)
+			// Should succeed after retry
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify the taint was removed and concurrent modification was preserved
+			updated := &corev1.Node{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, updated)).To(Succeed())
+			Expect(updated.Spec.Taints).To(HaveLen(2))
+
+			// Check that our taint was removed but the others remain
+			taintKeys := make(map[string]bool)
+			for _, taint := range updated.Spec.Taints {
+				taintKeys[taint.Key] = true
+			}
+			Expect(taintKeys).NotTo(HaveKey("readiness.k8s.io/test"))
+			Expect(taintKeys).To(HaveKey("other-controller/taint"))
+			Expect(taintKeys).To(HaveKey("concurrent-controller/new-taint"))
+
+			// Verify that the patch was attempted twice (first failed, second succeeded)
+			Expect(patchCount.Load()).To(BeNumerically(">=", 2))
 		})
 
-		It("should return a conflict error from addTaintBySpec when the node is modified concurrently", func() {
+		It("should retry and succeed when addTaintBySpec encounters a conflict", func() {
 			node := &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{Name: "ol-add-conflict"},
 				Spec: corev1.NodeSpec{
@@ -782,6 +799,8 @@ var _ = Describe("Node Controller", func() {
 
 			var patchCount atomic.Int32
 
+			// The interceptor simulates a concurrent modification on the first
+			// patch attempt, which should trigger a retry that succeeds.
 			fc := fakeclient.NewClientBuilder().
 				WithScheme(testScheme).
 				WithObjects(node).
@@ -815,9 +834,25 @@ var _ = Describe("Node Controller", func() {
 				Effect: corev1.TaintEffectNoSchedule,
 			}, "test-rule")
 
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsConflict(err)).To(BeTrue(),
-				"expected Conflict error due to optimistic locking, got: %v", err)
+			// Should succeed after retry
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify both taints are present (ours and the concurrent one)
+			updated := &corev1.Node{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, updated)).To(Succeed())
+			Expect(updated.Spec.Taints).To(HaveLen(3))
+
+			// Check that all expected taints are present
+			taintKeys := make(map[string]bool)
+			for _, taint := range updated.Spec.Taints {
+				taintKeys[taint.Key] = true
+			}
+			Expect(taintKeys).To(HaveKey("readiness.k8s.io/test"))
+			Expect(taintKeys).To(HaveKey("other-controller/taint"))
+			Expect(taintKeys).To(HaveKey("concurrent-controller/new-taint"))
+
+			// Verify that the patch was attempted twice (first failed, second succeeded)
+			Expect(patchCount.Load()).To(BeNumerically(">=", 2))
 		})
 
 		It("should succeed when no concurrent modification occurs", func() {
