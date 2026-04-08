@@ -22,7 +22,7 @@ We can use the Node Readiness Controller to enforce a security readiness guardra
 
 This example uses **Falco** as a representative security agent, but the same pattern applies to any node-level security or monitoring agent.
 
-> **Note**:  All manifests referenced in this guide are available in the [`examples/security-agent-readiness`](https://github.com/kubernetes-sigs/node-readiness-controller/tree/main/examples/security-agent-readiness) directory.
+> **Note**:  All manifests referenced in this guide are available in the [`examples/security-agent-readiness`](../../../../examples/security-agent-readiness) directory.
 
 ### Prerequisites
 

@@ -60,7 +60,7 @@ spec:
       node-role.kubernetes.io/worker: ""
 ```
 
-Find a more detailed walkthrough of setting up Node Readiness Controller in your Kind cluster [here](https://github.com/kubernetes-sigs/node-readiness-controller/blob/main/docs/TEST_README.md).
+Find a more detailed walkthrough of setting up Node Readiness Controller in your Kind cluster [here](docs/TEST_README.md).
 
 ## High-level Roadmap
 
