@@ -61,6 +61,11 @@ CONTROLLER_GEN_BIN := controller-gen
 CONTROLLER_GEN := $(abspath $(TOOLS_BIN_DIR)/$(CONTROLLER_GEN_BIN)-$(CONTROLLER_GEN_VER))
 CONTROLLER_GEN_PKG := sigs.k8s.io/controller-tools/cmd/controller-gen
 
+GOVULNCHECK_VER := v1.1.4
+GOVULNCHECK_BIN := govulncheck
+GOVULNCHECK := $(abspath $(TOOLS_BIN_DIR)/$(GOVULNCHECK_BIN)-$(GOVULNCHECK_VER))
+GOVULNCHECK_PKG := golang.org/x/vuln/cmd/govulncheck
+
 # Image URL to use all building/pushing image targets
 IMG_PREFIX ?= controller
 IMG_TAG ?= latest
@@ -160,6 +165,10 @@ lint-api-fix: $(GOLANGCI_LINT_KAL)
 .PHONY: lint-config
 lint-config: $(GOLANGCI_LINT) ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
+
+.PHONY: govulncheck
+govulncheck: $(GOVULNCHECK) ## Run govulncheck to detect known vulnerabilities.
+	$(GOVULNCHECK) -scan package ./...
 
 .PHONY: verify
 verify: ## Run all verification scripts.
@@ -449,6 +458,9 @@ $(GOLANGCI_LINT): # Build golangci-lint from tools folder.
 
 $(GOLANGCI_LINT_KAL): $(GOLANGCI_LINT) # Build golangci-lint-kal from custom configuration.
 	cd $(TOOLS_DIR); $(GOLANGCI_LINT) custom
+
+$(GOVULNCHECK): # Build govulncheck from tools folder.
+	GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(GOVULNCHECK_PKG) $(GOVULNCHECK_BIN) $(GOVULNCHECK_VER)
 
 
 ## --------------------------------------

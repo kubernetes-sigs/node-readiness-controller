@@ -1,0 +1,33 @@
+name: govulncheck
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  govulncheck:
+    name: Run on Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history so git worktree can check out the base branch.
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+
+      - name: Run govulncheck
+        # NRC_VERIFY_GIT_BRANCH tells the script which branch to use as the
+        # base for comparison.
+        env:
+          NRC_VERIFY_GIT_BRANCH: ${{ github.base_ref || 'main' }}
+        run: hack/verify-govulncheck.sh
