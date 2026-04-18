@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: node-readiness-controller-monitor
+  namespace: monitoring
+  labels:
+    release: prom-stack # This matches your helm release
+spec:
+  # This tells Prometheus to look in the nrr-system namespace
+  namespaceSelector:
+    matchNames:
+      - nrr-system
+  # This matches the labels found in your 'kubectl get svc' output
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+      app.kubernetes.io/name: nrrcontroller
+  endpoints:
+  - port: http # Match the spec.ports[0].name from your service
+    scheme: http # Your service is not using HTTPS/TLS
+    interval: 5s # High-resolution for your scale test
