@@ -53,6 +53,8 @@ var _ = Describe("Manager", Ordered, func() {
 	// enforce the restricted security policy to the namespace, installing CRDs,
 	// and deploying the controller.
 	BeforeAll(func() {
+		useReleaseArtifacts := os.Getenv("USE_RELEASE_ARTIFACTS") == "true"
+
 		By("creating manager namespace")
 		cmd := exec.Command("kubectl", "create", "ns", namespace)
 		_, err := utils.Run(cmd)
@@ -64,15 +66,27 @@ var _ = Describe("Manager", Ordered, func() {
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace with restricted policy")
 
-		By("installing CRDs")
-		cmd = exec.Command("make", "install")
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
+		if useReleaseArtifacts {
+			By("installing CRDs from dist/crds.yaml")
+			cmd = exec.Command("kubectl", "apply", "-f", "dist/crds.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs from dist/")
 
-		By("deploying the controller-manager")
-		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG_PREFIX=%s", imagePrefix), fmt.Sprintf("IMG_TAG=%s", imageTag))
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+			By("deploying the controller-manager from dist/install.yaml")
+			cmd = exec.Command("kubectl", "apply", "-f", "dist/install.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to deploy from dist/")
+		} else {
+			By("installing CRDs")
+			cmd = exec.Command("make", "install")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
+
+			By("deploying the controller-manager")
+			cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG_PREFIX=%s", imagePrefix), fmt.Sprintf("IMG_TAG=%s", imageTag))
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+		}
 
 		Expect(err).NotTo(HaveOccurred(), "Failed to patch deployment")
 	})
@@ -80,17 +94,29 @@ var _ = Describe("Manager", Ordered, func() {
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
 	// and deleting the namespace.
 	AfterAll(func() {
+		useReleaseArtifacts := os.Getenv("USE_RELEASE_ARTIFACTS") == "true"
+
 		By("cleaning up the curl pod for metrics")
 		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
 		_, _ = utils.Run(cmd)
 
-		By("undeploying the controller-manager")
-		cmd = exec.Command("make", "undeploy")
-		_, _ = utils.Run(cmd)
+		if useReleaseArtifacts {
+			By("undeploying the controller-manager from dist/install.yaml")
+			cmd = exec.Command("kubectl", "delete", "-f", "dist/install.yaml", "--ignore-not-found")
+			_, _ = utils.Run(cmd)
 
-		By("uninstalling CRDs")
-		cmd = exec.Command("make", "uninstall")
-		_, _ = utils.Run(cmd)
+			By("uninstalling CRDs from dist/crds.yaml")
+			cmd = exec.Command("kubectl", "delete", "-f", "dist/crds.yaml", "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+		} else {
+			By("undeploying the controller-manager")
+			cmd = exec.Command("make", "undeploy")
+			_, _ = utils.Run(cmd)
+
+			By("uninstalling CRDs")
+			cmd = exec.Command("make", "uninstall")
+			_, _ = utils.Run(cmd)
+		}
 
 		By("removing manager namespace")
 		cmd = exec.Command("kubectl", "delete", "ns", namespace)

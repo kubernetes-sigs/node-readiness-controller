@@ -42,10 +42,12 @@ var (
 
 	// imagePrefix is the name of the image which will be build and loaded
 	// with the code source changes to be tested.
-	imagePrefix = "controller"
+	imagePrefix = utils.GetEnvOrDefault("IMG_PREFIX", "controller")
 	// imageTag is the tag of the image which will be build and loaded
 	// with the code source changes to be tested.
-	imageTag = "latest"
+	imageTag = utils.GetEnvOrDefault("IMG_TAG", "latest")
+	// skipBuild will skip the docker-build and kind load steps if set to true.
+	skipBuild = os.Getenv("SKIP_RESOURCE_BUILD") == "true"
 )
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
@@ -59,17 +61,19 @@ func TestE2E(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	By("building the manager(Operator) image")
-	cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG_PREFIX=%s", imagePrefix), fmt.Sprintf("IMG_TAG=%s", imageTag))
-	_, err := utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager(Operator) image")
+	if !skipBuild {
+		By("building the manager(Operator) image")
+		cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG_PREFIX=%s", imagePrefix), fmt.Sprintf("IMG_TAG=%s", imageTag))
+		_, err := utils.Run(cmd)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager(Operator) image")
 
-	// TODO(user): If you want to change the e2e test vendor from Kind, ensure the image is
-	// built and available before running the tests. Also, remove the following block.
-	By("loading the manager(Operator) image on Kind")
-	//err = utils.LoadImageToKindClusterWithName(projectImage)
-	err = utils.LoadImageToKindClusterWithName(fmt.Sprintf("%s:%s", imagePrefix, imageTag))
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager(Operator) image into Kind")
+		// TODO(user): If you want to change the e2e test vendor from Kind, ensure the image is
+		// built and available before running the tests. Also, remove the following block.
+		By("loading the manager(Operator) image on Kind")
+		//err = utils.LoadImageToKindClusterWithName(projectImage)
+		err = utils.LoadImageToKindClusterWithName(fmt.Sprintf("%s:%s", imagePrefix, imageTag))
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager(Operator) image into Kind")
+	}
 
 	// The tests-e2e are intended to run on a temporary cluster that is created and destroyed for testing.
 	// To prevent errors when tests run in environments with CertManager already installed,
