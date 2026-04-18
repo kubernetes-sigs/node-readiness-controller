@@ -51,7 +51,7 @@ spec:
     - type: "example.com/CNIReady"
       requiredStatus: "True"
   taint:
-    key: "readiness.k8s.io/NetworkReady"
+    key: "readiness.k8s.io/example.com/network-not-ready"
     effect: "NoSchedule"
     value: "pending"
   enforcementMode: "bootstrap-only"
@@ -61,6 +61,21 @@ spec:
 ```
 
 Find a more detailed walkthrough of setting up Node Readiness Controller in your Kind cluster [here](https://github.com/kubernetes-sigs/node-readiness-controller/blob/main/docs/TEST_README.md).
+
+### Taint Key Conventions
+
+All taint keys must use the `readiness.k8s.io/` prefix. The following core prefixes are reserved and not allowed for user rules:
+- `readiness.k8s.io/system/*`
+- `readiness.k8s.io/core/*`
+- `readiness.k8s.io/node/*`
+- `readiness.k8s.io/device/*`
+- `readiness.k8s.io/network/*`
+- `readiness.k8s.io/storage/*`
+
+Use user-space keys under `readiness.k8s.io/*` with a DNS-style component to avoid conflicts, for example:
+- `readiness.k8s.io/example.com/network-not-ready`
+- `readiness.k8s.io/projectcalico.org/cni-ready`
+- `readiness.k8s.io/vendor.io/storage-driver-ready`
 
 ## High-level Roadmap
 

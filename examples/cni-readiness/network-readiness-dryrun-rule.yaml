@@ -8,7 +8,7 @@ spec:
     - type: "projectcalico.org/CalicoReady"
       requiredStatus: "True"
   taint:
-    key: "readiness.k8s.io/NetworkReady"
+    key: "readiness.k8s.io/projectcalico.org/network-not-ready"
     effect: "NoSchedule"
     value: "pending"
   enforcementMode: "bootstrap-only"

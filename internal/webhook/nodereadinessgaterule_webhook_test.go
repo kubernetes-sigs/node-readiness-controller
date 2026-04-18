@@ -437,7 +437,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "test-key",
+						Key:    "readiness.k8s.io/test-key",
 						Effect: corev1.TaintEffectNoExecute, // NoExecute effect
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous, // Continuous mode
@@ -465,7 +465,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "test-key",
+						Key:    "readiness.k8s.io/test-key",
 						Effect: corev1.TaintEffectNoExecute, // NoExecute effect
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly, // Bootstrap mode
@@ -492,7 +492,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "test-key",
+						Key:    "readiness.k8s.io/test-key",
 						Effect: corev1.TaintEffectNoSchedule, // NoSchedule effect
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
@@ -517,7 +517,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 						},
 					},
 					Taint: corev1.Taint{
-						Key:    "test-key",
+						Key:    "readiness.k8s.io/test-key",
 						Effect: corev1.TaintEffectPreferNoSchedule, // PreferNoSchedule effect
 					},
 					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
@@ -559,7 +559,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			// Test NoExecute + continuous
 			spec := readinessv1alpha1.NodeReadinessRuleSpec{
 				Taint: corev1.Taint{
-					Key:    "test",
+					Key:    "readiness.k8s.io/test",
 					Effect: corev1.TaintEffectNoExecute,
 				},
 				EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
@@ -578,6 +578,112 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			spec.Taint.Effect = corev1.TaintEffectNoSchedule
 			warnings = webhook.generateNoExecuteWarnings(spec)
 			Expect(warnings).To(BeEmpty())
+		})
+	})
+
+	Context("Reserved Prefix Validation", func() {
+		It("should reject all reserved readiness.k8s.io core prefixes", func() {
+			reservedKeys := []string{
+				"readiness.k8s.io/system/foo",
+				"readiness.k8s.io/core/bar",
+				"readiness.k8s.io/node/baz",
+				"readiness.k8s.io/device/xyz",
+				"readiness.k8s.io/network/abc",
+				"readiness.k8s.io/storage/def",
+			}
+			for _, k := range reservedKeys {
+				rule := &readinessv1alpha1.NodeReadinessRule{
+					Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+						Conditions: []readinessv1alpha1.ConditionRequirement{
+							{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+						},
+						NodeSelector: metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"node-role.kubernetes.io/worker": "",
+							},
+						},
+						Taint: corev1.Taint{
+							Key:    k,
+							Effect: corev1.TaintEffectNoSchedule,
+						},
+						EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
+					},
+				}
+				allErrs := webhook.validateSpec(rule.Spec)
+				Expect(allErrs).NotTo(BeEmpty())
+				Expect(allErrs[0].Field).To(Equal("spec.taint.key"))
+			}
+		})
+
+		// Test that commonly used taint keys are properly rejected as they fall under reserved prefixes.
+		It("should reject readiness.k8s.io/network/not-ready (reserved prefix)", func() {
+			rule := &readinessv1alpha1.NodeReadinessRule{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/network/not-ready",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+			allErrs := webhook.validateSpec(rule.Spec)
+			Expect(allErrs).NotTo(BeEmpty())
+			Expect(allErrs[0].Field).To(Equal("spec.taint.key"))
+			Expect(allErrs[0].Detail).To(ContainSubstring("reserved taint prefix 'readiness.k8s.io/network/*' is not allowed"))
+		})
+
+		It("should reject readiness.k8s.io/storage/not-ready (reserved prefix)", func() {
+			rule := &readinessv1alpha1.NodeReadinessRule{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/storage/not-ready",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+			allErrs := webhook.validateSpec(rule.Spec)
+			Expect(allErrs).NotTo(BeEmpty())
+			Expect(allErrs[0].Field).To(Equal("spec.taint.key"))
+			Expect(allErrs[0].Detail).To(ContainSubstring("reserved taint prefix 'readiness.k8s.io/storage/*' is not allowed"))
+		})
+
+		It("should allow user-space keys under readiness.k8s.io", func() {
+			rule := &readinessv1alpha1.NodeReadinessRule{
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/example.com/my-component",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+			allErrs := webhook.validateSpec(rule.Spec)
+			Expect(allErrs).To(BeEmpty())
 		})
 	})
 

@@ -11,11 +11,11 @@ nodes:
       kubeletExtraArgs:
         node-labels: "reserved-for=platform"
         register-with-taints: "node-restriction.kubernetes.io/reserved-for=platform:NoExecute"
-- role: worker # workers; reserved labels like node-role.kubernetes.io/worker cannot be used in kind ref: kind/issues/3536 
+- role: worker # workers; reserved labels like node-role.kubernetes.io/worker cannot be used in kind ref: kind/issues/3536
   kubeadmConfigPatches:
   - |
     kind: JoinConfiguration
     nodeRegistration:
       kubeletExtraArgs:
         node-labels: "reserved-for=worker"
-        register-with-taints: "readiness.k8s.io/NetworkReady=pending:NoSchedule"
+        register-with-taints: "readiness.k8s.io/projectcalico.org/network-not-ready=pending:NoSchedule"

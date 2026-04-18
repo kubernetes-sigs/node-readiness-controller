@@ -3,7 +3,7 @@
 This example demonstrates how to use the Node Readiness Controller to ensure nodes are only marked ready for workloads after the CNI (Calico) has fully initialized.
 
 ### How it works:
-1. Nodes join with a `readiness.k8s.io/NetworkReady=pending:NoSchedule` taint.
+1. Nodes join with a `readiness.k8s.io/network/not-ready=pending:NoSchedule` taint.
 2. A lightweight DaemonSet (`cni-reporter-ds.yaml`)
    monitors Calico's health endpoint (`localhost:9099/readiness`) and updates a
    node condition `projectcalico.org/CalicoReady`.

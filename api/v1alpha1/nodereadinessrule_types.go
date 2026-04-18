@@ -82,6 +82,12 @@ type NodeReadinessRuleSpec struct {
 	//
 	// +required
 	// +kubebuilder:validation:XValidation:rule="self.key.startsWith('readiness.k8s.io/')",message="taint key must start with 'readiness.k8s.io/'"
+	// +kubebuilder:validation:XValidation:rule="!self.key.startsWith('readiness.k8s.io/system/')",message="reserved taint prefix 'readiness.k8s.io/system/*' is not allowed"
+	// +kubebuilder:validation:XValidation:rule="!self.key.startsWith('readiness.k8s.io/core/')",message="reserved taint prefix 'readiness.k8s.io/core/*' is not allowed"
+	// +kubebuilder:validation:XValidation:rule="!self.key.startsWith('readiness.k8s.io/node/')",message="reserved taint prefix 'readiness.k8s.io/node/*' is not allowed"
+	// +kubebuilder:validation:XValidation:rule="!self.key.startsWith('readiness.k8s.io/device/')",message="reserved taint prefix 'readiness.k8s.io/device/*' is not allowed"
+	// +kubebuilder:validation:XValidation:rule="!self.key.startsWith('readiness.k8s.io/network/')",message="reserved taint prefix 'readiness.k8s.io/network/*' is not allowed"
+	// +kubebuilder:validation:XValidation:rule="!self.key.startsWith('readiness.k8s.io/storage/')",message="reserved taint prefix 'readiness.k8s.io/storage/*' is not allowed"
 	// +kubebuilder:validation:XValidation:rule="self.key.size() <= 253",message="taint key length must be at most 253 characters"
 	// +kubebuilder:validation:XValidation:rule="size(self.key.split('/')) == 2",message="taint key must have exactly one '/' separator (prefix/name format)"
 	// +kubebuilder:validation:XValidation:rule="size(self.key.split('/')[1]) > 0 && size(self.key.split('/')[1]) <= 63",message="taint key name part must be 1-63 characters"

@@ -7,7 +7,7 @@ spec:
     - type: "StorageReady"
       requiredStatus: "True"
   taint:
-    key: "readiness.k8s.io/StorageReady"
+    key: "readiness.k8s.io/e2e-test.io/storage-not-ready"
     effect: "NoSchedule"
     value: "pending"
   enforcementMode: "continuous"

@@ -200,6 +200,24 @@ spec:
                 x-kubernetes-validations:
                 - message: taint key must start with 'readiness.k8s.io/'
                   rule: self.key.startsWith('readiness.k8s.io/')
+                - message: reserved taint prefix 'readiness.k8s.io/system/*' is not
+                    allowed
+                  rule: '!self.key.startsWith(''readiness.k8s.io/system/'')'
+                - message: reserved taint prefix 'readiness.k8s.io/core/*' is not
+                    allowed
+                  rule: '!self.key.startsWith(''readiness.k8s.io/core/'')'
+                - message: reserved taint prefix 'readiness.k8s.io/node/*' is not
+                    allowed
+                  rule: '!self.key.startsWith(''readiness.k8s.io/node/'')'
+                - message: reserved taint prefix 'readiness.k8s.io/device/*' is not
+                    allowed
+                  rule: '!self.key.startsWith(''readiness.k8s.io/device/'')'
+                - message: reserved taint prefix 'readiness.k8s.io/network/*' is not
+                    allowed
+                  rule: '!self.key.startsWith(''readiness.k8s.io/network/'')'
+                - message: reserved taint prefix 'readiness.k8s.io/storage/*' is not
+                    allowed
+                  rule: '!self.key.startsWith(''readiness.k8s.io/storage/'')'
                 - message: taint key length must be at most 253 characters
                   rule: self.key.size() <= 253
                 - message: taint key must have exactly one '/' separator (prefix/name

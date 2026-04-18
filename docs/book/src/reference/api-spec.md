@@ -162,6 +162,7 @@ _Appears in:_
 | `conditions` _[ConditionRequirement](#conditionrequirement) array_ | conditions contains a list of the Node conditions that defines the specific<br />criteria that must be met for taints to be managed on the target Node.<br />The presence or status of these conditions directly triggers the application or removal of Node taints. |  | MaxItems: 32 <br />MinItems: 1 <br /> |
 | `enforcementMode` _[EnforcementMode](#enforcementmode)_ | enforcementMode specifies how the controller maintains the desired state.<br />enforcementMode is one of bootstrap-only, continuous.<br />"bootstrap-only" applies the configuration once during initial setup.<br />"continuous" ensures the state is monitored and corrected throughout the resource lifecycle. |  | Enum: [bootstrap-only continuous] <br /> |
 | `taint` _[Taint](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#taint-v1-core)_ | taint defines the specific Taint (Key, Value, and Effect) to be managed<br />on Nodes that meet the defined condition criteria. |  |  |
+<br />Key must start with `readiness.k8s.io/`. Reserved core prefixes are forbidden: `readiness.k8s.io/{system,core,node,device,network,storage}/*`. Use user-space keys such as `readiness.k8s.io/<dns.subdomain>/<component>`.
 | `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#labelselector-v1-meta)_ | nodeSelector limits the scope of this rule to a specific subset of Nodes. |  |  |
 | `dryRun` _boolean_ | dryRun when set to true, The controller will evaluate Node conditions and log intended taint modifications<br />without persisting changes to the cluster. Proposed actions are reflected in the resource status. |  |  |
 
@@ -203,5 +204,4 @@ _Appears in:_
 | --- | --- |
 | `Present` | TaintStatusPresent represent the taint present on the Node.<br /> |
 | `Absent` | TaintStatusAbsent represent the taint absent on the Node.<br /> |
-
 

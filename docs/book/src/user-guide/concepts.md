@@ -22,6 +22,19 @@ Typical taint keys look like:
 - `readiness.k8s.io/csi.vendor.com/storage-driver-not-ready`
 - `readiness.k8s.io/<dns.subdomain>/<component-name>`
 
+Reserved core prefixes (not allowed for user rules):
+- `readiness.k8s.io/system/*`
+- `readiness.k8s.io/core/*`
+- `readiness.k8s.io/node/*`
+- `readiness.k8s.io/device/*`
+- `readiness.k8s.io/network/*`
+- `readiness.k8s.io/storage/*`
+
+Use vendor/user-space paths under `readiness.k8s.io/*` that include a DNS-style component to avoid conflicts, for example:
+- `readiness.k8s.io/example.com/my-component`
+- `readiness.k8s.io/projectcalico.org/network-not-ready`
+- `readiness.k8s.io/vendor.io/storage-driver-ready`
+
 The segment after `readiness.k8s.io/` should describe the dependency or subsystem whose readiness is being guarded (for example, a CNI plugin, storage backend, or security agent). Treat this domain as reserved for the controller and closely related components, and avoid reusing it for unrelated taints.
 
 ## Enforcement Modes
