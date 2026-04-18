@@ -478,3 +478,22 @@ crd-ref-docs:
 		--config=crd-ref-docs.yaml \
 		--renderer=markdown \
 		--output-path=${PWD}/docs/book/src/reference/api-spec.md
+
+# helm
+
+ensure-helm-install:
+ifndef HAS_HELM
+	curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 && chmod 700 ./get_helm.sh && ./get_helm.sh
+endif
+
+lint-chart: ensure-helm-install
+	helm lint ./charts/nrr-controller
+
+build-helm:
+	helm package ./charts/nrr-controller --dependency-update --destination ./bin/chart
+
+kind-multi-node:
+	kind create cluster --name kind --config ./hack/kind_config.yaml --wait 2m
+
+ct-helm:
+	./hack/verify-chart.sh

@@ -1,0 +1,47 @@
+suite: Test Node Readiness Controller Deployment
+
+templates:
+  - "*.yaml"
+
+release:
+  name: nrr-controller
+
+set:
+  replicaCount: 1
+
+tests:
+  - it: creates Deployment
+    template: templates/deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: enables leader-election
+    set:
+      leaderElection:
+        enabled: true
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --leader-elect
+
+  - it: adds metrics secure args when enabled
+    set:
+      metrics:
+        secure: true
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --metrics-secure
+
+  - it: exposes webhook port when webhook enabled
+    set:
+      webhook:
+        enabled: true
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports[0].name
+          content: webhook-server
