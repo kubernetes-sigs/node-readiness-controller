@@ -21,3 +21,4 @@ set -o pipefail
 # Run all verification scripts
 hack/verify-boilerplate.sh
 hack/verify-links.sh
+hack/verify-govulncheck.sh
