@@ -1,0 +1,17 @@
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: service-readiness-rule
+spec:
+  conditions:
+    - type: "ServiceReadiness"
+      requiredStatus: "False"
+  taint:
+    key: "readiness.k8s.io/ServiceReady"
+    effect: "NoSchedule"
+    value: "pending"
+  enforcementMode: "continuous"
+  nodeSelector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: DoesNotExist
