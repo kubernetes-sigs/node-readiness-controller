@@ -8,6 +8,9 @@ bin/*
 hack/tools/bin
 Dockerfile.cross
 
+# Kubeconfig might contain secrets
+*.kubeconfig
+
 # Test binary, built with `go test -c`
 *.test
 
