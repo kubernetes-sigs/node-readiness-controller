@@ -3,6 +3,10 @@
   command = "GO_VERSION=1.25.8 MDBOOK_VERSION=0.5.2 ./install-and-build-mdbook.sh"
   publish = "book"
 
+# Disables Pretty URLs feature so it doesn't break mdBook's heading navigation logic
+[build.processing.html]
+  pretty_urls = false
+
 [context.deploy-preview]
   command = "GO_VERSION=1.25.8 MDBOOK_VERSION=0.5.2 ./install-and-build-mdbook.sh"
 
