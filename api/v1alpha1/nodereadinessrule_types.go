@@ -298,8 +298,10 @@ type DryRunResults struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=nrr
-// +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.enforcementMode`,description="Continuous, Bootstrap or Dryrun - shows if the rule is in enforcement or dryrun mode."
+// +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.enforcementMode`,description="The enforcement mode of the rule: bootstrap-only or continuous."
 // +kubebuilder:printcolumn:name="Taint",type=string,JSONPath=`.spec.taint.key`,description="The readiness taint applied by this rule."
+// +kubebuilder:printcolumn:name="Effect",type=string,JSONPath=`.spec.taint.effect`,description="The taint effect: NoSchedule, PreferNoSchedule or NoExecute."
+// +kubebuilder:printcolumn:name="DryRun",type=boolean,JSONPath=`.spec.dryRun`,description="Whether the rule is in dry-run mode and only previews taint changes."
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`,description="The age of this resource"
 
 // NodeReadinessRule is the Schema for the NodeReadinessRules API.
