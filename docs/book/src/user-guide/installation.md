@@ -98,6 +98,26 @@ example on deploying the controller as a static pod in a kind cluster.
     ```
     This is typically handled via a bootstrap script or post-install job in a `kubeadm` setup.
 
+### Option 4: Minikube Addon
+
+For local development and testing, NRC is available as a [minikube addon](https://minikube.sigs.k8s.io/docs/commands/addons/). This deploys NRC as a control-plane static pod with the CRD, managed by minikube's addon lifecycle.
+
+```sh
+minikube start --addons=nrc
+```
+
+Or enable it on an existing cluster:
+
+```sh
+minikube addons enable nrc
+```
+
+To disable and clean up:
+
+```sh
+minikube addons disable nrc
+```
+
 ---
 ## Verification
 

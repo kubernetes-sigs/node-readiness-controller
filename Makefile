@@ -268,6 +268,13 @@ build-installer: build-manifests-temp ## Generate CRDs and deployment manifests 
 	@echo "Generated dist/install-full.yaml (Features: Metrics, TLS, Webhook - Requires cert-manager)"
 	@echo "Check https://node-readiness-controller.sigs.k8s.io/user-guide/installation.html for installation instructions."
 
+.PHONY: minikube-addon
+minikube-addon: manifests ## Regenerate minikube addon CRD from source.
+	@cp config/crd/bases/readiness.node.x-k8s.io_nodereadinessrules.yaml deploy/minikube/crds.yaml
+	@# Patch in the minikube addon label
+	@sed -i '/^  name: nodereadinessrules/i\  labels:\n    kubernetes.io/minikube-addons: nrc' deploy/minikube/crds.yaml
+	@echo "Updated deploy/minikube/crds.yaml"
+
 ## --------------------------------------
 ## Deployment
 ## --------------------------------------
