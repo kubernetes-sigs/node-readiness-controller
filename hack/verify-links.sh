@@ -70,4 +70,10 @@ fi
 chmod +x ${TEMP_DIR}/${LYCHEE_BINARY}
 
 echo "Checking links in Markdown files..."
-"${TEMP_DIR}/${LYCHEE_BINARY}" --no-progress --timeout 30 --format detailed  '**/*.md'
+"${TEMP_DIR}/${LYCHEE_BINARY}" \
+    --no-progress \
+    --timeout 30 \
+    --max-retries 5 \
+    --retry-wait-time 5 \
+    --format detailed \
+    '**/*.md'
