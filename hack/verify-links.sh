@@ -73,7 +73,7 @@ echo "Checking links in Markdown files..."
 "${TEMP_DIR}/${LYCHEE_BINARY}" \
     --no-progress \
     --timeout 30 \
-    --max-retries 5 \
-    --retry-wait-time 5 \
+    --max-retries 3 \
+    --retry-wait-time 3 \
     --format detailed \
     '**/*.md'
