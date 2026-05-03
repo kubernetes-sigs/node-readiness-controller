@@ -22,6 +22,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	dto "github.com/prometheus/client_model/go"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,11 +34,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	nodereadinessiov1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
+	"sigs.k8s.io/node-readiness-controller/internal/metrics"
 )
 
 const (
 	selectorChangeTaintKey = "readiness.k8s.io/selector-change-taint"
 )
+
+func counterValue(counter interface{ Write(*dto.Metric) error }) float64 {
+	metric := &dto.Metric{}
+	Expect(counter.Write(metric)).To(Succeed())
+	return metric.GetCounter().GetValue()
+}
 
 var _ = Describe("NodeReadinessRule Controller", func() {
 	var (
@@ -572,6 +580,27 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				g.Expect(updatedNode.Annotations).To(HaveKeyWithValue(
 					"existing-annotation", "should-be-preserved"))
 			}).Should(Succeed())
+		})
+
+		It("should increment bootstrap completed metric only when newly marked", func() {
+			nodeName := "bootstrap-metric-test-node"
+			ruleName := "bootstrap-metric-test-rule"
+
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nodeName,
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			counter := metrics.BootstrapCompleted.WithLabelValues(ruleName)
+			before := counterValue(counter)
+
+			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName)
+			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName)
+
+			Expect(counterValue(counter)).To(Equal(before + 1))
 		})
 	})
 
