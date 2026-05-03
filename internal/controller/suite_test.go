@@ -152,8 +152,9 @@ var _ = AfterSuite(func() {
 func getFirstFoundEnvTestBinaryDir() string {
 	// First check if KUBEBUILDER_ASSETS is already set
 	if assets := os.Getenv("KUBEBUILDER_ASSETS"); assets != "" {
-		if _, err := os.Stat(assets); err == nil {
-			return assets
+		cleaned := filepath.Clean(assets)
+		if _, err := os.Stat(cleaned); err == nil {
+			return cleaned
 		}
 	}
 

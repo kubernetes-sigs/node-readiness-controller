@@ -46,7 +46,7 @@ func NewNodeReadinessRuleWebhook(c client.Client) *NodeReadinessRuleWebhook {
 
 // validateNodeReadinessRule performs validation logic.
 func (w *NodeReadinessRuleWebhook) validateNodeReadinessRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, isUpdate bool) field.ErrorList {
-	var allErrs field.ErrorList
+	allErrs := make(field.ErrorList, 0, 4)
 
 	// Validate basic fields
 	allErrs = append(allErrs, w.validateSpec(rule.Spec)...)

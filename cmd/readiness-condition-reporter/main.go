@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -58,18 +59,22 @@ func main() {
 	nodeName := os.Getenv(envNodeName)
 	if nodeName == "" {
 		klog.ErrorS(nil, "Environment variable not set", "variable", envNodeName)
+		klog.Flush()
 		os.Exit(1)
 	}
 
 	conditionType := os.Getenv(envConditionType)
 	if conditionType == "" {
 		klog.ErrorS(nil, "Environment variable not set", "variable", envConditionType)
+		klog.Flush()
 		os.Exit(1)
 	}
 
-	checkEndpoint := os.Getenv(envCheckEndpoint)
-	if checkEndpoint == "" {
-		klog.ErrorS(nil, "Environment variable not set", "variable", envCheckEndpoint)
+	checkEndpoint, err := validateCheckEndpoint(os.Getenv(envCheckEndpoint))
+
+	if err != nil {
+		klog.ErrorS(err, "Invalid check endpoint configuration", "variable", envCheckEndpoint)
+		klog.Flush()
 		os.Exit(1)
 	}
 
@@ -90,6 +95,7 @@ func main() {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		klog.ErrorS(err, "Failed to create in-cluster config")
+		klog.Flush()
 		os.Exit(1)
 	}
 
@@ -104,6 +110,7 @@ func main() {
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		klog.ErrorS(err, "Failed to create client")
+		klog.Flush()
 		os.Exit(1)
 	}
 
@@ -150,9 +157,29 @@ func runCheck(ctx context.Context, httpClient *http.Client, clientset kubernetes
 	}
 }
 
+// validateCheckEndpoint ensures the health check endpoint is a well-formed HTTP(S) URL.
+func validateCheckEndpoint(endpoint string) (string, error) {
+	if endpoint == "" {
+		return "", fmt.Errorf("endpoint cannot be empty")
+	}
+
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return "", fmt.Errorf("invalid endpoint URL: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("unsupported scheme %q: must be http or https", parsed.Scheme)
+	}
+	if parsed.Host == "" {
+		return "", fmt.Errorf("missing host in endpoint URL")
+	}
+
+	return endpoint, nil
+}
+
 // checkHealth performs an HTTP request to check component health.
 func checkHealth(ctx context.Context, client *http.Client, endpoint string) (*HealthResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil) //nolint:gosec // endpoint validated at startup
 	if err != nil {
 		return &HealthResponse{
 			Healthy: false,
@@ -161,7 +188,7 @@ func checkHealth(ctx context.Context, client *http.Client, endpoint string) (*He
 		}, nil
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // endpoint validated at startup
 	if err != nil {
 		return &HealthResponse{
 			Healthy: false,
