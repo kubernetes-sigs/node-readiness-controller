@@ -16,6 +16,7 @@
 - [Security Agent](./examples/security-agent-readiness.md)
 <!-- - [Device Drivers](./examples/dra-readiness.md) -->
 - [Constrained Impersonation](./examples/constrained-impersonation.md)
+- [NPD + Descheduler Remediation](./examples/npd-descheduler-remediation.md)
 
 # Releases
 

@@ -1,0 +1,16 @@
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: remediation-test-rule
+spec:
+  conditions:
+    - type: "CustomCondition/MyComponentNotReady"
+      requiredStatus: "False"
+  taint:
+    key: "readiness.k8s.io/my-component-ready"
+    effect: "NoSchedule"
+    value: "false"
+  enforcementMode: "continuous"
+  nodeSelector:
+    matchLabels:
+      e2e-test: "remediation"

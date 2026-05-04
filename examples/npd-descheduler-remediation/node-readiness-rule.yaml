@@ -1,0 +1,29 @@
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: my-component-readiness-rule
+spec:
+  # Watch the NPD-reported condition.
+  # NPD sets CustomCondition/MyComponentNotReady=False when healthy.
+  conditions:
+    - type: "CustomCondition/MyComponentNotReady"
+      requiredStatus: "False"
+
+  # Taint managed by this rule.
+  # When the condition is not satisfied, the taint is added.
+  # When the condition is satisfied (component healthy), the taint is removed.
+  taint:
+    key: "readiness.k8s.io/my-component-ready"
+    effect: "NoSchedule"
+    value: "false"
+
+  # Continuous mode: re-taint if the component becomes unhealthy again.
+  # This is critical for the Descheduler integration — the taint must be
+  # re-applied so the Descheduler can evict pods from degraded nodes.
+  enforcementMode: "continuous"
+
+  # Target only worker nodes
+  nodeSelector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: DoesNotExist
