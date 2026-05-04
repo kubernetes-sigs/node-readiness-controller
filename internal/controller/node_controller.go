@@ -316,6 +316,8 @@ func (r *RuleReadinessController) removeTaintBySpec(ctx context.Context, node *c
 	})
 }
 
+const bootstrapAnnotationKeyPrefix = "readiness.k8s.io/bootstrap-completed-"
+
 // Bootstrap completion tracking.
 func (r *RuleReadinessController) isBootstrapCompleted(ctx context.Context, nodeName, ruleName string) bool {
 	// Check node annotation
@@ -324,15 +326,15 @@ func (r *RuleReadinessController) isBootstrapCompleted(ctx context.Context, node
 		return false
 	}
 
-	annotationKey := fmt.Sprintf("readiness.k8s.io/bootstrap-completed-%s", ruleName)
+	annotationKey := bootstrapAnnotationKeyPrefix + ruleName
 	_, exists := node.Annotations[annotationKey]
 	return exists
 }
 
-func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, nodeName, ruleName string) {
+func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, nodeName, ruleName string) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	annotationKey := fmt.Sprintf("readiness.k8s.io/bootstrap-completed-%s", ruleName)
+	annotationKey := bootstrapAnnotationKeyPrefix + ruleName
 	marked := false
 
 	// retry to handle conflict with concurrent node updates
@@ -368,12 +370,14 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 	switch {
 	case err != nil:
 		log.Error(err, "Failed to mark bootstrap completed", "node", nodeName, "rule", ruleName)
+		return err
 	case marked:
 		log.Info("Marked bootstrap completed", "node", nodeName, "rule", ruleName)
 		metrics.BootstrapCompleted.WithLabelValues(ruleName).Inc()
 	default:
 		log.V(4).Info("Bootstrap already completed", "node", nodeName, "rule", ruleName)
 	}
+	return nil
 }
 
 // recordNodeFailure records a failure for a specific node.

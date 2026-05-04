@@ -271,6 +271,11 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 	for _, node := range nodeList.Items {
 		if r.ruleAppliesTo(ctx, rule, &node) {
 			appliedNodes = append(appliedNodes, node.Name)
+			if r.isBootstrapCompleted(ctx, node.Name, rule.Name) && rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
+				log.Info("Skipping bootstrap-only rule - already completed",
+					"node", node.Name, "rule", rule.Name)
+				continue
+			}
 			log.Info("Processing node for rule", "rule", rule.Name, "node", node.Name)
 			if err := r.evaluateRuleForNode(ctx, rule, &node); err != nil {
 				// Log error but continue with other nodes
@@ -345,7 +350,17 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 
 		// Mark bootstrap completed if bootstrap-only mode
 		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
-			r.markBootstrapCompleted(ctx, node.Name, rule.Name)
+			if err := r.markBootstrapCompleted(ctx, node.Name, rule.Name); err != nil {
+				// Taint is already removed, keep NodeEvaluation in sync with the node
+				var taintStatus readinessv1alpha1.TaintStatus
+				if r.hasTaintBySpec(node, rule.Spec.Taint) {
+					taintStatus = readinessv1alpha1.TaintStatusPresent
+				} else {
+					taintStatus = readinessv1alpha1.TaintStatusAbsent
+				}
+				r.updateNodeEvaluationStatus(rule, node.Name, conditionResults, taintStatus)
+				return fmt.Errorf("failed to mark bootstrap completed: %w", err)
+			}
 		}
 
 	case !shouldRemoveTaint && !currentlyHasTaint:
