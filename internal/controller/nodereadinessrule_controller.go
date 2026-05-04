@@ -277,6 +277,8 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 				log.Error(err, "Failed to evaluate node for rule", "rule", rule.Name, "node", node.Name)
 				r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
 				metrics.Failures.WithLabelValues(rule.Name, "EvaluationError").Inc()
+			} else {
+				r.clearNodeFailure(rule, node.Name)
 			}
 		}
 	}
@@ -422,7 +424,7 @@ func (r *RuleReadinessController) getApplicableRulesForNode(ctx context.Context,
 
 	for _, rule := range r.ruleCache {
 		if r.ruleAppliesTo(ctx, rule, node) {
-			applicableRules = append(applicableRules, rule)
+			applicableRules = append(applicableRules, rule.DeepCopy())
 		}
 	}
 
@@ -705,4 +707,15 @@ func (r *RuleReadinessController) getPreviousNodeEvaluation(rule *readinessv1alp
 		}
 	}
 	return nil
+}
+
+// clearNodeFailure removes any failure record for a specific node from the rule status.
+func (r *RuleReadinessController) clearNodeFailure(rule *readinessv1alpha1.NodeReadinessRule, nodeName string) {
+	var failedNodes []readinessv1alpha1.NodeFailure
+	for _, failure := range rule.Status.FailedNodes {
+		if failure.NodeName != nodeName {
+			failedNodes = append(failedNodes, failure)
+		}
+	}
+	rule.Status.FailedNodes = failedNodes
 }
