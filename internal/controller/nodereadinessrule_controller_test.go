@@ -908,7 +908,18 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		})
 
 		AfterEach(func() {
-			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "delete-node-rule"}, updatedRule); err == nil {
+				updatedRule.Finalizers = nil
+				_ = k8sClient.Update(ctx, updatedRule)
+				_ = k8sClient.Delete(ctx, updatedRule)
+			}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: "delete-node-rule"}, &nodereadinessiov1alpha1.NodeReadinessRule{})
+				return apierrors.IsNotFound(err)
+			}, time.Second*10).Should(BeTrue())
+
 			// node1 is already deleted in the test
 			_ = k8sClient.Delete(ctx, node2)
 		})
@@ -954,6 +965,65 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				}
 				return false
 			}, time.Second*5).Should(BeTrue())
+		})
+
+		It("removes failedNodes entries for deleted nodes", func() {
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "delete-node-rule"}})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func() int {
+				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: "delete-node-rule"}, updatedRule)
+				return len(updatedRule.Status.NodeEvaluations)
+			}, time.Second*5).Should(Equal(2))
+
+			seededRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "delete-node-rule"}, seededRule)).To(Succeed())
+			statusPatch := client.MergeFrom(seededRule.DeepCopy())
+			seededRule.Status.FailedNodes = append(seededRule.Status.FailedNodes, nodereadinessiov1alpha1.NodeFailure{
+				NodeName:           "node1",
+				Reason:             "EvaluationError",
+				Message:            "test failure",
+				LastEvaluationTime: metav1.Now(),
+			})
+			Expect(k8sClient.Status().Patch(ctx, seededRule, statusPatch)).To(Succeed())
+
+			Eventually(func() bool {
+				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: "delete-node-rule"}, updatedRule)
+				for _, f := range updatedRule.Status.FailedNodes {
+					if f.NodeName == "node1" {
+						return true
+					}
+				}
+				return false
+			}, time.Second*5).Should(BeTrue())
+			verifyRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "delete-node-rule"}, verifyRule)).To(Succeed())
+			for _, f := range verifyRule.Status.FailedNodes {
+				Expect(f.NodeName).NotTo(Equal("node2"), "setup should not add a failure for node2")
+			}
+
+			Expect(k8sClient.Delete(ctx, node1)).To(Succeed())
+
+			_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "delete-node-rule"}})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func() bool {
+				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: "delete-node-rule"}, updatedRule)
+				for _, f := range updatedRule.Status.FailedNodes {
+					if f.NodeName == "node1" {
+						return false
+					}
+				}
+				return true
+			}, time.Second*5).Should(BeTrue())
+			patchedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "delete-node-rule"}, patchedRule)).To(Succeed())
+			for _, f := range patchedRule.Status.FailedNodes {
+				Expect(f.NodeName).NotTo(Equal("node2"), "cleanup should not introduce a failure for node2")
+			}
 		})
 	})
 
