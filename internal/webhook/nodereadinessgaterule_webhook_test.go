@@ -279,7 +279,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 
 	Context("Node Selector Overlap Detection", func() {
 		It("should detect overlapping nil selectors", func() {
-			overlaps := webhook.nodSelectorsOverlap(metav1.LabelSelector{}, metav1.LabelSelector{})
+			overlaps := webhook.nodeSelectorsOverlap(metav1.LabelSelector{}, metav1.LabelSelector{})
 			Expect(overlaps).To(BeTrue()) // Both nil = both match all nodes
 		})
 
@@ -290,10 +290,10 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 				},
 			}
 
-			overlaps := webhook.nodSelectorsOverlap(metav1.LabelSelector{}, selector)
+			overlaps := webhook.nodeSelectorsOverlap(metav1.LabelSelector{}, selector)
 			Expect(overlaps).To(BeFalse())
 
-			overlaps = webhook.nodSelectorsOverlap(selector, metav1.LabelSelector{})
+			overlaps = webhook.nodeSelectorsOverlap(selector, metav1.LabelSelector{})
 			Expect(overlaps).To(BeFalse())
 		})
 
@@ -310,7 +310,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 				},
 			}
 
-			overlaps := webhook.nodSelectorsOverlap(selector1, selector2)
+			overlaps := webhook.nodeSelectorsOverlap(selector1, selector2)
 			Expect(overlaps).To(BeTrue()) // Identical selectors overlap
 		})
 
@@ -327,7 +327,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 				},
 			}
 
-			overlaps := webhook.nodSelectorsOverlap(selector1, selector2)
+			overlaps := webhook.nodeSelectorsOverlap(selector1, selector2)
 			Expect(overlaps).To(BeFalse()) // Different selectors don't overlap (simple heuristic)
 		})
 	})

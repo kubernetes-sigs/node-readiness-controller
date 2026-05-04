@@ -97,7 +97,7 @@ func (w *NodeReadinessRuleWebhook) validateTaintConflicts(ctx context.Context, r
 		if existingRule.Spec.Taint.Key == rule.Spec.Taint.Key &&
 			existingRule.Spec.Taint.Effect == rule.Spec.Taint.Effect {
 			// Check if node selectors overlap
-			if w.nodSelectorsOverlap(rule.Spec.NodeSelector, existingRule.Spec.NodeSelector) {
+			if w.nodeSelectorsOverlap(rule.Spec.NodeSelector, existingRule.Spec.NodeSelector) {
 				allErrs = append(allErrs, field.Invalid(
 					taintField,
 					rule.Spec.Taint.Key,
@@ -112,7 +112,7 @@ func (w *NodeReadinessRuleWebhook) validateTaintConflicts(ctx context.Context, r
 }
 
 // nodeSelectorsOverlap checks if two node selectors overlap.
-func (w *NodeReadinessRuleWebhook) nodSelectorsOverlap(selector1, selector2 metav1.LabelSelector) bool {
+func (w *NodeReadinessRuleWebhook) nodeSelectorsOverlap(selector1, selector2 metav1.LabelSelector) bool {
 	// Convert to selectors
 	sel1, err1 := metav1.LabelSelectorAsSelector(&selector1)
 	sel2, err2 := metav1.LabelSelectorAsSelector(&selector2)
