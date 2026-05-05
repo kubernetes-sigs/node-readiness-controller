@@ -215,19 +215,11 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 	}
 
 	// Filter out deleted nodes
-	var newNodeEvaluations []readinessv1alpha1.NodeEvaluation
-	for _, evaluation := range rule.Status.NodeEvaluations {
-		if existingNodes[evaluation.NodeName] {
-			newNodeEvaluations = append(newNodeEvaluations, evaluation)
-		}
-	}
-
-	var newFailedNodes []readinessv1alpha1.NodeFailure
-	for _, failure := range rule.Status.FailedNodes {
-		if existingNodes[failure.NodeName] {
-			newFailedNodes = append(newFailedNodes, failure)
-		}
-	}
+	newNodeEvaluations, newFailedNodes := filterStatusForExistingNodes(
+		existingNodes,
+		rule.Status.NodeEvaluations,
+		rule.Status.FailedNodes,
+	)
 
 	if len(newNodeEvaluations) == len(rule.Status.NodeEvaluations) &&
 		len(newFailedNodes) == len(rule.Status.FailedNodes) {
@@ -247,19 +239,11 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 			return err
 		}
 
-		var freshNodeEvaluations []readinessv1alpha1.NodeEvaluation
-		for _, evaluation := range fresh.Status.NodeEvaluations {
-			if existingNodes[evaluation.NodeName] {
-				freshNodeEvaluations = append(freshNodeEvaluations, evaluation)
-			}
-		}
-
-		var freshFailedNodes []readinessv1alpha1.NodeFailure
-		for _, failure := range fresh.Status.FailedNodes {
-			if existingNodes[failure.NodeName] {
-				freshFailedNodes = append(freshFailedNodes, failure)
-			}
-		}
+		freshNodeEvaluations, freshFailedNodes := filterStatusForExistingNodes(
+			existingNodes,
+			fresh.Status.NodeEvaluations,
+			fresh.Status.FailedNodes,
+		)
 
 		if len(freshNodeEvaluations) == len(fresh.Status.NodeEvaluations) &&
 			len(freshFailedNodes) == len(fresh.Status.FailedNodes) {

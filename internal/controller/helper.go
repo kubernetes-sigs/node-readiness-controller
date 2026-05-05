@@ -21,6 +21,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 )
 
 // nodeSelectorChanged checks if nodeSelector has changed.
@@ -115,6 +116,29 @@ func taintsEqual(a, b []corev1.Taint) bool {
 	}
 
 	return true
+}
+
+// filters nodeEvaluations and failedNodes to keep only existing nodes.
+func filterStatusForExistingNodes(
+	existingNodes map[string]bool,
+	nodeEvaluations []readinessv1alpha1.NodeEvaluation,
+	failedNodes []readinessv1alpha1.NodeFailure,
+) ([]readinessv1alpha1.NodeEvaluation, []readinessv1alpha1.NodeFailure) {
+	filteredEvaluations := make([]readinessv1alpha1.NodeEvaluation, 0, len(nodeEvaluations))
+	for _, evaluation := range nodeEvaluations {
+		if existingNodes[evaluation.NodeName] {
+			filteredEvaluations = append(filteredEvaluations, evaluation)
+		}
+	}
+
+	filteredFailedNodes := make([]readinessv1alpha1.NodeFailure, 0, len(failedNodes))
+	for _, failure := range failedNodes {
+		if existingNodes[failure.NodeName] {
+			filteredFailedNodes = append(filteredFailedNodes, failure)
+		}
+	}
+
+	return filteredEvaluations, filteredFailedNodes
 }
 
 // labelsEqual checks if two label maps are equal.
