@@ -79,8 +79,8 @@ func NewRuleReadinessController(mgr ctrl.Manager, clientset kubernetes.Interface
 	}
 }
 
-// Like GenerationChangedPredicate, but also fires when DeletionTimestamp is
-// set so finalizer deletion events aren't dropped.
+// rulePredicate behaves like GenerationChangedPredicate, but also allows the
+// update that first sets DeletionTimestamp so finalizer cleanup is reconciled.
 var rulePredicate = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		if e.ObjectOld == nil || e.ObjectNew == nil {
