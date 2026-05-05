@@ -22,6 +22,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 )
 
 //nolint:godot
@@ -105,7 +106,30 @@ func taintsEqual(a, b []corev1.Taint) bool {
 	return true
 }
 
-// labelsEqual checks if two label maps hold the same keys with the same values.
+// filters nodeEvaluations and failedNodes to keep only existing nodes.
+func filterStatusForExistingNodes(
+	existingNodes map[string]bool,
+	nodeEvaluations []readinessv1alpha1.NodeEvaluation,
+	failedNodes []readinessv1alpha1.NodeFailure,
+) ([]readinessv1alpha1.NodeEvaluation, []readinessv1alpha1.NodeFailure) {
+	filteredEvaluations := make([]readinessv1alpha1.NodeEvaluation, 0, len(nodeEvaluations))
+	for _, evaluation := range nodeEvaluations {
+		if existingNodes[evaluation.NodeName] {
+			filteredEvaluations = append(filteredEvaluations, evaluation)
+		}
+	}
+
+	filteredFailedNodes := make([]readinessv1alpha1.NodeFailure, 0, len(failedNodes))
+	for _, failure := range failedNodes {
+		if existingNodes[failure.NodeName] {
+			filteredFailedNodes = append(filteredFailedNodes, failure)
+		}
+	}
+
+	return filteredEvaluations, filteredFailedNodes
+}
+
+// labelsEqual checks if two label maps are equal.
 func labelsEqual(a, b map[string]string) bool {
 	return maps.Equal(a, b)
 }
