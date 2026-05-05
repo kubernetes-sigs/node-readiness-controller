@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -45,6 +46,19 @@ func counterValue(counter interface{ Write(*dto.Metric) error }) float64 {
 	metric := &dto.Metric{}
 	Expect(counter.Write(metric)).To(Succeed())
 	return metric.GetCounter().GetValue()
+}
+
+// errorInjectingClient forces Patch to fail for selected nodes.
+type errorInjectingClient struct {
+	client.Client
+	failNodeNames map[string]bool
+}
+
+func (c *errorInjectingClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	if node, ok := obj.(*corev1.Node); ok && c.failNodeNames[node.Name] {
+		return fmt.Errorf("patch failed for node %s", node.Name)
+	}
+	return c.Client.Patch(ctx, obj, patch, opts...)
 }
 
 var _ = Describe("NodeReadinessRule Controller", func() {
@@ -1407,6 +1421,114 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				}
 				return len(updatedRule.Status.AppliedNodes) > 0
 			}, time.Second*5).Should(BeTrue(), "All AppliedNodes should have corresponding NodeEvaluations")
+		})
+	})
+
+	Context("when evaluation fails for a node", func() {
+		It("should not include the failed node in appliedNodes and include in failedNodes", func() {
+			failNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "fail-path-node",
+					Labels: map[string]string{"fail-path": "true"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionFalse},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, failNode)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, failNode) }()
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "fail-path-rule"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/fail-path-taint", Effect: corev1.TaintEffectNoSchedule},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"fail-path": "true"}},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			errClient := &errorInjectingClient{
+				Client:        k8sClient,
+				failNodeNames: map[string]bool{"fail-path-node": true},
+			}
+			failController := &RuleReadinessController{
+				Client:        errClient,
+				Scheme:        scheme,
+				clientset:     fakeClientset,
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+
+			Expect(failController.processAllNodesForRule(ctx, rule)).To(Succeed())
+
+			Expect(rule.Status.AppliedNodes).NotTo(ContainElement("fail-path-node"))
+
+			failedNames := make([]string, 0, len(rule.Status.FailedNodes))
+			for _, f := range rule.Status.FailedNodes {
+				failedNames = append(failedNames, f.NodeName)
+			}
+			Expect(failedNames).To(ContainElement("fail-path-node"))
+		})
+
+		It("should remove stale failedNodes entry when evaluation succeeds and include the node in appliedNodes", func() {
+			successNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "stale-recovery-node",
+					Labels: map[string]string{"stale-recovery": "true"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionTrue},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, successNode)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, successNode) }()
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "stale-recovery-rule"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/stale-recovery-taint", Effect: corev1.TaintEffectNoSchedule},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"stale-recovery": "true"}},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+				Status: nodereadinessiov1alpha1.NodeReadinessRuleStatus{
+					FailedNodes: []nodereadinessiov1alpha1.NodeFailure{
+						{
+							NodeName:           "stale-recovery-node",
+							Reason:             "EvaluationError",
+							Message:            "stale from previous reconcile",
+							LastEvaluationTime: metav1.Now(),
+						},
+					},
+				},
+			}
+
+			successController := &RuleReadinessController{
+				Client:        k8sClient,
+				Scheme:        scheme,
+				clientset:     fakeClientset,
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+
+			Expect(successController.processAllNodesForRule(ctx, rule)).To(Succeed())
+
+			Expect(rule.Status.AppliedNodes).To(ContainElement("stale-recovery-node"))
+
+			failedNames := make([]string, 0, len(rule.Status.FailedNodes))
+			for _, f := range rule.Status.FailedNodes {
+				failedNames = append(failedNames, f.NodeName)
+			}
+			Expect(failedNames).NotTo(ContainElement("stale-recovery-node"))
 		})
 	})
 })

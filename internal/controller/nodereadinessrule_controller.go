@@ -270,13 +270,20 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 	var appliedNodes []string
 	for _, node := range nodeList.Items {
 		if r.ruleAppliesTo(ctx, rule, &node) {
-			appliedNodes = append(appliedNodes, node.Name)
 			log.Info("Processing node for rule", "rule", rule.Name, "node", node.Name)
 			if err := r.evaluateRuleForNode(ctx, rule, &node); err != nil {
-				// Log error but continue with other nodes
 				log.Error(err, "Failed to evaluate node for rule", "rule", rule.Name, "node", node.Name)
 				r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
 				metrics.Failures.WithLabelValues(rule.Name, "EvaluationError").Inc()
+			} else {
+				appliedNodes = append(appliedNodes, node.Name)
+				var updatedFailedNodes []readinessv1alpha1.NodeFailure
+				for _, f := range rule.Status.FailedNodes {
+					if f.NodeName != node.Name {
+						updatedFailedNodes = append(updatedFailedNodes, f)
+					}
+				}
+				rule.Status.FailedNodes = updatedFailedNodes
 			}
 		}
 	}
