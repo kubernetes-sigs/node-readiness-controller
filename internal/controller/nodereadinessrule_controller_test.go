@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	nodereadinessiov1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
@@ -1378,6 +1379,48 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				}
 				return len(updatedRule.Status.AppliedNodes) > 0
 			}, time.Second*5).Should(BeTrue(), "All AppliedNodes should have corresponding NodeEvaluations")
+		})
+	})
+
+	Context("rulePredicate", func() {
+		newRule := func(generation int64, deletionTimestamp *metav1.Time) *nodereadinessiov1alpha1.NodeReadinessRule {
+			return &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "predicate-rule",
+					Generation:        generation,
+					DeletionTimestamp: deletionTimestamp,
+				},
+			}
+		}
+
+		It("passes updates that bump generation", func() {
+			Expect(rulePredicate.Update(event.UpdateEvent{
+				ObjectOld: newRule(1, nil),
+				ObjectNew: newRule(2, nil),
+			})).To(BeTrue())
+		})
+
+		It("passes updates that set the deletion timestamp without bumping generation", func() {
+			now := metav1.Now()
+			Expect(rulePredicate.Update(event.UpdateEvent{
+				ObjectOld: newRule(1, nil),
+				ObjectNew: newRule(1, &now),
+			})).To(BeTrue(), "deletion-marker updates must trigger reconcile so the finalizer can be removed")
+		})
+
+		It("ignores status-only updates", func() {
+			Expect(rulePredicate.Update(event.UpdateEvent{
+				ObjectOld: newRule(1, nil),
+				ObjectNew: newRule(1, nil),
+			})).To(BeFalse())
+		})
+
+		It("ignores updates while the rule is already terminating", func() {
+			now := metav1.Now()
+			Expect(rulePredicate.Update(event.UpdateEvent{
+				ObjectOld: newRule(1, &now),
+				ObjectNew: newRule(1, &now),
+			})).To(BeFalse())
 		})
 	})
 })

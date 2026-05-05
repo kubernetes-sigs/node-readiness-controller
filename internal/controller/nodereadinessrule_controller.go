@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
@@ -78,12 +79,27 @@ func NewRuleReadinessController(mgr ctrl.Manager, clientset kubernetes.Interface
 	}
 }
 
+// Like GenerationChangedPredicate, but also fires when DeletionTimestamp is
+// set so finalizer deletion events aren't dropped.
+var rulePredicate = predicate.Funcs{
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		if e.ObjectOld == nil || e.ObjectNew == nil {
+			return false
+		}
+		if e.ObjectNew.GetGeneration() != e.ObjectOld.GetGeneration() {
+			return true
+		}
+		return e.ObjectOld.GetDeletionTimestamp().IsZero() &&
+			!e.ObjectNew.GetDeletionTimestamp().IsZero()
+	},
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *RuleReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("nodereadiness-controller").
 		WithOptions(controller.Options{MaxConcurrentReconciles: 1}).
-		For(&readinessv1alpha1.NodeReadinessRule{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&readinessv1alpha1.NodeReadinessRule{}, builder.WithPredicates(rulePredicate)).
 		Complete(r)
 }
 
