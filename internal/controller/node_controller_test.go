@@ -24,6 +24,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	dto "github.com/prometheus/client_model/go"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	nodereadinessiov1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
+	"sigs.k8s.io/node-readiness-controller/internal/metrics"
 )
 
 var _ = Describe("Node Controller", func() {
@@ -1077,6 +1079,79 @@ var _ = Describe("Node Controller", func() {
 			})
 			Expect(err).To(HaveOccurred(), "Reconcile should return an error when status patch fails")
 			Expect(err.Error()).To(ContainSubstring("status patch failed"))
+		})
+	})
+
+	Context("metrics.Failures counter in node reconciler", func() {
+		var (
+			ctx        context.Context
+			testScheme *runtime.Scheme
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			testScheme = runtime.NewScheme()
+			Expect(corev1.AddToScheme(testScheme)).To(Succeed())
+			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
+		})
+
+		It("should increment metrics.Failures when evaluateRuleForNode returns an error", func() {
+			// The node has no taint yet; the rule requires conditions not met,
+			// so evaluateRuleForNode will call addTaintBySpec. We intercept
+			// Patch to return an error, forcing the failure path.
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "metrics-fail-node"},
+			}
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "metrics-fail-rule"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					NodeSelector: metav1.LabelSelector{},
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "TestCondition", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/test",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node, rule).
+				WithStatusSubresource(rule).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if _, ok := obj.(*corev1.Node); ok {
+							return apierrors.NewInternalError(fmt.Errorf("simulated patch failure"))
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     map[string]*nodereadinessiov1alpha1.NodeReadinessRule{rule.Name: rule},
+				EventRecorder: events.NewFakeRecorder(10),
+			}
+
+			// Read the failure counter before the call.
+			beforeM := &dto.Metric{}
+			_ = metrics.Failures.WithLabelValues(rule.Name, "EvaluationError").Write(beforeM)
+			before := beforeM.GetCounter().GetValue()
+
+			controller.processNodeAgainstAllRules(ctx, node)
+
+			afterM := &dto.Metric{}
+			_ = metrics.Failures.WithLabelValues(rule.Name, "EvaluationError").Write(afterM)
+			after := afterM.GetCounter().GetValue()
+
+			Expect(after).To(BeNumerically(">", before),
+				"metrics.Failures{rule, EvaluationError} must increment when the node reconciler hits an evaluation error")
 		})
 	})
 })
