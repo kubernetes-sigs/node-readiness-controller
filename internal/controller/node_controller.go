@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -97,17 +98,20 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	// Process node against all applicable rules
-	r.Controller.processNodeAgainstAllRules(ctx, node)
+	if err := r.Controller.processNodeAgainstAllRules(ctx, node); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }
 
 // processNodeAgainstAllRules processes a single node against all applicable rules.
-func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context, node *corev1.Node) {
+func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context, node *corev1.Node) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Get all known (cached) applicable rules for this node
 	applicableRules := r.getApplicableRulesForNode(ctx, node)
+	var errs []error
 	log.Info("Processing node against rules", "node", node.Name, "ruleCount", len(applicableRules))
 
 	for _, rule := range applicableRules {
@@ -148,6 +152,7 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 				"node", node.Name, "rule", rule.Name)
 			// Continue with other rules even if one fails
 			r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
+			errs = append(errs, err)
 		}
 
 		// Persist the rule status
@@ -211,6 +216,7 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 				"rule", rule.Name,
 				"resourceVersion", rule.ResourceVersion)
 			// continue with other rules
+			errs = append(errs, err)
 		} else {
 			log.V(4).Info("Successfully persisted rule status from node reconciler",
 				"node", node.Name,
@@ -218,6 +224,8 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 				"newResourceVersion", rule.ResourceVersion)
 		}
 	}
+
+	return errors.Join(errs...)
 }
 
 // getConditionStatus gets the status of a condition on a node.

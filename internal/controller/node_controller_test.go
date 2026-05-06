@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -935,6 +936,75 @@ var _ = Describe("Node Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(patchCalled.Load()).To(BeFalse(),
 				"Patch should not be called when taint removal is a no-op")
+		})
+	})
+
+	Context("when rule status patch fails during node reconciliation", func() {
+		It("should return an error so the workqueue requeues", func() {
+			ctx := context.Background()
+
+			testScheme := runtime.NewScheme()
+			Expect(corev1.AddToScheme(testScheme)).To(Succeed())
+			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
+
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "requeue-test-node",
+					Labels: map[string]string{"env": "requeue-test"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionFalse},
+					},
+				},
+			}
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "requeue-test-rule"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/requeue-test",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"env": "requeue-test"}},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node, rule).
+				WithStatusSubresource(rule).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						return fmt.Errorf("status patch failed")
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+			controller.updateRuleCache(ctx, rule)
+
+			nodeReconciler := &NodeReconciler{
+				Client:     fc,
+				Scheme:     testScheme,
+				Controller: controller,
+			}
+
+			_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "requeue-test-node"},
+			})
+			Expect(err).To(HaveOccurred(), "Reconcile should return an error when status patch fails")
+			Expect(err.Error()).To(ContainSubstring("status patch failed"))
 		})
 	})
 })
