@@ -330,6 +330,420 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			// Cleanup
 			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
 		})
+
+		It("should count taintsToAdd when conditions unmet and taint absent", func() {
+			// Node matches selector, condition NOT satisfied, no pre-existing taint
+			// → shouldRemoveTaint=false, currentlyHasTaint=false → taintsToAdd++
+			testNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "dry-run-add-node",
+					Labels: map[string]string{"env": "test"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{
+							Type:   "Ready",
+							Status: corev1.ConditionFalse, // does NOT satisfy RequiredStatus=True
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, testNode)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, testNode) }()
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "dry-run-add-rule",
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					DryRun: true,
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"env": "test"},
+					},
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/dry-run-add",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "dry-run-add-rule"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func() *int32 {
+				updated := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "dry-run-add-rule"}, updated); err != nil {
+					return nil
+				}
+				return updated.Status.DryRunResults.TaintsToAdd
+			}, time.Second*5).Should(SatisfyAll(
+				Not(BeNil()),
+				HaveValue(BeNumerically(">=", int32(1))),
+			))
+
+			Eventually(func() *int32 {
+				updated := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "dry-run-add-rule"}, updated); err != nil {
+					return nil
+				}
+				return updated.Status.DryRunResults.TaintsToRemove
+			}, time.Second*5).Should(SatisfyAll(
+				Not(BeNil()),
+				HaveValue(BeNumerically("==", int32(0))),
+			))
+		})
+
+		It("should count taintsToRemove when conditions met and taint present", func() {
+			// Node matches selector, condition IS satisfied, taint pre-exists
+			// → shouldRemoveTaint=true, currentlyHasTaint=true → taintsToRemove++
+			testNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "dry-run-remove-node",
+					Labels: map[string]string{"env": "remove-test"},
+				},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{
+							Key:    "readiness.k8s.io/dry-run-remove",
+							Effect: corev1.TaintEffectNoSchedule,
+						},
+					},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{
+							Type:   "Ready",
+							Status: corev1.ConditionTrue, // satisfies RequiredStatus=True
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, testNode)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, testNode) }()
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "dry-run-remove-rule",
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					DryRun: true,
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"env": "remove-test"},
+					},
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/dry-run-remove",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "dry-run-remove-rule"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func() *int32 {
+				updated := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "dry-run-remove-rule"}, updated); err != nil {
+					return nil
+				}
+				return updated.Status.DryRunResults.TaintsToRemove
+			}, time.Second*5).Should(SatisfyAll(
+				Not(BeNil()),
+				HaveValue(BeNumerically(">=", int32(1))),
+			))
+
+			Eventually(func() *int32 {
+				updated := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "dry-run-remove-rule"}, updated); err != nil {
+					return nil
+				}
+				return updated.Status.DryRunResults.TaintsToAdd
+			}, time.Second*5).Should(SatisfyAll(
+				Not(BeNil()),
+				HaveValue(BeNumerically("==", int32(0))),
+			))
+		})
+
+		It("should count riskyOps when a condition status is Unknown", func() {
+			// Node matches selector; condition status is Unknown → missingConditions++ → riskyOps++
+			// Unknown also means condition is not satisfied → taintsToAdd++ too (no pre-existing taint)
+			testNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "dry-run-risky-node",
+					Labels: map[string]string{"env": "risky-test"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{
+							Type:   "Ready",
+							Status: corev1.ConditionUnknown, // triggers missingConditions++
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, testNode)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, testNode) }()
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "dry-run-risky-rule",
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					DryRun: true,
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"env": "risky-test"},
+					},
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/dry-run-risky",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "dry-run-risky-rule"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func() *int32 {
+				updated := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "dry-run-risky-rule"}, updated); err != nil {
+					return nil
+				}
+				return updated.Status.DryRunResults.RiskyOperations
+			}, time.Second*5).Should(SatisfyAll(
+				Not(BeNil()),
+				HaveValue(BeNumerically(">=", int32(1))),
+			))
+
+			// Summary must mention missing conditions
+			Eventually(func() string {
+				updated := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "dry-run-risky-rule"}, updated); err != nil {
+					return ""
+				}
+				return updated.Status.DryRunResults.Summary
+			}, time.Second*5).Should(ContainSubstring("missing conditions"))
+		})
+
+		It("should not count a node that does not match the selector", func() {
+			// Node exists but its labels do NOT match the rule's NodeSelector → continue (skip)
+			// affectedNodes should be 0; all counters 0; summary "No changes needed"
+			nonMatchingNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "dry-run-skip-node",
+					Labels: map[string]string{"env": "unrelated"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionFalse},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, nonMatchingNode)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, nonMatchingNode) }()
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "dry-run-skip-rule",
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					DryRun: true,
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"env": "no-match-ever"},
+					},
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/dry-run-skip",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "dry-run-skip-rule"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func() nodereadinessiov1alpha1.DryRunResults {
+				updated := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "dry-run-skip-rule"}, updated); err != nil {
+					return nodereadinessiov1alpha1.DryRunResults{}
+				}
+				return updated.Status.DryRunResults
+			}, time.Second*5).Should(SatisfyAll(
+				Not(BeZero()),
+				// All counters must be 0 — skipped node contributes nothing
+				WithTransform(func(r nodereadinessiov1alpha1.DryRunResults) int32 {
+					if r.TaintsToAdd == nil {
+						return 0
+					}
+					return *r.TaintsToAdd
+				}, BeNumerically("==", int32(0))),
+				WithTransform(func(r nodereadinessiov1alpha1.DryRunResults) int32 {
+					if r.TaintsToRemove == nil {
+						return 0
+					}
+					return *r.TaintsToRemove
+				}, BeNumerically("==", int32(0))),
+				WithTransform(func(r nodereadinessiov1alpha1.DryRunResults) int32 {
+					if r.RiskyOperations == nil {
+						return 0
+					}
+					return *r.RiskyOperations
+				}, BeNumerically("==", int32(0))),
+				WithTransform(func(r nodereadinessiov1alpha1.DryRunResults) string {
+					return r.Summary
+				}, Equal("No changes needed")),
+			))
+		})
+
+		It("should handle multiple nodes hitting different branches in the same dry run", func() {
+			nodeAdd := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "dry-run-multi-add",
+					Labels: map[string]string{"env": "multi-test"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionFalse}, // add branch
+					},
+				},
+			}
+			nodeRemove := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "dry-run-multi-remove",
+					Labels: map[string]string{"env": "multi-test"},
+				},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: "readiness.k8s.io/dry-run-multi", Effect: corev1.TaintEffectNoSchedule},
+					},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionTrue}, // remove branch
+					},
+				},
+			}
+			nodeRisky := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "dry-run-multi-risky",
+					Labels: map[string]string{"env": "multi-test"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionUnknown}, // risky branch
+					},
+				},
+			}
+			nodeSkip := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "dry-run-multi-skip",
+					Labels: map[string]string{"env": "other"}, // does NOT match selector
+				},
+			}
+
+			for _, n := range []*corev1.Node{nodeAdd, nodeRemove, nodeRisky, nodeSkip} {
+				Expect(k8sClient.Create(ctx, n)).To(Succeed())
+			}
+			defer func() {
+				for _, n := range []*corev1.Node{nodeAdd, nodeRemove, nodeRisky, nodeSkip} {
+					_ = k8sClient.Delete(ctx, n)
+				}
+			}()
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "dry-run-multi-rule",
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					DryRun: true,
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"env": "multi-test"},
+					},
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/dry-run-multi",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "dry-run-multi-rule"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func() nodereadinessiov1alpha1.DryRunResults {
+				updated := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "dry-run-multi-rule"}, updated); err != nil {
+					return nodereadinessiov1alpha1.DryRunResults{}
+				}
+				return updated.Status.DryRunResults
+			}, time.Second*5).Should(SatisfyAll(
+				WithTransform(func(r nodereadinessiov1alpha1.DryRunResults) int32 {
+					if r.AffectedNodes == nil {
+						return 0
+					}
+					return *r.AffectedNodes
+				}, BeNumerically("==", int32(3))), // nodeSkip excluded
+				WithTransform(func(r nodereadinessiov1alpha1.DryRunResults) int32 {
+					if r.TaintsToAdd == nil {
+						return 0
+					}
+					return *r.TaintsToAdd
+				}, BeNumerically(">=", int32(1))),
+				WithTransform(func(r nodereadinessiov1alpha1.DryRunResults) int32 {
+					if r.TaintsToRemove == nil {
+						return 0
+					}
+					return *r.TaintsToRemove
+				}, BeNumerically(">=", int32(1))),
+				WithTransform(func(r nodereadinessiov1alpha1.DryRunResults) int32 {
+					if r.RiskyOperations == nil {
+						return 0
+					}
+					return *r.RiskyOperations
+				}, BeNumerically(">=", int32(1))),
+			))
+		})
 	})
 
 	Context("Node Processing", func() {
