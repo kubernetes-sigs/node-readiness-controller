@@ -283,7 +283,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			Expect(overlaps).To(BeTrue()) // Both nil = both match all nodes
 		})
 
-		It("should not overlap when one selector is nil", func() {
+		It("should overlap when one selector is empty (matches all nodes)", func() {
 			selector := metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"node-role.kubernetes.io/worker": "",
@@ -291,10 +291,10 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			}
 
 			overlaps := webhook.nodeSelectorsOverlap(metav1.LabelSelector{}, selector)
-			Expect(overlaps).To(BeFalse())
+			Expect(overlaps).To(BeTrue())
 
 			overlaps = webhook.nodeSelectorsOverlap(selector, metav1.LabelSelector{})
-			Expect(overlaps).To(BeFalse())
+			Expect(overlaps).To(BeTrue())
 		})
 
 		It("should detect identical selectors as overlapping", func() {
