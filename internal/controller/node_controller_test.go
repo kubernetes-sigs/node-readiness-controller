@@ -940,7 +940,7 @@ var _ = Describe("Node Controller", func() {
 	})
 
 	Context("when rule status patch fails during node reconciliation", func() {
-		It("should return an error so the workqueue requeues", func() {
+		It("should return an error when rule status patch fails", func() {
 			ctx := context.Background()
 
 			testScheme := runtime.NewScheme()
