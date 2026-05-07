@@ -120,16 +120,21 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 
+	nodeList := &corev1.NodeList{}
+	if err := r.List(ctx, nodeList); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// Handle deletion reconciliation loop.
 	if !rule.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(ctx, rule)
+		return r.reconcileDelete(ctx, rule, nodeList)
 	}
 
 	// Detect nodeSelector changes and cleanup old nodes
 	cachedRule := r.Controller.getCachedRule(rule.Name)
 	if cachedRule != nil && nodeSelectorChanged(rule.Spec.NodeSelector, cachedRule.Spec.NodeSelector) {
 		log.Info("NodeSelector changed, cleaning up nodes from old selector", "rule", rule.Name)
-		if err := r.Controller.cleanupNodesAfterSelectorChange(ctx, cachedRule, rule); err != nil {
+		if err := r.Controller.cleanupNodesAfterSelectorChange(ctx, cachedRule, rule, nodeList); err != nil {
 			log.Error(err, "Failed to cleanup nodes after selector change", "rule", rule.Name)
 			return ctrl.Result{RequeueAfter: time.Minute}, err
 		}
@@ -140,7 +145,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	// Handle dry run
 	if rule.Spec.DryRun {
-		if err := r.Controller.processDryRun(ctx, rule); err != nil {
+		if err := r.Controller.processDryRun(ctx, rule, nodeList); err != nil {
 			log.Error(err, "Failed to process dry run", "rule", rule.Name)
 			return ctrl.Result{RequeueAfter: time.Minute}, err
 		}
@@ -149,7 +154,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		rule.Status.DryRunResults = readinessv1alpha1.DryRunResults{}
 
 		// Process all applicable nodes for this rule
-		if err := r.Controller.processAllNodesForRule(ctx, rule); err != nil {
+		if err := r.Controller.processAllNodesForRule(ctx, rule, nodeList); err != nil {
 			log.Error(err, "Failed to process nodes for rule", "rule", rule.Name)
 			return ctrl.Result{RequeueAfter: time.Minute}, err
 		}
@@ -162,7 +167,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	// Clean up status for deleted nodes
-	if err := r.Controller.cleanupDeletedNodes(ctx, rule); err != nil {
+	if err := r.Controller.cleanupDeletedNodes(ctx, rule, nodeList); err != nil {
 		log.Error(err, "Failed to clean up deleted nodes", "rule", rule.Name)
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
@@ -174,7 +179,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 // 1. Deletes the taints associated with the rule.
 // 2. Remove the rule from the cache.
 // 3. Remove the finalizer from the rule.
-func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) (ctrl.Result, error) {
+func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Update cache with deletion-marked rule before cleanup.
@@ -182,7 +187,7 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	r.Controller.updateRuleCache(ctx, rule)
 
 	log.Info("Cleaning up taints for deleted rule", "rule", rule.Name)
-	if err := r.Controller.cleanupTaintsForRule(ctx, rule); err != nil {
+	if err := r.Controller.cleanupTaintsForRule(ctx, rule, nodeList); err != nil {
 		log.Error(err, "Failed to cleanup taints for rule", "rule", rule.Name)
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
@@ -201,15 +206,10 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 }
 
 // cleanupDeletedNodes removes status entries for nodes that no longer exist.
-func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
+func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	nodeList := &corev1.NodeList{}
-	if err := r.List(ctx, nodeList); err != nil {
-		return err
-	}
-
-	existingNodes := make(map[string]bool)
+	existingNodes := make(map[string]bool, len(nodeList.Items))
 	for _, node := range nodeList.Items {
 		existingNodes[node.Name] = true
 	}
@@ -257,13 +257,10 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 }
 
 // processAllNodesForRule processes all nodes when a rule changes.
-func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
+//
+//nolint:unparam // Keep error return for future extensibility and API stability.
+func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) error {
 	log := ctrl.LoggerFrom(ctx)
-
-	nodeList := &corev1.NodeList{}
-	if err := r.List(ctx, nodeList); err != nil {
-		return err
-	}
 
 	log.Info("Processing all nodes for rule", "rule", rule.Name, "totalNodes", len(nodeList.Items))
 
@@ -516,12 +513,9 @@ func (r *RuleReadinessController) updateRuleStatus(ctx context.Context, rule *re
 }
 
 // processDryRun processes dry run for a rule.
-func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
-	nodeList := &corev1.NodeList{}
-	if err := r.List(ctx, nodeList); err != nil {
-		return err
-	}
-
+//
+//nolint:unparam // Keep error return for future extensibility and API stability.
+func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) error {
 	var affectedNodes, taintsToAdd, taintsToRemove, riskyOps int32
 	var summaryParts []string
 
@@ -585,19 +579,12 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 		RiskyOperations: &riskyOps,
 		Summary:         summary,
 	}
-
 	return nil
 }
 
 // cleanupTaintsForRule removes taints managed by this rule from all applicable nodes.
-func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
+func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) error {
 	log := ctrl.LoggerFrom(ctx)
-
-	// Get all nodes that this rule applies to
-	nodeList := &corev1.NodeList{}
-	if err := r.List(ctx, nodeList); err != nil {
-		return fmt.Errorf("failed to list nodes: %w", err)
-	}
 
 	var errors []string
 	for _, node := range nodeList.Items {
@@ -626,14 +613,8 @@ func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule
 }
 
 // cleanupNodesAfterSelectorChange cleans up nodes that matched old selector but not new one.
-func (r *RuleReadinessController) cleanupNodesAfterSelectorChange(ctx context.Context, oldRule, newRule *readinessv1alpha1.NodeReadinessRule) error {
+func (r *RuleReadinessController) cleanupNodesAfterSelectorChange(ctx context.Context, oldRule, newRule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) error {
 	log := ctrl.LoggerFrom(ctx)
-
-	// Get all nodes
-	nodeList := &corev1.NodeList{}
-	if err := r.List(ctx, nodeList); err != nil {
-		return fmt.Errorf("failed to list nodes: %w", err)
-	}
 
 	// Build old selector
 	oldSelector, err := metav1.LabelSelectorAsSelector(&oldRule.Spec.NodeSelector)
