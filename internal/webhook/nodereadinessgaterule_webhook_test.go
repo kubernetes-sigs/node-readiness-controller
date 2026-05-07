@@ -330,6 +330,18 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			overlaps := webhook.nodeSelectorsOverlap(selector1, selector2)
 			Expect(overlaps).To(BeFalse()) // Different selectors don't overlap (simple heuristic)
 		})
+		It("should detect subset selectors as overlapping", func() {
+			// selector1 (env=prod) is subset of selector2 (env=prod,region=us)
+			// Both match nodes labeled env=prod,region=us => they overlap
+			selector1 := metav1.LabelSelector{
+				MatchLabels: map[string]string{"env": "prod"},
+			}
+			selector2 := metav1.LabelSelector{
+				MatchLabels: map[string]string{"env": "prod", "region": "us"},
+			}
+			overlaps := webhook.nodeSelectorsOverlap(selector1, selector2)
+			Expect(overlaps).To(BeTrue()) // subset selectors overlap
+		})
 	})
 
 	Context("CustomValidator Interface", func() {

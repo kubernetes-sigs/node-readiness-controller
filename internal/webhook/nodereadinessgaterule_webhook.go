@@ -125,6 +125,8 @@ func (w *NodeReadinessRuleWebhook) nodeSelectorsOverlap(selector1, selector2 met
 
 	// Check overlap: if one selector's matchLabels is a subset of the other,
 	// a node could match both selectors, causing a conflict.
+	// Note: this only covers matchLabels-based overlap; selectors using
+	// matchExpressions may still overlap without being detected here.
 	if sel1.Matches(labels.Set(selector2.MatchLabels)) {
 		return true
 	}
