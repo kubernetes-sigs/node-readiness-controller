@@ -113,7 +113,7 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 	applicableRules := r.getApplicableRulesForNode(ctx, node)
 	log.Info("Processing node against rules", "node", node.Name, "ruleCount", len(applicableRules))
 
-	var errs []error
+	var retryableErrs []error
 
 	for _, rule := range applicableRules {
 		log.V(4).Info("Processing rule from cache",
