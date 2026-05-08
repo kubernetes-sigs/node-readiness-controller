@@ -24,6 +24,9 @@ tests:
           path: spec.template.metadata.annotations.description
           value: "test pod"
       - equal:
+          path: spec.template.metadata.annotations["kubectl.kubernetes.io/default-container"]
+          value: manager
+      - equal:
           path: spec.template.metadata.labels.environment
           value: "test"
       - equal:
