@@ -217,7 +217,9 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 				"rule", rule.Name,
 				"resourceVersion", rule.ResourceVersion)
 			// continue with other rules
-			errs = append(errs, fmt.Errorf("rule %s status update: %w", rule.Name, err))
+if isRetryable(err) {
+        retryableErrs = append(retryableErrs, err)
+    }
 		} else {
 			log.V(4).Info("Successfully persisted rule status from node reconciler",
 				"node", node.Name,
