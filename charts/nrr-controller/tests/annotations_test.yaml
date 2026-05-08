@@ -30,11 +30,12 @@ tests:
           path: spec.template.metadata.labels.team
           value: "platform"
 
-  - it: does not add metadata when not set
+  - it: adds default annotations and labels when not set
     template: templates/deployment.yaml
     asserts:
-      - isNull:
-          path: spec.template.metadata.annotations
+      - equal:
+          path: spec.template.metadata.annotations["kubectl.kubernetes.io/default-container"]
+          value: manager
       - isNotNull:
           path: spec.template.metadata.labels
       - equal:
