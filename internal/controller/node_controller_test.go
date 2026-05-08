@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -692,6 +693,102 @@ var _ = Describe("Node Controller", func() {
 				return nodeEval.ConditionResults[0].CurrentStatus == corev1.ConditionTrue &&
 					nodeEval.TaintStatus == nodereadinessiov1alpha1.TaintStatusAbsent
 			}, time.Second*5).Should(BeTrue(), "NodeEvaluation should be updated with new condition and taint status")
+		})
+	})
+
+	Context("when rule evaluation fails", func() {
+		var (
+			ctx        context.Context
+			testScheme *runtime.Scheme
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			testScheme = runtime.NewScheme()
+			Expect(corev1.AddToScheme(testScheme)).To(Succeed())
+			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
+		})
+
+		It("should return an aggregated error from Reconcile to trigger requeue", func() {
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "error-node",
+					Labels: map[string]string{"env": "test"},
+				},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "ErrorTestCondition", Status: corev1.ConditionFalse}, // Triggers addTaint
+					},
+				},
+			}
+
+			rule1 := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "error-rule-1"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "ErrorTestCondition", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/error-taint-1",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"env": "test"},
+					},
+				},
+			}
+
+			rule2 := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "error-rule-2"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "ErrorTestCondition", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/error-taint-2",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"env": "test"},
+					},
+				},
+			}
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node, rule1, rule2).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						// Always return an error on Patch to simulate failure during addTaint
+						return fmt.Errorf("simulated patch error for %s", obj.GetName())
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+			controller.updateRuleCache(ctx, rule1)
+			controller.updateRuleCache(ctx, rule2)
+
+			nodeReconciler := &NodeReconciler{
+				Client:     fc,
+				Scheme:     testScheme,
+				Controller: controller,
+			}
+
+			_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "error-node"}})
+
+			Expect(err).To(HaveOccurred(), "Reconcile should return an error when evaluations fail")
+			Expect(err.Error()).To(ContainSubstring("rule error-rule-1: failed to add taint: simulated patch error for error-node"))
+			Expect(err.Error()).To(ContainSubstring("rule error-rule-2: failed to add taint: simulated patch error for error-node"))
 		})
 	})
 
