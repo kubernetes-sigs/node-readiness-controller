@@ -42,6 +42,6 @@ tests:
         enabled: true
     template: templates/deployment.yaml
     asserts:
-      - contains:
+      - equal:
           path: spec.template.spec.containers[0].ports[0].name
-          content: webhook-server
+          value: webhook-server
