@@ -22,6 +22,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -122,9 +123,14 @@ func (w *NodeReadinessRuleWebhook) nodeSelectorsOverlap(selector1, selector2 met
 		return true
 	}
 
-	// Simple heuristic: if selectors are identical, they definitely overlap
-	// For more complex overlap detection, we'd need to analyze the label requirements
-	return sel1.String() == sel2.String()
+	// Check overlap: if one selector's matchLabels is a subset of the other,
+	// a node could match both selectors, causing a conflict.
+	// Note: this only covers matchLabels-based overlap; selectors using
+	// matchExpressions may still overlap without being detected here.
+	if sel1.Matches(labels.Set(selector2.MatchLabels)) {
+		return true
+	}
+	return sel2.Matches(labels.Set(selector1.MatchLabels))
 }
 
 // generateNoExecuteWarnings generates admission warnings for NoExecute taint usage.

@@ -283,7 +283,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			Expect(overlaps).To(BeTrue()) // Both nil = both match all nodes
 		})
 
-		It("should not overlap when one selector is nil", func() {
+		It("should overlap when one selector is empty (matches all nodes)", func() {
 			selector := metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"node-role.kubernetes.io/worker": "",
@@ -291,10 +291,10 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			}
 
 			overlaps := webhook.nodeSelectorsOverlap(metav1.LabelSelector{}, selector)
-			Expect(overlaps).To(BeFalse())
+			Expect(overlaps).To(BeTrue())
 
 			overlaps = webhook.nodeSelectorsOverlap(selector, metav1.LabelSelector{})
-			Expect(overlaps).To(BeFalse())
+			Expect(overlaps).To(BeTrue())
 		})
 
 		It("should detect identical selectors as overlapping", func() {
@@ -329,6 +329,18 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 
 			overlaps := webhook.nodeSelectorsOverlap(selector1, selector2)
 			Expect(overlaps).To(BeFalse()) // Different selectors don't overlap (simple heuristic)
+		})
+		It("should detect subset selectors as overlapping", func() {
+			// selector1 (env=prod) is subset of selector2 (env=prod,region=us)
+			// Both match nodes labeled env=prod,region=us => they overlap
+			selector1 := metav1.LabelSelector{
+				MatchLabels: map[string]string{"env": "prod"},
+			}
+			selector2 := metav1.LabelSelector{
+				MatchLabels: map[string]string{"env": "prod", "region": "us"},
+			}
+			overlaps := webhook.nodeSelectorsOverlap(selector1, selector2)
+			Expect(overlaps).To(BeTrue()) // subset selectors overlap
 		})
 	})
 
