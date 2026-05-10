@@ -645,13 +645,7 @@ func (r *RuleReadinessController) cleanupNodesAfterSelectorChange(ctx context.Co
 	var errors []string
 	for _, node := range nodeList.Items {
 		// Check if node matched old selector
-		matchedOld := false
-		if oldSelector == nil {
-			// nil selector matches all nodes
-			matchedOld = true
-		} else {
-			matchedOld = oldSelector.Matches(labels.Set(node.Labels))
-		}
+		matchedOld := oldSelector.Matches(labels.Set(node.Labels))
 
 		// Check if node matches new selector (use newRule for current evaluation)
 		matchesNew := r.ruleAppliesTo(ctx, newRule, &node)
