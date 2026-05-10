@@ -317,6 +317,12 @@ func (r *RuleReadinessController) removeTaintBySpec(ctx context.Context, node *c
 }
 
 // Bootstrap completion tracking.
+// bootstrapAnnotationKey returns the annotation key used to track bootstrap
+// completion for a given rule.
+func bootstrapAnnotationKey(ruleName string) string {
+	return fmt.Sprintf("readiness.k8s.io/bootstrap-completed-%s", ruleName)
+}
+
 func (r *RuleReadinessController) isBootstrapCompleted(ctx context.Context, nodeName, ruleName string) bool {
 	// Check node annotation
 	node := &corev1.Node{}
@@ -324,7 +330,7 @@ func (r *RuleReadinessController) isBootstrapCompleted(ctx context.Context, node
 		return false
 	}
 
-	annotationKey := fmt.Sprintf("readiness.k8s.io/bootstrap-completed-%s", ruleName)
+	annotationKey := bootstrapAnnotationKey(ruleName)
 	_, exists := node.Annotations[annotationKey]
 	return exists
 }
@@ -332,7 +338,7 @@ func (r *RuleReadinessController) isBootstrapCompleted(ctx context.Context, node
 func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, nodeName, ruleName string) {
 	log := ctrl.LoggerFrom(ctx)
 
-	annotationKey := fmt.Sprintf("readiness.k8s.io/bootstrap-completed-%s", ruleName)
+	annotationKey := bootstrapAnnotationKey(ruleName)
 	marked := false
 
 	// retry to handle conflict with concurrent node updates
