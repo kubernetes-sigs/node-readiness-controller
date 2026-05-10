@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -334,6 +335,7 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 
 	annotationKey := fmt.Sprintf("readiness.k8s.io/bootstrap-completed-%s", ruleName)
 	marked := false
+	start := time.Now()
 
 	// retry to handle conflict with concurrent node updates
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -371,6 +373,7 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 	case marked:
 		log.Info("Marked bootstrap completed", "node", nodeName, "rule", ruleName)
 		metrics.BootstrapCompleted.WithLabelValues(ruleName).Inc()
+		metrics.BootstrapDuration.WithLabelValues(ruleName).Observe(time.Since(start).Seconds())
 	default:
 		log.V(4).Info("Bootstrap already completed", "node", nodeName, "rule", ruleName)
 	}
