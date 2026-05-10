@@ -66,7 +66,7 @@ func TestCheckHealth(t *testing.T) {
 			}
 
 			httpClient := &http.Client{Timeout: 1 * time.Second}
-			health, err := checkHealth(context.TODO(), httpClient, endpoint)
+			health, err := checkHealth(context.Background(), httpClient, endpoint)
 			if err != nil {
 				if !tt.expectError {
 					t.Errorf("checkHealth() error = %v", err)
@@ -162,7 +162,7 @@ func TestUpdateNodeCondition(t *testing.T) {
 				t.Errorf("updateNodeCondition() error = %v", err)
 			}
 
-			updatedNode, err := client.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
+			updatedNode, err := client.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
 			if err != nil {
 				t.Fatalf("Failed to get node: %v", err)
 			}
