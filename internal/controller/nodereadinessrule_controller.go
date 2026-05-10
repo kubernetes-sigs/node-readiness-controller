@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -265,6 +266,7 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 	log.Info("Processing all nodes for rule", "rule", rule.Name, "totalNodes", len(nodeList.Items))
 
 	var appliedNodes []string
+	var errs []error
 	for _, node := range nodeList.Items {
 		if r.ruleAppliesTo(ctx, rule, &node) {
 			appliedNodes = append(appliedNodes, node.Name)
@@ -274,6 +276,7 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 				log.Error(err, "Failed to evaluate node for rule", "rule", rule.Name, "node", node.Name)
 				r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
 				metrics.Failures.WithLabelValues(rule.Name, "EvaluationError").Inc()
+				errs = append(errs, err)
 			}
 		}
 	}
@@ -287,7 +290,7 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 	}
 
 	log.Info("Completed processing nodes for rule", "rule", rule.Name, "processedCount", len(appliedNodes))
-	return nil
+	return errors.Join(errs...)
 }
 
 // evaluateRuleForNode evaluates a single rule against a single node.
