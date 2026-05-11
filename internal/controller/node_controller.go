@@ -148,6 +148,7 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 				"node", node.Name, "rule", rule.Name)
 			// Continue with other rules even if one fails
 			r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
+			metrics.Failures.WithLabelValues(rule.Name, "EvaluationError").Inc()
 		}
 
 		// Persist the rule status
