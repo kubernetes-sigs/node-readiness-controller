@@ -14,12 +14,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# This script checks that the Helm chart CRDs match controller-gen output.
+
 set -o errexit
 set -o nounset
 set -o pipefail
 
-# Run all verification scripts
-hack/verify-boilerplate.sh
-hack/verify-chart-drift.sh
-hack/verify-links.sh
-hack/verify-govulncheck.sh
+KUBE_ROOT="$(dirname "${BASH_SOURCE[0]}")/.."
+cd "${KUBE_ROOT}"
+
+make manifests
+
+diff -u \
+  config/crd/bases/readiness.node.x-k8s.io_nodereadinessrules.yaml \
+  charts/nrr-controller/crds/nodereadinessrules.readiness.node.x-k8s.io.yaml
