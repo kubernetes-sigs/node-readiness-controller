@@ -178,7 +178,6 @@ func TestUpdateNodeCondition(t *testing.T) {
 			if foundCondition == nil {
 				t.Fatal("Condition not found")
 			}
-
 			if foundCondition.Status != tt.wantStatus {
 				t.Errorf("Condition status = %v, want %v", foundCondition.Status, tt.wantStatus)
 			}

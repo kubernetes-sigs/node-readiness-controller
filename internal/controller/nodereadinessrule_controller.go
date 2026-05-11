@@ -46,6 +46,11 @@ import (
 const (
 	// finalizerName is the finalizer added to NodeReadinessRule to ensure cleanup.
 	finalizerName = "readiness.node.x-k8s.io/cleanup-taints"
+
+	// maxLatencyRecordingWindow is the maximum time window after a condition transition
+	// during which we record reconciliation latency metrics. This prevents skewing metrics
+	// when applying new rules to old, existing nodes.
+	maxLatencyRecordingWindow = 5 * time.Minute
 )
 
 // RuleReadinessController manages node taints based on readiness rules.
@@ -190,6 +195,10 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	log.V(3).Info("Removing the rule from cache")
 	r.Controller.removeRuleFromCache(ctx, rule.Name)
 
+	// Clean up Prometheus metrics for this rule to prevent ghost metrics
+	log.V(3).Info("Cleaning up Prometheus metrics for deleted rule", "rule", rule.Name)
+	metrics.CleanupRuleMetrics(rule.Name)
+
 	log.V(3).Info("Removing the finalizer from the rule")
 	patch := client.MergeFrom(rule.DeepCopy())
 	controllerutil.RemoveFinalizer(rule, finalizerName)
@@ -268,6 +277,7 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 	log.Info("Processing all nodes for rule", "rule", rule.Name, "totalNodes", len(nodeList.Items))
 
 	var appliedNodes []string
+
 	for _, node := range nodeList.Items {
 		if r.ruleAppliesTo(ctx, rule, &node) {
 			appliedNodes = append(appliedNodes, node.Name)
@@ -289,19 +299,29 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 		rule.Status.DryRunResults = readinessv1alpha1.DryRunResults{}
 	}
 
+	r.updateNodesByStateMetrics(ctx, rule)
+
+	// Record rule-level reconciliation timestamp
+	metrics.RuleLastReconciliationTime.WithLabelValues(rule.Name).Set(float64(time.Now().Unix()))
+
 	log.Info("Completed processing nodes for rule", "rule", rule.Name, "processedCount", len(appliedNodes))
 	return nil
 }
 
 // evaluateRuleForNode evaluates a single rule against a single node.
 func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, node *corev1.Node) error {
-	timer := prometheus.NewTimer(metrics.EvaluationDuration)
-	defer timer.ObserveDuration()
+	// Track evaluation duration per rule
+	evalTimer := prometheus.NewTimer(metrics.EvaluationDuration.WithLabelValues(rule.Name))
+	defer evalTimer.ObserveDuration()
+
 	log := ctrl.LoggerFrom(ctx)
 
 	// Evaluate all conditions (ALL logic)
 	allConditionsSatisfied := true
 	conditionResults := make([]readinessv1alpha1.ConditionEvaluationResult, 0, len(rule.Spec.Conditions))
+
+	// Track the most recent condition transition time for latency calculation
+	var mostRecentTransitionTime time.Time
 
 	for _, condReq := range rule.Spec.Conditions {
 		currentStatus := r.getConditionStatus(node, condReq.Type)
@@ -317,10 +337,24 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 			RequiredStatus: condReq.RequiredStatus,
 		})
 
+		// Track the most recent transition time across all conditions for latency calculation
+		for _, condition := range node.Status.Conditions {
+			if string(condition.Type) == condReq.Type {
+				if condition.LastTransitionTime.After(mostRecentTransitionTime) {
+					mostRecentTransitionTime = condition.LastTransitionTime.Time
+				}
+				break
+			}
+		}
+
 		log.V(1).Info("Condition evaluation", "node", node.Name, "rule", rule.Name,
 			"conditionType", condReq.Type, "current", currentStatus, "required", condReq.RequiredStatus,
-			"satisfied", satisfied)
+			"satisfied", satisfied, "lastTransitionTime", mostRecentTransitionTime)
 	}
+
+	// Log aggregate condition satisfaction status
+	log.Info("Conditions evaluated", "node", node.Name, "rule", rule.Name,
+		"allConditionsSatisfied", allConditionsSatisfied, "conditionCount", len(rule.Spec.Conditions))
 
 	// Determine taint action
 	shouldRemoveTaint := allConditionsSatisfied
@@ -341,11 +375,32 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 			metrics.Failures.WithLabelValues(rule.Name, "RemoveTaintError").Inc()
 			return fmt.Errorf("failed to remove taint: %w", err)
 		}
+
+		// Only record latency if the condition transitioned recently (e.g., within the last 5 minutes).
+		// This prevents skewing metrics when applying new rules to old, existing nodes.
+		if !mostRecentTransitionTime.IsZero() && time.Since(mostRecentTransitionTime) < maxLatencyRecordingWindow {
+			latency := time.Since(mostRecentTransitionTime).Seconds()
+			metrics.ReconciliationLatency.WithLabelValues(rule.Name, "remove_taint").Observe(latency)
+			log.V(1).Info("Taint removal latency", "node", node.Name, "rule", rule.Name,
+				"latency", fmt.Sprintf("%.3fs", latency),
+				"conditionTransitionTime", mostRecentTransitionTime.Format(time.RFC3339))
+		}
 		metrics.TaintOperations.WithLabelValues(rule.Name, "remove").Inc()
 
 		// Mark bootstrap completed if bootstrap-only mode
 		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
 			r.markBootstrapCompleted(ctx, node.Name, rule.Name)
+
+			// Calculate bootstrap duration from node creation to taint removal
+			// Use the node's creation timestamp directly.
+			bootstrapDuration := time.Since(node.CreationTimestamp.Time).Seconds()
+			metrics.BootstrapDuration.WithLabelValues(rule.Name).Observe(bootstrapDuration)
+
+			log.Info("Bootstrap completed",
+				"node", node.Name,
+				"rule", rule.Name,
+				"duration", fmt.Sprintf("%.2fs", bootstrapDuration),
+				"nodeCreated", node.CreationTimestamp.Format(time.RFC3339))
 		}
 
 	case !shouldRemoveTaint && !currentlyHasTaint:
@@ -354,6 +409,16 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		if err = r.addTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name); err != nil {
 			metrics.Failures.WithLabelValues(rule.Name, "AddTaintError").Inc()
 			return fmt.Errorf("failed to add taint: %w", err)
+		}
+
+		// Calculate end-to-end latency from condition change to taint addition completion
+		// Only record if we have a valid condition transition time
+		if !mostRecentTransitionTime.IsZero() {
+			latency := time.Since(mostRecentTransitionTime).Seconds()
+			metrics.ReconciliationLatency.WithLabelValues(rule.Name, "add_taint").Observe(latency)
+			log.V(1).Info("Taint addition latency", "node", node.Name, "rule", rule.Name,
+				"latency", fmt.Sprintf("%.3fs", latency),
+				"conditionTransitionTime", mostRecentTransitionTime.Format(time.RFC3339))
 		}
 		metrics.TaintOperations.WithLabelValues(rule.Name, "add").Inc()
 
@@ -380,6 +445,12 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 
 	// Update evaluation status
 	r.updateNodeEvaluationStatus(rule, node.Name, conditionResults, taintStatus)
+
+	// Log reconciliation completion with per-node details
+	now := time.Now()
+	log.Info("Node reconciliation completed", "node", node.Name, "rule", rule.Name,
+		"taintStatus", taintStatus, "allConditionsSatisfied", allConditionsSatisfied,
+		"timestamp", now.Unix())
 
 	return nil
 }
@@ -705,4 +776,39 @@ func (r *RuleReadinessController) getPreviousNodeEvaluation(rule *readinessv1alp
 		}
 	}
 	return nil
+}
+
+func (r *RuleReadinessController) updateNodesByStateMetrics(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) {
+	nodeStates := map[string]int{
+		"ready":         0,
+		"not_ready":     0,
+		"bootstrapping": 0,
+	}
+
+	for _, evaluation := range rule.Status.NodeEvaluations {
+		allConditionsSatisfied := true
+		for _, conditionResult := range evaluation.ConditionResults {
+			if conditionResult.CurrentStatus != conditionResult.RequiredStatus {
+				allConditionsSatisfied = false
+				break
+			}
+		}
+
+		hasTaint := evaluation.TaintStatus == readinessv1alpha1.TaintStatusPresent
+
+		switch {
+		case allConditionsSatisfied && !hasTaint:
+			nodeStates["ready"]++
+		case !allConditionsSatisfied && hasTaint &&
+			rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly &&
+			!r.isBootstrapCompleted(ctx, evaluation.NodeName, rule.Name):
+			nodeStates["bootstrapping"]++
+		default:
+			nodeStates["not_ready"]++
+		}
+	}
+
+	for state, count := range nodeStates {
+		metrics.NodesByState.WithLabelValues(rule.Name, state).Set(float64(count))
+	}
 }
