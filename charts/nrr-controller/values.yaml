@@ -138,6 +138,7 @@ affinity: {}
 # NOTE: When using validating webhooks, apply NodeReadinessRule resources after the controller webhook is ready, for example in a separate helm upgrade.
 nodeReadinessRules: []
   # - name: kube-proxy-unhealthy-noschedule
+  #   dryRun: false
   #   conditions:
   #     - type: "KubeProxyUnhealthy"
   #       requiredStatus: "False"
