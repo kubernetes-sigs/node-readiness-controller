@@ -505,7 +505,7 @@ build-helm:
 	helm package ./charts/nrr-controller --dependency-update --destination ./bin/chart
 
 kind-multi-node:
-	kind create cluster --name kind --config ./hack/kind_config.yaml --wait 2m
+	kind create cluster --name $(KIND_CLUSTER) --config ./config/testing/kind/kind-3node-config.yaml --wait 2m
 
 ct-helm:
 	./hack/verify-chart.sh
