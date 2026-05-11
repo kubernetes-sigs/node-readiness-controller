@@ -17,6 +17,7 @@ webhooks:
       service:
         name: {{ include "nrr-controller.fullname" . }}-webhook-service
         namespace: {{ include "nrr-controller.namespace" . }}
+        port: {{ .Values.webhook.service.port }}
         path: {{ .Values.validatingWebhook.path }}
     failurePolicy: {{ .Values.validatingWebhook.failurePolicy }}
     sideEffects: {{ .Values.validatingWebhook.sideEffects }}

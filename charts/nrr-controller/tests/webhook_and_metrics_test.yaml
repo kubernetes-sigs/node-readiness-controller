@@ -9,10 +9,51 @@ release:
 set:
   webhook:
     enabled: true
+  validatingWebhook:
+    enabled: true
   metrics:
     secure: true
 
 tests:
+  - it: exposes webhook service on upstream service port
+    template: templates/servicewebhook.yaml
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.ports[0].name
+          value: webhook
+      - equal:
+          path: spec.ports[0].port
+          value: 443
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 9443
+
+  - it: wires validating webhook to webhook service port
+    template: templates/validatingwebhookconfiguration.yaml
+    asserts:
+      - equal:
+          path: webhooks[0].clientConfig.service.name
+          value: nrr-controller-webhook-service
+      - equal:
+          path: webhooks[0].clientConfig.service.port
+          value: 443
+      - equal:
+          path: webhooks[0].clientConfig.service.path
+          value: /validate-readiness-node-x-k8s-io-v1alpha1-nodereadinessrule
+
+  - it: supports overriding webhook service port
+    template: templates/validatingwebhookconfiguration.yaml
+    set:
+      webhook:
+        service:
+          port: 8443
+    asserts:
+      - equal:
+          path: webhooks[0].clientConfig.service.port
+          value: 8443
+
   - it: mounts webhook cert volume when webhook enabled
     template: templates/deployment.yaml
     asserts:
