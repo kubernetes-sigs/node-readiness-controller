@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # Copyright The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#!/bin/bash
 set -x
 
 curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-$(go env GOARCH)
