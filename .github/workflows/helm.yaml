@@ -6,14 +6,22 @@ on:
       - main
       - release-*
     paths:
+      - 'api/**'
       - 'charts/**'
+      - 'config/crd/**'
       - '.github/workflows/helm.yaml'
       - '.github/ci/ct.yaml'
+      - 'hack/verify-chart-drift.sh'
+      - 'Makefile'
   pull_request:
     paths:
+      - 'api/**'
       - 'charts/**'
+      - 'config/crd/**'
       - '.github/workflows/helm.yaml'
       - '.github/ci/ct.yaml'
+      - 'hack/verify-chart-drift.sh'
+      - 'Makefile'
 
 jobs:
   lint-and-test:
@@ -36,6 +44,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
+
+      - name: Run chart drift check
+        run: |
+          hack/verify-chart-drift.sh
 
       - name: Set up chart-testing
         uses: helm/chart-testing-action@v2.8.0
