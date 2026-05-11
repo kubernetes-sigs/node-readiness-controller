@@ -1,0 +1,57 @@
+suite: Test Node Readiness Controller NodeReadinessRules
+
+templates:
+  - templates/nodereadinessrules.yaml
+
+release:
+  name: nrr-controller
+
+tests:
+  - it: renders full rule spec and defaults nodeSelector when omitted
+    set:
+      nodeReadinessRules:
+        - name: kube-proxy-unhealthy-noschedule
+          dryRun: true
+          conditions:
+            - type: KubeProxyUnhealthy
+              requiredStatus: "False"
+          taint:
+            key: readiness.k8s.io/KubeProxyUnhealthy
+            value: "true"
+            effect: NoSchedule
+          enforcementMode: continuous
+    asserts:
+      - equal:
+          path: metadata.name
+          value: kube-proxy-unhealthy-noschedule
+      - equal:
+          path: spec.dryRun
+          value: true
+      - equal:
+          path: spec.nodeSelector
+          value: {}
+      - equal:
+          path: spec.conditions[0].type
+          value: KubeProxyUnhealthy
+      - equal:
+          path: spec.taint.key
+          value: readiness.k8s.io/KubeProxyUnhealthy
+
+  - it: preserves provided nodeSelector
+    set:
+      nodeReadinessRules:
+        - name: linux-nodes
+          conditions:
+            - type: KubeProxyUnhealthy
+              requiredStatus: "False"
+          taint:
+            key: readiness.k8s.io/KubeProxyUnhealthy
+            effect: NoSchedule
+          enforcementMode: continuous
+          nodeSelector:
+            matchLabels:
+              kubernetes.io/os: linux
+    asserts:
+      - equal:
+          path: spec.nodeSelector.matchLabels["kubernetes.io/os"]
+          value: linux

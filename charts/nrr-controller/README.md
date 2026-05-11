@@ -29,6 +29,10 @@ The command deploys the _node-readiness-controller_ on the Kubernetes cluster in
 
 > **Tip**: List all releases using `helm list`
 
+## CRD Upgrades
+
+Helm installs CRDs from the chart `crds/` directory during initial install, but Helm does not upgrade or delete CRDs from that directory during `helm upgrade` or `helm uninstall`. Before upgrading to a chart version that changes the `NodeReadinessRule` schema, apply the updated CRD from the release artifacts or from `charts/nrr-controller/crds`.
+
 ## Uninstalling the Chart
 
 To uninstall/delete the `my-release` deployment:
@@ -98,4 +102,4 @@ The following table lists the configurable parameters of the _node-readiness-con
 | `nodeSelector`                           | Node selectors to run the controller on specific nodes                                                                          | `nil`                                                             |
 | `tolerations`                            | Tolerations to run the controller on specific nodes                                                                             | `nil`                                                             |
 | `affinity`                               | Node affinity to run the controller on specific nodes                                                                           | `nil`                                                             |
-| `nodeReadinessRules`                     | Custom NodeReadinessRule resources to create. CRD must be preinstalled or installation will fail.                              | `[]`                                                              |
+| `nodeReadinessRules`                     | Custom NodeReadinessRule resources to create. When validating webhooks are enabled, apply rules after the webhook is ready.    | `[]`                                                              |

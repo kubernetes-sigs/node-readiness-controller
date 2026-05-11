@@ -135,8 +135,7 @@ tolerations:
 
 affinity: {}
 
-# NOTE: Before enabling these rules. The CRD `nodereadinessrules.readiness.node.x-k8s.io` must already be installed in the cluster
-# If the CRD is not installed, Helm will fail during installation.
+# NOTE: When using validating webhooks, apply NodeReadinessRule resources after the controller webhook is ready, for example in a separate helm upgrade.
 nodeReadinessRules: []
   # - name: kube-proxy-unhealthy-noschedule
   #   conditions:
