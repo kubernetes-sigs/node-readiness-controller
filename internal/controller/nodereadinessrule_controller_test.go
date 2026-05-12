@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -31,6 +33,8 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	nodereadinessiov1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
@@ -519,7 +523,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			defer func() { _ = k8sClient.Delete(ctx, node) }()
 
 			// Mark as completed
-			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName)
+			_ = readinessController.markBootstrapCompleted(ctx, nodeName, ruleName)
 
 			// Should now be completed
 			Eventually(func() bool {
@@ -569,7 +573,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			defer func() { _ = k8sClient.Delete(ctx, node) }()
 
 			// Mark bootstrap completed
-			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName)
+			_ = readinessController.markBootstrapCompleted(ctx, nodeName, ruleName)
 
 			// Verify annotation was added and existing annotation is preserved
 			Eventually(func(g Gomega) {
@@ -597,10 +601,143 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			counter := metrics.BootstrapCompleted.WithLabelValues(ruleName)
 			before := counterValue(counter)
 
-			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName)
-			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName)
+			_ = readinessController.markBootstrapCompleted(ctx, nodeName, ruleName)
+			_ = readinessController.markBootstrapCompleted(ctx, nodeName, ruleName)
 
 			Expect(counterValue(counter)).To(Equal(before + 1))
+		})
+
+		It("should fail when bootstrap annotation patch fails after taint removal", func() {
+			nodeName := "bootstrap-annotation-patch-failure-node"
+			ruleName := "bootstrap-annotation-patch-failure-rule"
+
+			testScheme := runtime.NewScheme()
+			Expect(corev1.AddToScheme(testScheme)).To(Succeed())
+			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
+
+			// Node is Ready=True and has the rule taint, so removal path is taken
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{"test": "bootstrap-annotation-patch-failure"},
+				},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: "readiness.k8s.io/bootstrap-annotation-patch-failure", Effect: corev1.TaintEffectNoSchedule},
+					},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{{Type: "Ready", Status: corev1.ConditionTrue}},
+				},
+			}
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: ruleName},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/bootstrap-annotation-patch-failure",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"test": "bootstrap-annotation-patch-failure"},
+					},
+				},
+			}
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if _, ok := obj.(*corev1.Node); !ok {
+							return c.Patch(ctx, obj, patch, opts...)
+						}
+						data, err := patch.Data(obj)
+						if err != nil {
+							return c.Patch(ctx, obj, patch, opts...)
+						}
+						if strings.Contains(string(data), bootstrapAnnotationKeyPrefix) {
+							return fmt.Errorf("simulated bootstrap annotation patch failure")
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			testController := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+
+			nodeForEval := &corev1.Node{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: nodeName}, nodeForEval)).To(Succeed())
+			err := testController.evaluateRuleForNode(ctx, rule, nodeForEval)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to mark bootstrap completed"))
+
+			updated := &corev1.Node{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: nodeName}, updated)).To(Succeed())
+			Expect(testController.hasTaintBySpec(updated, rule.Spec.Taint)).To(BeFalse())
+			_, hasAnnot := updated.Annotations[bootstrapAnnotationKeyPrefix+ruleName]
+			Expect(hasAnnot).To(BeFalse())
+		})
+
+		It("should skip evaluation when bootstrap is already completed", func() {
+			nodeName := "bootstrap-already-completed-node"
+			ruleName := "bootstrap-already-completed-rule"
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       ruleName,
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/bootstrap-already-completed",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"test": "bootstrap-already-completed"},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{"test": "bootstrap-already-completed"},
+					Annotations: map[string]string{
+						bootstrapAnnotationKeyPrefix + ruleName: "true",
+					},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{{Type: "Ready", Status: corev1.ConditionFalse}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			readinessController.updateRuleCache(ctx, rule)
+			Expect(readinessController.processAllNodesForRule(ctx, rule)).To(Succeed())
+
+			Expect(rule.Status.AppliedNodes).To(ContainElement(nodeName))
+			updatedNode := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, updatedNode)).To(Succeed())
+			// Check only for the rule taint, envtest adds node.kubernetes.io/not-ready when Ready=False
+			Expect(readinessController.hasTaintBySpec(updatedNode, rule.Spec.Taint)).To(BeFalse())
 		})
 	})
 
