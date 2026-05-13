@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -317,19 +318,20 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 		It("should not detect different selectors as overlapping", func() {
 			selector1 := metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"node-role.kubernetes.io/worker": "",
+					"env": "prod",
 				},
 			}
 
 			selector2 := metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"node-role.kubernetes.io/control-plane": "",
+					"env": "dev",
 				},
 			}
 
 			overlaps := webhook.nodeSelectorsOverlap(selector1, selector2)
-			Expect(overlaps).To(BeFalse()) // Different selectors don't overlap (simple heuristic)
+			Expect(overlaps).To(BeFalse())
 		})
+
 		It("should detect subset selectors as overlapping", func() {
 			// selector1 (env=prod) is subset of selector2 (env=prod,region=us)
 			// Both match nodes labeled env=prod,region=us => they overlap
@@ -341,6 +343,117 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			}
 			overlaps := webhook.nodeSelectorsOverlap(selector1, selector2)
 			Expect(overlaps).To(BeTrue()) // subset selectors overlap
+		})
+
+		It("should detect non-subset matchLabels selectors as overlapping", func() {
+			selector1 := metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"env":    "prod",
+					"region": "us",
+				},
+			}
+			selector2 := metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"env":  "prod",
+					"disk": "ssd",
+				},
+			}
+
+			overlaps := webhook.nodeSelectorsOverlap(selector1, selector2)
+			Expect(overlaps).To(BeTrue())
+		})
+
+		It("should detect intersecting matchExpressions as overlapping", func() {
+			selector1 := metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{Key: "env", Operator: metav1.LabelSelectorOpIn, Values: []string{"prod", "stage"}},
+				},
+			}
+			selector2 := metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{Key: "env", Operator: metav1.LabelSelectorOpIn, Values: []string{"stage", "dev"}},
+				},
+			}
+
+			overlaps := webhook.nodeSelectorsOverlap(selector1, selector2)
+			Expect(overlaps).To(BeTrue())
+		})
+
+		It("should reject disjoint matchExpressions as non-overlapping", func() {
+			selector1 := metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{Key: "env", Operator: metav1.LabelSelectorOpIn, Values: []string{"prod", "stage"}},
+				},
+			}
+			selector2 := metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{Key: "env", Operator: metav1.LabelSelectorOpIn, Values: []string{"dev", "test"}},
+				},
+			}
+
+			overlaps := webhook.nodeSelectorsOverlap(selector1, selector2)
+			Expect(overlaps).To(BeFalse())
+		})
+
+		It("should reject exists and does-not-exist matchExpressions as non-overlapping", func() {
+			selector1 := metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{Key: "env", Operator: metav1.LabelSelectorOpExists},
+				},
+			}
+			selector2 := metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{Key: "env", Operator: metav1.LabelSelectorOpDoesNotExist},
+				},
+			}
+
+			overlaps := webhook.nodeSelectorsOverlap(selector1, selector2)
+			Expect(overlaps).To(BeFalse())
+		})
+
+		It("should allow a missing label to satisfy notIn and does-not-exist expressions", func() {
+			selector1 := metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{Key: "env", Operator: metav1.LabelSelectorOpDoesNotExist},
+				},
+			}
+			selector2 := metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{Key: "env", Operator: metav1.LabelSelectorOpNotIn, Values: []string{"prod"}},
+				},
+			}
+
+			overlaps := webhook.nodeSelectorsOverlap(selector1, selector2)
+			Expect(overlaps).To(BeTrue())
+		})
+	})
+
+	Context("Selector Overlap Helper", func() {
+		It("should detect numeric selector overlap", func() {
+			selector1, err := labels.Parse("version>1")
+			Expect(err).NotTo(HaveOccurred())
+			selector2, err := labels.Parse("version<3")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(selectorsOverlap(selector1, selector2)).To(BeTrue())
+		})
+
+		It("should reject disjoint numeric selectors", func() {
+			selector1, err := labels.Parse("version>3")
+			Expect(err).NotTo(HaveOccurred())
+			selector2, err := labels.Parse("version<3")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(selectorsOverlap(selector1, selector2)).To(BeFalse())
+		})
+
+		It("should keep searching an upper-bounded numeric range when zero is forbidden", func() {
+			selector1, err := labels.Parse("version<3")
+			Expect(err).NotTo(HaveOccurred())
+			selector2, err := labels.Parse("version!=0")
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(selectorsOverlap(selector1, selector2)).To(BeTrue())
 		})
 	})
 
