@@ -145,6 +145,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	r.Controller.updateRuleCache(ctx, rule)
 
 	// Handle dry run
+	var processErr error
 	if rule.Spec.DryRun {
 		if err := r.Controller.processDryRun(ctx, rule, nodeList); err != nil {
 			log.Error(err, "Failed to process dry run", "rule", rule.Name)
@@ -154,14 +155,15 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		// Clear previous dry run results
 		rule.Status.DryRunResults = readinessv1alpha1.DryRunResults{}
 
-		// Process all applicable nodes for this rule
+		// Process all applicable nodes for this rule; save error so status
+		// is still updated before retrying.
 		if err := r.Controller.processAllNodesForRule(ctx, rule, nodeList); err != nil {
 			log.Error(err, "Failed to process nodes for rule", "rule", rule.Name)
-			return ctrl.Result{RequeueAfter: time.Minute}, err
+			processErr = err
 		}
 	}
 
-	// Update rule status
+	// Update rule status regardless of evaluation errors above
 	if err := r.Controller.updateRuleStatus(ctx, rule); err != nil {
 		log.Error(err, "Failed to update rule status", "rule", rule.Name)
 		return ctrl.Result{RequeueAfter: time.Minute}, err
@@ -173,6 +175,9 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
+	if processErr != nil {
+		return ctrl.Result{RequeueAfter: time.Minute}, processErr
+	}
 	return ctrl.Result{}, nil
 }
 
