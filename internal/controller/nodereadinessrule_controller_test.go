@@ -902,6 +902,67 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				return err != nil && client.IgnoreNotFound(err) == nil
 			}, time.Second*10).Should(BeTrue(), "Rule should be fully deleted")
 		})
+
+		It("should remove bootstrap annotations from nodes when a bootstrap-only rule is deleted", func() {
+			bootstrapNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "bootstrap-cleanup-node",
+					Labels: map[string]string{"kubernetes.io/hostname": "bootstrap-cleanup-node"},
+					Annotations: map[string]string{
+						"readiness.k8s.io/bootstrap-completed-bootstrap-cleanup-rule": "true",
+						"unrelated-annotation": "must-be-preserved",
+					},
+				},
+			}
+			bootstrapRule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "bootstrap-cleanup-rule",
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "TestReady", RequiredStatus: corev1.ConditionTrue}},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"kubernetes.io/hostname": "bootstrap-cleanup-node"}},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/bootstrap-cleanup-taint", Effect: corev1.TaintEffectNoSchedule},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, bootstrapNode)).To(Succeed())
+			Expect(k8sClient.Create(ctx, bootstrapRule)).To(Succeed())
+
+			// Initial reconcile to populate cache
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "bootstrap-cleanup-rule"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify annotation is present before deletion
+			preDeleteNode := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "bootstrap-cleanup-node"}, preDeleteNode)).To(Succeed())
+			Expect(preDeleteNode.Annotations).To(HaveKey("readiness.k8s.io/bootstrap-completed-bootstrap-cleanup-rule"))
+
+			// Delete the rule
+			Expect(k8sClient.Delete(ctx, bootstrapRule)).To(Succeed())
+
+			// Trigger deletion reconcile
+			_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "bootstrap-cleanup-rule"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify bootstrap annotation is removed
+			Eventually(func(g Gomega) {
+				updatedNode := &corev1.Node{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "bootstrap-cleanup-node"}, updatedNode)).To(Succeed())
+				g.Expect(updatedNode.Annotations).NotTo(HaveKey("readiness.k8s.io/bootstrap-completed-bootstrap-cleanup-rule"),
+					"Bootstrap annotation should be removed after rule deletion")
+				g.Expect(updatedNode.Annotations).To(HaveKeyWithValue("unrelated-annotation", "must-be-preserved"),
+					"Unrelated annotations must not be affected")
+			}, time.Second*10).Should(Succeed())
+
+			// Cleanup
+			_ = k8sClient.Delete(ctx, bootstrapNode)
+		})
 	})
 
 	Context("when a node is deleted", func() {
