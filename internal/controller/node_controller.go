@@ -91,6 +91,16 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Reconciling node", "node", req.Name)
 
+	// Pre-populate the rule cache from the informer cache on the first reconcile.
+	// This prevents the startup race where this controller processes node events
+	// before RuleReconciler has reconciled existing rules into the cache. For
+	// bootstrap-only rules the race is non-recoverable: if the node is evaluated
+	// with an empty cache the taint is never applied and the bootstrap completion
+	// annotation is never written.
+	if err := r.Controller.ensureCacheWarmed(ctx); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// Fetch the node
 	node := &corev1.Node{}
 	if err := r.Get(ctx, req.NamespacedName, node); err != nil {
