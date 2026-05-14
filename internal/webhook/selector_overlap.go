@@ -29,6 +29,8 @@ import (
 func selectorsOverlap(selector1, selector2 labels.Selector) bool {
 	reqs1, selectable1 := selector1.Requirements()
 	reqs2, selectable2 := selector2.Requirements()
+	// A non-selectable selector is labels.Nothing(), which matches no labels
+	// and therefore cannot overlap with anything.
 	if !selectable1 || !selectable2 {
 		return false
 	}
@@ -53,8 +55,8 @@ func requirementsOverlap(reqs []labels.Requirement) bool {
 	var (
 		mustExist    bool
 		mustNotExist bool
-		allowed      sets.String
-		forbidden    sets.String
+		allowed      sets.Set[string]
+		forbidden    sets.Set[string]
 		hasLower     bool
 		lower        int64
 		hasUpper     bool
@@ -65,7 +67,7 @@ func requirementsOverlap(reqs []labels.Requirement) bool {
 		switch req.Operator() {
 		case selection.In, selection.Equals, selection.DoubleEquals:
 			mustExist = true
-			values := sets.NewString(req.ValuesUnsorted()...)
+			values := sets.New(req.ValuesUnsorted()...)
 			if allowed == nil {
 				allowed = values
 			} else {
@@ -73,7 +75,7 @@ func requirementsOverlap(reqs []labels.Requirement) bool {
 			}
 		case selection.NotIn, selection.NotEquals:
 			if forbidden == nil {
-				forbidden = sets.String{}
+				forbidden = sets.Set[string]{}
 			}
 			forbidden.Insert(req.ValuesUnsorted()...)
 		case selection.Exists:
@@ -84,11 +86,11 @@ func requirementsOverlap(reqs []labels.Requirement) bool {
 			mustExist = true
 			values := req.ValuesUnsorted()
 			if len(values) != 1 {
-				return false
+				return true
 			}
 			value, err := strconv.ParseInt(values[0], 10, 64)
 			if err != nil {
-				return false
+				return true
 			}
 			switch req.Operator() {
 			case selection.GreaterThan:
@@ -103,7 +105,9 @@ func requirementsOverlap(reqs []labels.Requirement) bool {
 				}
 			}
 		default:
-			return false
+			// Unknown operator: assume overlap defensively, matching the
+			// webhook wrapper's "if we can't analyze, assume overlap" stance.
+			return true
 		}
 	}
 
@@ -124,7 +128,7 @@ func requirementsOverlap(reqs []labels.Requirement) bool {
 	return true
 }
 
-func valueSatisfies(value string, forbidden sets.String, hasLower bool, lower int64, hasUpper bool, upper int64) bool {
+func valueSatisfies(value string, forbidden sets.Set[string], hasLower bool, lower int64, hasUpper bool, upper int64) bool {
 	if forbidden.Has(value) {
 		return false
 	}
@@ -143,7 +147,10 @@ func valueSatisfies(value string, forbidden sets.String, hasLower bool, lower in
 	return true
 }
 
-func numericValueExists(forbidden sets.String, hasLower bool, lower int64, hasUpper bool, upper int64) bool {
+// k8s label values must match the label-value regex, which disallows a leading
+// '-', so numeric label values are always non-negative; the search space is
+// [0, math.MaxInt64].
+func numericValueExists(forbidden sets.Set[string], hasLower bool, lower int64, hasUpper bool, upper int64) bool {
 	if hasLower && lower == math.MaxInt64 {
 		return false
 	}
@@ -152,7 +159,7 @@ func numericValueExists(forbidden sets.String, hasLower bool, lower int64, hasUp
 	}
 
 	candidate := int64(0)
-	if hasLower && candidate <= lower {
+	if hasLower {
 		candidate = lower + 1
 	}
 	if candidate < 0 {
