@@ -130,15 +130,6 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return r.reconcileDelete(ctx, rule, nodeList)
 	}
 
-	// Detect nodeSelector changes and cleanup old nodes
-	cachedRule := r.Controller.getCachedRule(rule.Name)
-	if cachedRule != nil && nodeSelectorChanged(rule.Spec.NodeSelector, cachedRule.Spec.NodeSelector) {
-		log.Info("NodeSelector changed, cleaning up nodes from old selector", "rule", rule.Name)
-		if err := r.Controller.cleanupNodesAfterSelectorChange(ctx, cachedRule, rule, nodeList); err != nil {
-			log.Error(err, "Failed to cleanup nodes after selector change", "rule", rule.Name)
-			return ctrl.Result{RequeueAfter: time.Minute}, err
-		}
-	}
 
 	// Update rule cache (after cleanup)
 	r.Controller.updateRuleCache(ctx, rule)
@@ -461,17 +452,6 @@ func (r *RuleReadinessController) updateRuleCache(ctx context.Context, rule *rea
 		"resourceVersion", ruleCopy.ResourceVersion)
 }
 
-// getCachedRule retrieves a rule from cache.
-func (r *RuleReadinessController) getCachedRule(ruleName string) *readinessv1alpha1.NodeReadinessRule {
-	r.ruleCacheMutex.RLock()
-	defer r.ruleCacheMutex.RUnlock()
-
-	rule, exists := r.ruleCache[ruleName]
-	if !exists {
-		return nil
-	}
-	return rule.DeepCopy()
-}
 
 // removeRuleFromCache removes a rule from cache.
 func (r *RuleReadinessController) removeRuleFromCache(ctx context.Context, ruleName string) {
@@ -619,52 +599,6 @@ func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule
 	return nil
 }
 
-// cleanupNodesAfterSelectorChange cleans up nodes that matched old selector but not new one.
-func (r *RuleReadinessController) cleanupNodesAfterSelectorChange(ctx context.Context, oldRule, newRule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) error {
-	log := ctrl.LoggerFrom(ctx)
-
-	// Build old selector
-	oldSelector, err := metav1.LabelSelectorAsSelector(&oldRule.Spec.NodeSelector)
-	if err != nil {
-		return fmt.Errorf("failed to parse old node selector: %w", err)
-	}
-
-	// Clean up nodes that matched old selector but not new selector
-	var errors []string
-	for _, node := range nodeList.Items {
-		// Check if node matched old selector
-		matchedOld := false
-		if oldSelector == nil {
-			// nil selector matches all nodes
-			matchedOld = true
-		} else {
-			matchedOld = oldSelector.Matches(labels.Set(node.Labels))
-		}
-
-		// Check if node matches new selector (use newRule for current evaluation)
-		matchesNew := r.ruleAppliesTo(ctx, newRule, &node)
-
-		// If node matched old but not new, clean up the taint
-		if matchedOld && !matchesNew {
-			if r.hasTaintBySpec(&node, newRule.Spec.Taint) {
-				log.Info("Removing taint from node that no longer matches selector",
-					"node", node.Name,
-					"rule", newRule.Name,
-					"taint", newRule.Spec.Taint.Key)
-
-				if err := r.removeTaintBySpec(ctx, &node, newRule.Spec.Taint, newRule.Name); err != nil {
-					errors = append(errors, fmt.Sprintf("node %s: %v", node.Name, err))
-				}
-			}
-		}
-	}
-
-	if len(errors) > 0 {
-		return fmt.Errorf("failed to cleanup taints on some nodes: %s", strings.Join(errors, "; "))
-	}
-
-	return nil
-}
 
 func (r *RuleReconciler) ensureFinalizer(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, finalizer string) (finalizerAdded bool, err error) {
 	// Finalizers can only be added when the deletionTimestamp is not set.
