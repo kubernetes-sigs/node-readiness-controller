@@ -1878,7 +1878,8 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				EventRecorder: record.NewFakeRecorder(10),
 			}
 
-			Expect(failController.processAllNodesForRule(ctx, rule)).To(Succeed())
+			nodeList := &corev1.NodeList{Items: []corev1.Node{*failNode}}
+			Expect(failController.processAllNodesForRule(ctx, rule, nodeList)).To(Succeed())
 
 			Expect(rule.Status.AppliedNodes).NotTo(ContainElement("fail-path-node"))
 
@@ -1934,7 +1935,8 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				EventRecorder: record.NewFakeRecorder(10),
 			}
 
-			Expect(successController.processAllNodesForRule(ctx, rule)).To(Succeed())
+			nodeList := &corev1.NodeList{Items: []corev1.Node{*successNode}}
+			Expect(successController.processAllNodesForRule(ctx, rule, nodeList)).To(Succeed())
 
 			Expect(rule.Status.AppliedNodes).To(ContainElement("stale-recovery-node"))
 
