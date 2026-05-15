@@ -16,10 +16,7 @@ tests:
       - isKind:
           of: Deployment
 
-  - it: enables leader-election
-    set:
-      leaderElection:
-        enabled: true
+  - it: enables leader-election by default
     template: templates/deployment.yaml
     asserts:
       - contains:
