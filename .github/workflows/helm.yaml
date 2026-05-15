@@ -77,6 +77,5 @@ jobs:
       - name: Create multi node Kind cluster
         run: make kind-multi-node
       
-      # helm-extra-set-args only available after ct 3.6.0
       - name: Run chart-testing (install)
-        run: ct install --config=.github/ci/ct.yaml --helm-extra-set-args='--set=kind=Deployment'
+        run: ct install --config=.github/ci/ct.yaml
