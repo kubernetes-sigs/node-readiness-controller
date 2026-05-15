@@ -27,6 +27,7 @@ TEST_DIR := test
 TOOLS_DIR := hack/tools
 TOOLS_BIN_DIR := $(abspath $(TOOLS_DIR)/$(BIN_DIR))
 GO_INSTALL := ./scripts/go_install.sh
+ARTIFACTS ?= .
 
 export PATH := $(abspath $(TOOLS_BIN_DIR)):$(PATH)
 
@@ -388,7 +389,7 @@ undeploy-full: undeploy ## Undeploy with all features.
 
 .PHONY: test
 test: manifests generate fmt vet setup-envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" go test $$(go list ./... | grep -v /e2e) -coverprofile $(ARTIFACTS)/cover.out
 
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
