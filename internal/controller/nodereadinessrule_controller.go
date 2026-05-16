@@ -160,15 +160,15 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		}
 	}
 
-	// Update rule status
-	if err := r.Controller.updateRuleStatus(ctx, rule); err != nil {
-		log.Error(err, "Failed to update rule status", "rule", rule.Name)
+	// Clean up status for deleted nodes before persisting to avoid writing stale entries.
+	if err := r.Controller.cleanupDeletedNodes(ctx, rule, nodeList); err != nil {
+		log.Error(err, "Failed to clean up deleted nodes", "rule", rule.Name)
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
-	// Clean up status for deleted nodes
-	if err := r.Controller.cleanupDeletedNodes(ctx, rule, nodeList); err != nil {
-		log.Error(err, "Failed to clean up deleted nodes", "rule", rule.Name)
+	// Update rule status
+	if err := r.Controller.updateRuleStatus(ctx, rule); err != nil {
+		log.Error(err, "Failed to update rule status", "rule", rule.Name)
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
@@ -214,7 +214,7 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 		existingNodes[node.Name] = true
 	}
 
-	// Filter out deleted nodes
+	// Filter out deleted nodes from NodeEvaluations
 	var newNodeEvaluations []readinessv1alpha1.NodeEvaluation
 	for _, evaluation := range rule.Status.NodeEvaluations {
 		if existingNodes[evaluation.NodeName] {
@@ -222,38 +222,31 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 		}
 	}
 
-	if len(newNodeEvaluations) == len(rule.Status.NodeEvaluations) {
+	// Filter out deleted nodes from FailedNodes
+	var newFailedNodes []readinessv1alpha1.NodeFailure
+	for _, failure := range rule.Status.FailedNodes {
+		if existingNodes[failure.NodeName] {
+			newFailedNodes = append(newFailedNodes, failure)
+		}
+	}
+
+	if len(newNodeEvaluations) == len(rule.Status.NodeEvaluations) && len(newFailedNodes) == len(rule.Status.FailedNodes) {
 		log.V(4).Info("No deleted nodes to clean up", "rule", rule.Name)
 		return nil
 	}
 
 	log.V(4).Info("Cleaning up deleted nodes from rule status",
 		"rule", rule.Name,
-		"before", len(rule.Status.NodeEvaluations),
-		"after", len(newNodeEvaluations))
+		"evaluationsBefore", len(rule.Status.NodeEvaluations),
+		"evaluationsAfter", len(newNodeEvaluations),
+		"failedBefore", len(rule.Status.FailedNodes),
+		"failedAfter", len(newFailedNodes))
 
-	// Use retry on conflict to update status to avoid race conditions from node updates
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		fresh := &readinessv1alpha1.NodeReadinessRule{}
-		if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, fresh); err != nil {
-			return err
-		}
+	// Update in-memory state so the subsequent status patch uses the cleaned evaluations.
+	rule.Status.NodeEvaluations = newNodeEvaluations
+	rule.Status.FailedNodes = newFailedNodes
 
-		var freshNodeEvaluations []readinessv1alpha1.NodeEvaluation
-		for _, evaluation := range fresh.Status.NodeEvaluations {
-			if existingNodes[evaluation.NodeName] {
-				freshNodeEvaluations = append(freshNodeEvaluations, evaluation)
-			}
-		}
-
-		if len(freshNodeEvaluations) == len(fresh.Status.NodeEvaluations) {
-			return nil
-		}
-
-		patch := client.MergeFrom(fresh.DeepCopy())
-		fresh.Status.NodeEvaluations = freshNodeEvaluations
-		return r.Status().Patch(ctx, fresh, patch)
-	})
+	return nil
 }
 
 // processAllNodesForRule processes all nodes when a rule changes.

@@ -1412,6 +1412,50 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				return false
 			}, time.Second*5).Should(BeTrue())
 		})
+
+		It("should not write stale NodeEvaluations to status before cleanup runs", func() {
+			// This is a regression test for the ordering fix: cleanup must happen
+			// before updateRuleStatus so that the single status patch never contains
+			// an entry for a deleted node. Prior to the fix, cleanupDeletedNodes ran
+			// after updateRuleStatus, creating a dirty stale-write window.
+
+			// Initial reconcile to populate status with both nodes.
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "delete-node-rule"}})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func() int {
+				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: "delete-node-rule"}, updatedRule)
+				return len(updatedRule.Status.NodeEvaluations)
+			}, time.Second*5).Should(Equal(2))
+
+			// Delete node1.
+			Expect(k8sClient.Delete(ctx, node1)).To(Succeed())
+
+			// Reconcile once. With the fix, the single status patch must already
+			// contain only node2 — no intermediate state with node1 is written.
+			_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "delete-node-rule"}})
+			Expect(err).NotTo(HaveOccurred())
+
+			// The status fetched immediately after reconcile must not contain node1.
+			// Without the ordering fix this would be flaky or fail because an
+			// intermediate patch wrote the stale entry first.
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "delete-node-rule"}, updatedRule)).To(Succeed())
+
+			nodeNames := make([]string, 0, len(updatedRule.Status.NodeEvaluations))
+			for _, eval := range updatedRule.Status.NodeEvaluations {
+				nodeNames = append(nodeNames, eval.NodeName)
+			}
+			Expect(nodeNames).NotTo(ContainElement("node1"), "deleted node must not appear in the NodeEvaluations status patch written during reconcile")
+			Expect(nodeNames).To(ContainElement("node2"), "surviving node must remain in NodeEvaluations status")
+
+			failedNodeNames := make([]string, 0, len(updatedRule.Status.FailedNodes))
+			for _, eval := range updatedRule.Status.FailedNodes {
+				failedNodeNames = append(failedNodeNames, eval.NodeName)
+			}
+			Expect(failedNodeNames).NotTo(ContainElement("node1"), "deleted node must not appear in the FailedNodes status patch written during reconcile")
+		})
 	})
 
 	Context("when a rule's nodeSelector is modified", func() {
