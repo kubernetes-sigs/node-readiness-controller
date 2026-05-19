@@ -1,0 +1,54 @@
+name: Tracking Issue
+description: Create a tracking issue for a larger initiative, epic, or multi-step feature.
+title: "[TRACKING] <Short description of the initiative>"
+labels: ["area/community-meeting"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This template is intended for maintainers and contributors to track the progress of an epic, cross-cutting feature, or major refactor that requires multiple PRs or sub-tasks.
+
+  - type: markdown
+    attributes:
+      value: |
+        While AI-assisted submissions are acceptable, you should understand the issue and describe it in your own words.
+        To learn more, please refer to Kubernetes AI usage policy: https://www.kubernetes.dev/docs/guide/pull-requests/#ai-guidance
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary / Objective
+      description: What is the overall goal of this initiative? Provide high-level context and why this work is necessary.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Checklist / Sub-tasks
+      description: List the required steps, sub-tasks, or related issues/PRs needed to complete this initiative. Use markdown checkboxes.
+      placeholder: |
+        - [ ] Design and architecture (Link KEP or PR)
+        - [ ] Implementation phase 1: [...]
+        - [ ] Implementation phase 2: [...]
+        - [ ] Add unit and e2e tests
+        - [ ] Documentation updates
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: Design Documents & References
+      description: Link to any relevant KEPs (Kubernetes Enhancement Proposals), architectural diagrams, or prior discussions.
+    validations:
+      required: false
+
+  - type: input
+    id: target-milestone
+    attributes:
+      label: Target Milestone / Release
+      description: Which upcoming release is this work targeted for?
+      placeholder: vX.Y.Z or Next
+    validations:
+      required: false

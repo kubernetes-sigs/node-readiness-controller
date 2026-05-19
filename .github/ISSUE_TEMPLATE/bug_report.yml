@@ -1,0 +1,82 @@
+name: Bug Report
+description: Report an issue with the node-readiness-controller's behavior.
+title: "[BUG] <Short description of the issue>"
+labels: ["kind/bug", "triage/needs-information"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this! 
+        Before submitting, please ensure you have searched the [existing issues](https://github.com/kubernetes-sigs/node-readiness-controller/issues) to avoid duplicates.
+
+  - type: markdown
+    attributes:
+      value: |
+        While AI-assisted submissions are acceptable, you should understand the issue and describe it in your own words.
+        To learn more, please refer to Kubernetes AI usage policy: https://www.kubernetes.dev/docs/guide/pull-requests/#ai-guidance
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the bug. What did the controller do (or fail to do)?
+      placeholder: The controller did abc to the node even though xyz...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this behavior? Please include all relevant info.
+      placeholder: |
+        1. Deploy the controller using...
+        2. Apply the following Node configuration...
+        3. Observe the readiness condition by running...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+      placeholder: The controller was supposed to xyz...
+    validations:
+      required: true
+
+  - type: input
+    id: controller-version
+    attributes:
+      label: Controller Version / Image Tag
+      description: Which version or container image tag of the node-readiness-controller are you running?
+      placeholder: vX.Y.Z or main (commit abc1234)
+    validations:
+      required: true
+
+  - type: input
+    id: k8s-version
+    attributes:
+      label: Kubernetes Version
+      description: Provide the output of `kubectl version`.
+      placeholder: Client Version vX.Y.Z
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Controller Logs
+      description: |
+        Please provide the relevant logs from the controller pod. 
+        `kubectl logs deployment/node-readiness-controller -n <namespace>`
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Additional Environment Details
+      description: Any other relevant details.
+    validations:
+      required: false

@@ -1,0 +1,41 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for the node-readiness-controller.
+title: "[FEATURE] <Short description of the feature>"
+labels: ["kind/feature", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an improvement!
+        Please ensure you have checked the [existing issues](https://github.com/kubernetes-sigs/node-readiness-controller/issues) and [Discussions](https://github.com/kubernetes-sigs/node-readiness-controller/discussions) to see if this has already been proposed.
+
+  - type: markdown
+    attributes:
+      value: |
+        While AI-assisted submissions are acceptable, you should understand the issue and describe it in your own words.
+        To learn more, please refer to Kubernetes AI usage policy: https://www.kubernetes.dev/docs/guide/pull-requests/#ai-guidance
+
+  - type: textarea
+    id: problem-statement
+    attributes:
+      label: Is your feature request related to a problem or existing issue? Please describe.
+      description: A clear and concise description of what the problem is.
+      placeholder: When dealing with custom node taints, the controller currently...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Describe the solution you'd like
+      description: A clear and concise description of what you want to happen. If you have API changes in mind, please provide YAML examples.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Describe alternatives you've considered
+      description: A clear and concise description of any alternative solutions or features you've considered.
+    validations:
+      required: false

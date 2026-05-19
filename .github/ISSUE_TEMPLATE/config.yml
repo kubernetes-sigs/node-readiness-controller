@@ -1,0 +1,10 @@
+blank_issues_enabled: true
+
+contact_links:  
+  - name: Support & Discussions
+    url: https://github.com/kubernetes-sigs/node-readiness-controller/discussions
+    about: If you need help with configuration, have questions, or want to propose an idea, start here.
+
+  - name: Kubernetes Slack
+    url: https://kubernetes.slack.com/messages/sig-node-readiness-controller
+    about: Join our dedicated channel on the Kubernetes Slack workspace for instant chat.
