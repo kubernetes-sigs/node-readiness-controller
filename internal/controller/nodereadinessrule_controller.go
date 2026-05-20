@@ -215,14 +215,14 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 	}
 
 	// Filter out deleted nodes
-	var newNodeEvaluations []readinessv1alpha1.NodeEvaluation
-	for _, evaluation := range rule.Status.NodeEvaluations {
-		if existingNodes[evaluation.NodeName] {
-			newNodeEvaluations = append(newNodeEvaluations, evaluation)
-		}
-	}
+	newNodeEvaluations, newFailedNodes := filterStatusForExistingNodes(
+		existingNodes,
+		rule.Status.NodeEvaluations,
+		rule.Status.FailedNodes,
+	)
 
-	if len(newNodeEvaluations) == len(rule.Status.NodeEvaluations) {
+	if len(newNodeEvaluations) == len(rule.Status.NodeEvaluations) &&
+		len(newFailedNodes) == len(rule.Status.FailedNodes) {
 		log.V(4).Info("No deleted nodes to clean up", "rule", rule.Name)
 		return nil
 	}
@@ -239,19 +239,20 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 			return err
 		}
 
-		var freshNodeEvaluations []readinessv1alpha1.NodeEvaluation
-		for _, evaluation := range fresh.Status.NodeEvaluations {
-			if existingNodes[evaluation.NodeName] {
-				freshNodeEvaluations = append(freshNodeEvaluations, evaluation)
-			}
-		}
+		freshNodeEvaluations, freshFailedNodes := filterStatusForExistingNodes(
+			existingNodes,
+			fresh.Status.NodeEvaluations,
+			fresh.Status.FailedNodes,
+		)
 
-		if len(freshNodeEvaluations) == len(fresh.Status.NodeEvaluations) {
+		if len(freshNodeEvaluations) == len(fresh.Status.NodeEvaluations) &&
+			len(freshFailedNodes) == len(fresh.Status.FailedNodes) {
 			return nil
 		}
 
 		patch := client.MergeFrom(fresh.DeepCopy())
 		fresh.Status.NodeEvaluations = freshNodeEvaluations
+		fresh.Status.FailedNodes = freshFailedNodes
 		return r.Status().Patch(ctx, fresh, patch)
 	})
 }
