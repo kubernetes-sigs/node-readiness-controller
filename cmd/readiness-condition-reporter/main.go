@@ -215,13 +215,24 @@ func updateNodeCondition(ctx context.Context, client kubernetes.Interface, nodeN
 
 		// Find existing condition to preserve transition time if status hasn't changed
 		var transitionTime metav1.Time
+		var existingCondition *corev1.NodeCondition
+
 		for _, condition := range node.Status.Conditions {
 			if string(condition.Type) == conditionType {
+				condCopy := condition
+				existingCondition = &condCopy
 				if condition.Status == status {
 					transitionTime = condition.LastTransitionTime
 				}
 				break
 			}
+		}
+
+		// If the semantic state is completely unchanged, bypass the API write
+		// to prevent etcd write amplification and control plane flooding.
+		if existingCondition != nil && existingCondition.Status == status && existingCondition.Reason == health.Reason && existingCondition.Message == health.Message {
+			// since state did not change return early to avoid unnecessary API call
+			return nil
 		}
 
 		if transitionTime.IsZero() {
