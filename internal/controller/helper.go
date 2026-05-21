@@ -20,22 +20,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-
-// stringMapEqual checks if two string maps are equal.
-func stringMapEqual(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-
-	for k, v := range a {
-		if b[k] != v {
-			return false
-		}
-	}
-
-	return true
-}
-
 // conditionsEqual checks if two condition slices are equal.
 func conditionsEqual(a, b []corev1.NodeCondition) bool {
 	if len(a) != len(b) {

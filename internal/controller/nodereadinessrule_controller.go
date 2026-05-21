@@ -130,7 +130,6 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return r.reconcileDelete(ctx, rule, nodeList)
 	}
 
-
 	// Update rule cache (after cleanup)
 	r.Controller.updateRuleCache(ctx, rule)
 
@@ -452,7 +451,6 @@ func (r *RuleReadinessController) updateRuleCache(ctx context.Context, rule *rea
 		"resourceVersion", ruleCopy.ResourceVersion)
 }
 
-
 // removeRuleFromCache removes a rule from cache.
 func (r *RuleReadinessController) removeRuleFromCache(ctx context.Context, ruleName string) {
 	log := ctrl.LoggerFrom(ctx)
@@ -598,7 +596,6 @@ func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule
 
 	return nil
 }
-
 
 func (r *RuleReconciler) ensureFinalizer(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, finalizer string) (finalizerAdded bool, err error) {
 	// Finalizers can only be added when the deletionTimestamp is not set.
