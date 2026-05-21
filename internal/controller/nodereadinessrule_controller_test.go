@@ -1479,6 +1479,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				MatchLabels: map[string]string{"env": "dev"},
 			}
 			err := k8sClient.Update(ctx, updatedRule)
+			By(fmt.Sprintf("CEL X-validation rejection error: %v", err))
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("nodeSelector is immutable"))
 		})
