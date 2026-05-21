@@ -17,45 +17,9 @@ limitations under the License.
 package controller
 
 import (
-	"fmt"
-
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// nodeSelectorChanged checks if nodeSelector has changed.
-func nodeSelectorChanged(current, previous metav1.LabelSelector) bool {
-	// Compare matchLabels
-	if !stringMapEqual(current.MatchLabels, previous.MatchLabels) {
-		return true
-	}
-
-	// Compare matchExpressions
-	if len(current.MatchExpressions) != len(previous.MatchExpressions) {
-		return true
-	}
-
-	// Create maps for comparison
-	currentExprs := make(map[string]metav1.LabelSelectorRequirement)
-	for _, expr := range current.MatchExpressions {
-		key := fmt.Sprintf("%s-%s-%v", expr.Key, expr.Operator, expr.Values)
-		currentExprs[key] = expr
-	}
-
-	previousExprs := make(map[string]metav1.LabelSelectorRequirement)
-	for _, expr := range previous.MatchExpressions {
-		key := fmt.Sprintf("%s-%s-%v", expr.Key, expr.Operator, expr.Values)
-		previousExprs[key] = expr
-	}
-
-	for key := range currentExprs {
-		if _, exists := previousExprs[key]; !exists {
-			return true
-		}
-	}
-
-	return false
-}
 
 // stringMapEqual checks if two string maps are equal.
 func stringMapEqual(a, b map[string]string) bool {
