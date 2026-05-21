@@ -188,3 +188,101 @@ func TestUpdateNodeCondition(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateNodeCondition_SkipsWriteWhenStateUnchanged(t *testing.T) {
+	nodeName := "test-node"
+	conditionType := "TestCondition"
+	health := &HealthResponse{Healthy: true, Reason: "EndpointOK", Message: "All good"}
+
+	countUpdates := func(c *fake.Clientset) int {
+		n := 0
+		for _, a := range c.Actions() {
+			if a.GetVerb() == "update" && a.GetSubresource() == "status" && a.GetResource().Resource == "nodes" {
+				n++
+			}
+		}
+		return n
+	}
+
+	// Part 1: Fresh heartbeat, state unchanged -> skip the API write.
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{
+				{
+					Type:               corev1.NodeConditionType(conditionType),
+					Status:             corev1.ConditionTrue,
+					Reason:             "EndpointOK",
+					Message:            "All good",
+					LastHeartbeatTime:  metav1.NewTime(time.Now()),
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				},
+			},
+		},
+	}
+	client := fake.NewSimpleClientset(node)
+
+	if err := updateNodeCondition(context.Background(), client, nodeName, conditionType, health); err != nil {
+		t.Fatalf("fresh heartbeat: updateNodeCondition() error = %v", err)
+	}
+
+	if got := countUpdates(client); got != 0 {
+		t.Errorf("fresh heartbeat: expected 0 UpdateStatus calls (skip), got %d", got)
+	}
+
+	fetchedNode, err := client.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("fresh heartbeat: failed to fetch node: %v", err)
+	}
+	for _, c := range fetchedNode.Status.Conditions {
+		if string(c.Type) == conditionType {
+			if c.LastHeartbeatTime.Time != node.Status.Conditions[0].LastHeartbeatTime.Time {
+				t.Errorf("fresh heartbeat: heartbeat was mutated despite skip; got %v, want %v",
+					c.LastHeartbeatTime.Time, node.Status.Conditions[0].LastHeartbeatTime.Time)
+			}
+			break
+		}
+	}
+
+	// Part 2: Stale heartbeat (>=5min), state unchanged -> force the API write.
+	staleTime := time.Now().Add(-6 * time.Minute)
+	staleNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{
+				{
+					Type:               corev1.NodeConditionType(conditionType),
+					Status:             corev1.ConditionTrue,
+					Reason:             "EndpointOK",
+					Message:            "All good",
+					LastHeartbeatTime:  metav1.NewTime(staleTime),
+					LastTransitionTime: metav1.NewTime(staleTime),
+				},
+			},
+		},
+	}
+	staleClient := fake.NewSimpleClientset(staleNode)
+
+	if err := updateNodeCondition(context.Background(), staleClient, nodeName, conditionType, health); err != nil {
+		t.Fatalf("stale heartbeat: updateNodeCondition() error = %v", err)
+	}
+
+	if got := countUpdates(staleClient); got != 1 {
+		t.Errorf("stale heartbeat: expected 1 UpdateStatus call (forced refresh), got %d", got)
+	}
+
+	refreshedNode, err := staleClient.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("stale heartbeat: failed to fetch node: %v", err)
+	}
+	for _, c := range refreshedNode.Status.Conditions {
+		if string(c.Type) == conditionType {
+			if !c.LastHeartbeatTime.After(staleTime) {
+				t.Errorf("stale heartbeat: expected heartbeat refreshed past %v, got %v",
+					staleTime, c.LastHeartbeatTime.Time)
+			}
+			return
+		}
+	}
+	t.Fatal("stale heartbeat: condition not found after forced refresh")
+}
