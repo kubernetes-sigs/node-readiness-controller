@@ -230,8 +230,20 @@ func updateNodeCondition(ctx context.Context, client kubernetes.Interface, nodeN
 
 		// If the semantic state is completely unchanged, bypass the API write
 		// to prevent etcd write amplification and control plane flooding.
+		needsUpdate := true
 		if existingCondition != nil && existingCondition.Status == status && existingCondition.Reason == health.Reason && existingCondition.Message == health.Message {
-			// since state did not change return early to avoid unnecessary API call
+			needsUpdate = false
+			/*
+				NOTE: Skipping the write stops refreshing the LastHeartbeatTime on every tick.
+				To mitigate this, force an update every 5 minutes even if the state is unchanged.
+			*/
+			if time.Since(existingCondition.LastHeartbeatTime.Time) >= 5*time.Minute {
+				needsUpdate = true
+			}
+		}
+
+		if !needsUpdate {
+			//state has not changed for 5 mins, skip the write
 			return nil
 		}
 
