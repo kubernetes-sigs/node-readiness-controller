@@ -243,7 +243,7 @@ func updateNodeCondition(ctx context.Context, client kubernetes.Interface, nodeN
 		}
 
 		if !needsUpdate {
-			//state has not changed for 5 mins, skip the write
+			// state has not changed for 5 mins, skip the write
 			return nil
 		}
 
