@@ -17,8 +17,47 @@ limitations under the License.
 package controller
 
 import (
+	"encoding/json"
+
 	corev1 "k8s.io/api/core/v1"
 )
+
+const (
+	// bootstrapStateAnnotation is the node annotation key that stores a JSON map
+	// of rule names to their bootstrap completion status.
+	// Using a single annotation with a structured payload avoids Kubernetes'
+	// 63-character name-segment limit on annotation keys and keeps all rule
+	// state visible in one place — the same pattern kubectl uses for
+	// kubectl.kubernetes.io/last-applied-configuration.
+	bootstrapStateAnnotation = "readiness.k8s.io/bootstrap-state"
+)
+
+// getBootstrapState deserializes the bootstrap state map from the node annotation.
+// It returns an empty map if the annotation is absent or unparseable.
+func getBootstrapState(node *corev1.Node) map[string]bool {
+	state := make(map[string]bool)
+	if node.Annotations == nil {
+		return state
+	}
+	raw, ok := node.Annotations[bootstrapStateAnnotation]
+	if !ok || raw == "" {
+		return state
+	}
+	// Best-effort parse; ignore malformed values.
+	_ = json.Unmarshal([]byte(raw), &state)
+	return state
+}
+
+// serializeBootstrapState serializes the bootstrap state map to a JSON string
+// for storage in the node annotation. Errors are silently ignored and return "{}".
+func serializeBootstrapState(state map[string]bool) string {
+	b, err := json.Marshal(state)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
 
 // conditionsEqual checks if two condition slices are equal.
 func conditionsEqual(a, b []corev1.NodeCondition) bool {

@@ -324,23 +324,16 @@ func (r *RuleReadinessController) removeTaintBySpec(ctx context.Context, node *c
 	})
 }
 
-// Bootstrap completion tracking.
 func (r *RuleReadinessController) isBootstrapCompleted(ctx context.Context, nodeName, ruleName string) bool {
-	// Check node annotation
 	node := &corev1.Node{}
 	if err := r.Get(ctx, client.ObjectKey{Name: nodeName}, node); err != nil {
 		return false
 	}
-
-	annotationKey := fmt.Sprintf("readiness.k8s.io/bootstrap-completed-%s", ruleName)
-	_, exists := node.Annotations[annotationKey]
-	return exists
+	return getBootstrapState(node)[ruleName]
 }
 
 func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, nodeName, ruleName string) {
 	log := ctrl.LoggerFrom(ctx)
-
-	annotationKey := fmt.Sprintf("readiness.k8s.io/bootstrap-completed-%s", ruleName)
 	marked := false
 
 	// retry to handle conflict with concurrent node updates
@@ -350,21 +343,23 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 			return err
 		}
 
-		// Check if already marked to avoid unnecessary updates
-		if node.Annotations != nil {
-			if _, exists := node.Annotations[annotationKey]; exists {
-				return nil
-			}
+		// Decode the existing bootstrap state map.
+		state := getBootstrapState(node)
+
+		// Check if already marked to avoid unnecessary updates.
+		if state[ruleName] {
+			return nil
 		}
 
 		patch := client.MergeFrom(node.DeepCopy())
 
-		// Initialize annotations if nil
+		// Initialize annotations map if nil.
 		if node.Annotations == nil {
 			node.Annotations = make(map[string]string)
 		}
 
-		node.Annotations[annotationKey] = "true"
+		state[ruleName] = true
+		node.Annotations[bootstrapStateAnnotation] = serializeBootstrapState(state)
 		if err := r.Patch(ctx, node, patch); err != nil {
 			return err
 		}
