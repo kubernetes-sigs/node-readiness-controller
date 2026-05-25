@@ -12,7 +12,7 @@ webhooks:
       namespace: system
       path: /validate-readiness-node-x-k8s-io-v1alpha1-nodereadinessrule
   failurePolicy: Fail
-  name: vnodereadinessrule.kb.io
+  name: vnodereadinessrule.readiness.node.x-k8s.io
   rules:
   - apiGroups:
     - readiness.node.x-k8s.io

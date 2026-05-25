@@ -149,7 +149,7 @@ func (w *NodeReadinessRuleWebhook) generateNoExecuteWarnings(spec readinessv1alp
 	return warnings
 }
 
-// +kubebuilder:webhook:path=/validate-readiness-node-x-k8s-io-v1alpha1-nodereadinessrule,mutating=false,failurePolicy=fail,sideEffects=None,groups=readiness.node.x-k8s.io,resources=nodereadinessrules,verbs=create;update,versions=v1alpha1,name=vnodereadinessrule.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-readiness-node-x-k8s-io-v1alpha1-nodereadinessrule,mutating=false,failurePolicy=fail,sideEffects=None,groups=readiness.node.x-k8s.io,resources=nodereadinessrules,verbs=create;update,versions=v1alpha1,name=vnodereadinessrule.readiness.node.x-k8s.io,admissionReviewVersions=v1
 // SetupWithManager sets up the webhook with the manager.
 func (w *NodeReadinessRuleWebhook) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).

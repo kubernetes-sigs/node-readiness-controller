@@ -5,7 +5,7 @@ metadata:
   annotations:
     cert-manager.io/inject-ca-from: nrr-system/nrr-serving-cert
 webhooks:
-- name: vnodereadinessrule.kb.io
+- name: vnodereadinessrule.readiness.node.x-k8s.io
   clientConfig:
     service:
       name: webhook-service
