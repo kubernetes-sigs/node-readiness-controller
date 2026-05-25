@@ -35,13 +35,15 @@ import (
 )
 
 const (
-	envNodeName          = "NODE_NAME"
-	envConditionType     = "CONDITION_TYPE"
-	envCheckEndpoint     = "CHECK_ENDPOINT"
-	envCheckInterval     = "CHECK_INTERVAL"
-	envImpersonateNode   = "IMPERSONATE_NODE"
-	defaultCheckInterval = 30 * time.Second
-	defaultHTTPTimeout   = 10 * time.Second
+	envNodeName            = "NODE_NAME"
+	envConditionType       = "CONDITION_TYPE"
+	envCheckEndpoint       = "CHECK_ENDPOINT"
+	envCheckInterval       = "CHECK_INTERVAL"
+	envImpersonateNode     = "IMPERSONATE_NODE"
+	envHeartbeatPeriod     = "HEARTBEAT_PERIOD"
+	defaultCheckInterval   = 30 * time.Second
+	defaultHTTPTimeout     = 10 * time.Second
+	defaultHeartbeatPeriod = 5 * time.Minute
 )
 
 // HealthResponse represents the health check response structure.
@@ -86,6 +88,19 @@ func main() {
 		}
 	}
 
+	heartbeatPeriodStr := os.Getenv(envHeartbeatPeriod)
+	heartbeatPeriod := defaultHeartbeatPeriod
+	if heartbeatPeriodStr != "" {
+		parsedPeriod, err := time.ParseDuration(heartbeatPeriodStr)
+		if err == nil {
+			heartbeatPeriod = parsedPeriod
+		} else {
+			klog.ErrorS(err, "Failed parse heartbeat period, using default",
+				"input", heartbeatPeriodStr,
+				"default", defaultHeartbeatPeriod)
+		}
+	}
+
 	// Create Kubernetes client
 	config, err := rest.InClusterConfig()
 	if err != nil {
@@ -121,20 +136,20 @@ func main() {
 	defer ticker.Stop()
 
 	// Run immediately on startup, then on each tick
-	runCheck(ctx, httpClient, clientset, checkEndpoint, nodeName, conditionType)
+	runCheck(ctx, httpClient, clientset, checkEndpoint, nodeName, conditionType, heartbeatPeriod)
 	for {
 		select {
 		case <-ctx.Done():
 			klog.InfoS("Shutting down readiness condition reporter", "reason", ctx.Err())
 			return
 		case <-ticker.C:
-			runCheck(ctx, httpClient, clientset, checkEndpoint, nodeName, conditionType)
+			runCheck(ctx, httpClient, clientset, checkEndpoint, nodeName, conditionType, heartbeatPeriod)
 		}
 	}
 }
 
 // runCheck performs a single health check and updates the node condition.
-func runCheck(ctx context.Context, httpClient *http.Client, clientset kubernetes.Interface, checkEndpoint, nodeName, conditionType string) {
+func runCheck(ctx context.Context, httpClient *http.Client, clientset kubernetes.Interface, checkEndpoint, nodeName, conditionType string, heartbeatPeriod time.Duration) {
 	health, err := checkHealth(ctx, httpClient, checkEndpoint)
 	if err != nil {
 		klog.ErrorS(err, "Health check failed", "endpoint", checkEndpoint)
@@ -145,7 +160,7 @@ func runCheck(ctx context.Context, httpClient *http.Client, clientset kubernetes
 		}
 	}
 
-	if err := updateNodeCondition(ctx, clientset, nodeName, conditionType, health); err != nil {
+	if err := updateNodeCondition(ctx, clientset, nodeName, conditionType, health, heartbeatPeriod); err != nil {
 		klog.ErrorS(err, "Failed to update node condition", "node", nodeName, "condition", conditionType)
 	}
 }
@@ -198,7 +213,7 @@ func checkHealth(ctx context.Context, client *http.Client, endpoint string) (*He
 }
 
 // updateNodeCondition updates the node condition based on health check.
-func updateNodeCondition(ctx context.Context, client kubernetes.Interface, nodeName, conditionType string, health *HealthResponse) error {
+func updateNodeCondition(ctx context.Context, client kubernetes.Interface, nodeName, conditionType string, health *HealthResponse, heartbeatPeriod time.Duration) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		// Get the node
 		node, err := client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
@@ -237,13 +252,14 @@ func updateNodeCondition(ctx context.Context, client kubernetes.Interface, nodeN
 				NOTE: Skipping the write stops refreshing the LastHeartbeatTime on every tick.
 				To mitigate this, force an update every 5 minutes even if the state is unchanged.
 			*/
-			if time.Since(existingCondition.LastHeartbeatTime.Time) >= 5*time.Minute {
+			if time.Since(existingCondition.LastHeartbeatTime.Time) >= heartbeatPeriod {
 				needsUpdate = true
 			}
 		}
 
 		if !needsUpdate {
-			// state has not changed for 5 mins, skip the write
+			// state has not changed for specified period, skip the write
+			klog.V(4).InfoS("Condition state unchanged, skipping node status update", "node", nodeName, "condition", conditionType)
 			return nil
 		}
 
