@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-problem-detector-staticpods
+  namespace: kube-system
+  labels:
+    app: node-problem-detector
+    component: staticpods-monitor
+spec:
+  selector:
+    matchLabels:
+      app: node-problem-detector
+      component: staticpods-monitor
+  template:
+    metadata:
+      labels:
+        app: node-problem-detector
+        component: staticpods-monitor
+    spec:
+      serviceAccountName: node-problem-detector-staticpods
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+      initContainers:
+      # Download tools (kubectl, yq, jq) for the check script
+      - name: install-tools
+        image: busybox:1.36
+        command:
+        - sh
+        - -c
+        - |
+          set -e
+          ARCH=$(uname -m)
+          case $ARCH in
+            x86_64) ARCH="amd64" ;;
+            aarch64) ARCH="arm64" ;;
+          esac
+          
+          # Install kubectl
+          KUBECTL_VERSION="v1.35.0"
+          wget -O /tools-bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl"
+          chmod +x /tools-bin/kubectl
+          
+          # Install yq
+          YQ_VERSION="v4.44.1"
+          wget -O /tools-bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}"
+          chmod +x /tools-bin/yq
+          
+          # Install jq
+          JQ_VERSION="1.7.1"
+          wget -O /tools-bin/jq "https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/jq-linux-${ARCH}"
+          chmod +x /tools-bin/jq
+        volumeMounts:
+        - name: tools-bin
+          mountPath: /tools-bin
+      containers:
+      - name: node-problem-detector
+        image: registry.k8s.io/node-problem-detector/node-problem-detector:v0.8.19
+        command:
+        - /node-problem-detector
+        - --logtostderr
+        - --config.custom-plugin-monitor=/config/staticpods-plugin.json
+        securityContext:
+          privileged: true
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: PATH
+          value: /tools-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        - name: plugin
+          mountPath: /config/plugin
+          readOnly: true
+        - name: static-pods
+          mountPath: /etc/kubernetes/manifests
+          readOnly: true
+        - name: tools-bin
+          mountPath: /tools-bin
+          readOnly: true
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 20m
+            memory: 64Mi
+      volumes:
+      - name: config
+        configMap:
+          name: npd-staticpods-config
+          items:
+          - key: staticpods-plugin.json
+            path: staticpods-plugin.json
+      - name: plugin
+        configMap:
+          name: npd-staticpods-config
+          defaultMode: 0755
+          items:
+          - key: check-staticpods.sh
+            path: check-staticpods.sh
+      - name: static-pods
+        hostPath:
+          path: /etc/kubernetes/manifests
+          type: DirectoryOrCreate
+      - name: tools-bin
+        emptyDir: {}
