@@ -76,6 +76,27 @@ make deploy IMG_PREFIX=controller IMG_TAG=latest
 make deploy IMG_PREFIX=localhost/controller IMG_TAG=latest
 ```
 
+**Optional: Deploy with Metrics Enabled (for Step 10):**
+
+If you want to test metrics (see Step 10), deploy with metrics enabled:
+
+Using Docker:
+```bash
+make deploy-with-metrics IMG_PREFIX=controller IMG_TAG=latest
+```
+
+Using Podman:
+```bash
+make deploy-with-metrics IMG_PREFIX=localhost/controller IMG_TAG=latest
+```
+
+Alternatively, you can use:
+```bash
+make deploy ENABLE_METRICS=true IMG_PREFIX=controller IMG_TAG=latest
+```
+
+> **Note:** Metrics are exposed on HTTP port 8080. For production with TLS-secured metrics, use `make deploy-with-metrics-and-tls` (requires cert-manager).
+
 Verify the controller is running on the control plane node (`nrr-test-control-plane`):
 ```bash
 kubectl get pods -n nrr-system -o wide
@@ -150,7 +171,118 @@ This section tests how the controller handles new nodes being added to the clust
     kubectl get node nrr-test-worker4 -o jsonpath='Taints:{"\n"}{range .spec.taints[*]}{.key}{"\n"}{end}'
     ```
 
-### Step 10: Cleanup
+### Step 10: Testing Metrics
+
+The controller exposes Prometheus metrics on port 8080 at the `/metrics` endpoint. This section demonstrates how to access and verify the metrics.
+
+#### Option 1: Port Forward to Metrics Service
+
+1. **Port forward to the controller metrics endpoint:**
+   ```bash
+   kubectl port-forward -n nrr-system svc/nrr-metrics-service 8080:8080
+   ```
+
+2. **Access metrics in your browser or via curl:**
+   ```bash
+   # View all metrics
+   curl http://localhost:8080/metrics
+
+   # Filter for node readiness specific metrics
+   curl http://localhost:8080/metrics | grep node_readiness
+   ```
+
+#### Option 2: Direct Pod Access
+
+1. **Get the controller pod name:**
+   ```bash
+   CONTROLLER_POD=$(kubectl get pods -n nrr-system -l control-plane=controller-manager -o jsonpath='{.items[0].metadata.name}')
+   echo $CONTROLLER_POD
+   ```
+
+2. **Port forward directly to the pod:**
+   ```bash
+   kubectl port-forward -n nrr-system $CONTROLLER_POD 8080:8080
+   ```
+
+3. **Query metrics:**
+   ```bash
+   curl http://localhost:8080/metrics | grep node_readiness
+   ```
+
+#### Key Metrics to Monitor
+
+After running the test scenario, you should see the following metrics:
+
+1. **Rule Management:**
+   ```bash
+   # Number of active rules
+   curl -s http://localhost:8080/metrics | grep "node_readiness_rules_total"
+   ```
+
+2. **Taint Operations:**
+   ```bash
+   # Total taint add/remove operations by rule
+   curl -s http://localhost:8080/metrics | grep "node_readiness_taint_operations_total"
+   ```
+
+3. **Node State Distribution:**
+   ```bash
+   # Number of nodes in each state (ready/not_ready/bootstrapping)
+   curl -s http://localhost:8080/metrics | grep "node_readiness_nodes_by_state"
+   ```
+
+4. **Bootstrap Metrics:**
+   ```bash
+   # Bootstrap completion count
+   curl -s http://localhost:8080/metrics | grep "node_readiness_bootstrap_completed_total"
+   
+   # Bootstrap duration histogram
+   curl -s http://localhost:8080/metrics | grep "node_readiness_bootstrap_duration_seconds"
+   ```
+
+5. **Performance Metrics:**
+   ```bash
+   # Rule evaluation duration
+   curl -s http://localhost:8080/metrics | grep "node_readiness_evaluation_duration_seconds"
+   
+   # Reconciliation latency
+   curl -s http://localhost:8080/metrics | grep "node_readiness_reconciliation_latency_seconds"
+   ```
+
+6. **Failure Tracking:**
+   ```bash
+   # Operational failures by rule and reason
+   curl -s http://localhost:8080/metrics | grep "node_readiness_failures_total"
+   
+   # Condition evaluation failures
+   curl -s http://localhost:8080/metrics | grep "node_readiness_condition_failures_total"
+   ```
+
+7. **Rule Reconciliation Status:**
+   ```bash
+   # Last reconciliation timestamp for each rule
+   curl -s http://localhost:8080/metrics | grep "node_readiness_rule_last_reconciliation_timestamp_seconds"
+   ```
+
+#### Example: Verify Metrics After Test
+
+After completing Steps 1-9, verify the metrics reflect the test scenario:
+
+```bash
+# Should show 1 rule (network-readiness-rule)
+curl -s http://localhost:8080/metrics | grep 'node_readiness_rules_total'
+
+# Should show taint removal operations for worker2, worker3, worker4
+curl -s http://localhost:8080/metrics | grep 'node_readiness_taint_operations_total{.*operation="remove"}'
+
+# Should show nodes in ready state
+curl -s http://localhost:8080/metrics | grep 'node_readiness_nodes_by_state{.*state="ready"}'
+
+# Should show bootstrap completions (if using bootstrap-only mode)
+curl -s http://localhost:8080/metrics | grep 'node_readiness_bootstrap_completed_total'
+```
+
+### Step 11: Cleanup
 
 ```bash
 kind delete cluster --name nrr-test
