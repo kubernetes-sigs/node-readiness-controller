@@ -84,6 +84,25 @@ var _ = Describe("Manager", Ordered, func() {
 		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
 		_, _ = utils.Run(cmd)
 
+		// Collect controller logs and pod descriptions to ARTIFACTS before teardown.
+		if artifactsDir := os.Getenv("ARTIFACTS"); artifactsDir != "" {
+			By("collecting controller-manager logs to ARTIFACTS")
+			if logsOut, err := utils.Run(exec.Command("kubectl", "logs", "-n", namespace,
+				"deployment/nrr-controller-manager", "--all-containers")); err == nil {
+				if err := os.WriteFile(filepath.Join(artifactsDir, "nrr-controller-manager.log"),
+					[]byte(logsOut), 0o644); err != nil {
+					fmt.Fprintf(GinkgoWriter, "warning: failed to write controller-manager logs: %v\n", err)
+				}
+			}
+			By("collecting nrr-system pod descriptions to ARTIFACTS")
+			if descOut, err := utils.Run(exec.Command("kubectl", "describe", "pods", "-n", namespace)); err == nil {
+				if err := os.WriteFile(filepath.Join(artifactsDir, "nrr-system-pods.log"),
+					[]byte(descOut), 0o644); err != nil {
+					fmt.Fprintf(GinkgoWriter, "warning: failed to write pod descriptions: %v\n", err)
+				}
+			}
+		}
+
 		By("undeploying the controller-manager")
 		cmd = exec.Command("make", "undeploy")
 		_, _ = utils.Run(cmd)
