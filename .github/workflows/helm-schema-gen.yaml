@@ -1,0 +1,21 @@
+name: Generate values schema json
+on:
+  pull_request:
+      paths:
+        - 'chart/**'
+jobs:
+  generate:
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.ref }}
+    - name: Generate values schema json
+      uses: losisin/helm-values-schema-json-action@v2
+      with:
+        values: chart/node-readiness-controller/values.yaml
+        output: chart/node-readiness-controller/values.schema.json
+        fail-on-diff: true
