@@ -1,0 +1,15 @@
+apiVersion: v2
+name: nrr-controller
+description: A Helm chart for the Node Readiness Controller
+type: application
+version: 0.1.0
+appVersion: "v0.3.0"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/kubernetes-sigs/node-readiness-controller
+sources:
+  - https://github.com/kubernetes-sigs/node-readiness-controller
+keywords:
+  - kubernetes
+  - controller
+  - readiness
+  - node

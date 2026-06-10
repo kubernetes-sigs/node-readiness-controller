@@ -1,0 +1,15 @@
+{{- if .Values.nodeReadinessRules }}
+{{- range $rule := .Values.nodeReadinessRules }}
+{{- $spec := omit $rule "name" }}
+{{- if not (hasKey $spec "nodeSelector") }}
+{{- $_ := set $spec "nodeSelector" (dict) }}
+{{- end }}
+---
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: {{ $rule.name | quote }}
+spec:
+{{- toYaml $spec | nindent 2 }}
+{{- end }}
+{{- end }}
