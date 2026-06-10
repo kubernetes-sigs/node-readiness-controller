@@ -103,7 +103,8 @@ example on deploying the controller as a static pod in a kind cluster.
 
 After installation, verify that the controller is running successfully. 
 
-> **Note**: Replace `${NAMESPACE}` with the namespace where the controller is deployed (typically `nrr-system` for standard deployments, or `kube-system` for static pods).
+> [!NOTE] 
+> Replace `${NAMESPACE}` with the namespace where the controller is deployed (typically `nrr-system` for standard deployments, or `kube-system` for static pods).
 
 1.  **Check Pod Status**:
     ```sh
@@ -131,11 +132,13 @@ After installation, verify that the controller is running successfully.
 
 ## Uninstallation
 
-> **IMPORTANT**: Follow this order to avoid "stuck" resources.
+> [!IMPORTANT] 
+> Follow this order to avoid "stuck" resources.
 
 The controller uses a **finalizer** (`readiness.node.x-k8s.io/cleanup-taints`) on `NodeReadinessRule` resources to ensure taints are safely removed from nodes before a rule is deleted.
 
-**You must delete all rule objects *before* deleting the controller.**
+> [!CAUTION]
+> You must delete all rule objects *before* deleting the controller.
 
 1.  **Delete all Rules**:
     ```sh

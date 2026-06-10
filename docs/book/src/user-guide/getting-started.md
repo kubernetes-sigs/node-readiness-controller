@@ -46,7 +46,8 @@ spec:
 ### 1. Select Target Nodes
 Use the `nodeSelector` to target specific nodes (eg., GPU nodes).
 
-> **Note**: These labels could be configured at node registration (e.g., via Kubelet `--node-labels`). Relying on labels added asynchronously by addons (like Node Feature Discovery) can create a race condition where the node remains schedulable until the labels appear.
+> [!NOTE] 
+> These labels could be configured at node registration (e.g., via Kubelet `--node-labels`). Relying on labels added asynchronously by addons (like Node Feature Discovery) can create a race condition where the node remains schedulable until the labels appear.
 
 ### 2. Define Readiness Conditions
 The `conditions` list defines the criteria. The controller watches the Node's status for these conditions.
@@ -69,11 +70,11 @@ Define the taint that will block scheduling.
     *   `PreferNoSchedule`: Tries to avoid scheduling.
     *   `NoExecute`: Evicts running pods if they don't tolerate the taint.
 
-> **Note**: To eliminate startup race conditions, register nodes with this taint (e.g., via Kubelet `--register-with-taints`). The controller will remove it once conditions are met.
+> [!NOTE]
+> To eliminate startup race conditions, register nodes with this taint (e.g., via Kubelet `--register-with-taints`). The controller will remove it once conditions are met.
 
-> **Caution**: When using `NoExecute` with `continuous` mode: if a condition
-> fails momentarily, all workloads on the node (without tolerations) will be
-> immediately evicted, which can cause service disruption.
+> [!CAUTION]
+> When using `NoExecute` with `continuous` mode: if a condition fails momentarily, all workloads on the node (without tolerations) will be immediately evicted, which can cause service disruption.
 
 
 The admission webhook warns when using `NoExecute` taint:
