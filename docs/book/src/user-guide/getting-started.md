@@ -34,7 +34,7 @@ spec:
 
   # The taint to apply if conditions are NOT met
   taint:
-    key: "readiness.k8s.io/vendor.com/nfs-unhealthy"
+    key: "readiness.k8s.io/nfs-unhealthy"
     effect: "NoSchedule"
 
   # When to enforce: 'bootstrap-only' (initial setup) or 'continuous' (ongoing health)
@@ -102,7 +102,7 @@ spec:
     matchLabels:
       feature.node.kubernetes.io/pci-10de.present: "true"
   taint:
-    key: "readiness.k8s.io/vendor.com/gpu-not-ready"
+    key: "readiness.k8s.io/gpu-not-ready"
     effect: "NoSchedule"
 
 # Rule 2 - This will be REJECTED
@@ -114,7 +114,7 @@ spec:
     matchLabels:
       feature.node.kubernetes.io/pci-10de.present: "true"
   taint:
-    key: "readiness.k8s.io/vendor.com/gpu-not-ready"  # Same (taint-key + effect) but different conditions = conflict
+    key: "readiness.k8s.io/gpu-not-ready"  # Same (taint-key + effect) but different conditions = conflict
     effect: "NoSchedule"
 ```
 
@@ -127,8 +127,8 @@ Use unique, descriptive taint keys for different readiness checks. Follow [Kuber
 **Valid:**
 ```yaml
 taint:
-  key: "readiness.k8s.io/vendor.com/network-not-ready"
-  key: "readiness.k8s.io/vendor.com/gpu-not-ready"
+  key: "readiness.k8s.io/network-not-ready"
+  key: "readiness.k8s.io/gpu-not-ready"
 ```
 
 **Invalid:**
