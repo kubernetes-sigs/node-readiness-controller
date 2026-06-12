@@ -17,3 +17,5 @@ patches:
 - path: metrics_service_tls_patch.yaml
   target:
     kind: Service
+    name: metrics-service
+    namespace: system
