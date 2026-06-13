@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -58,6 +59,12 @@ type RuleReadinessController struct {
 	// Cache for efficient rule lookup
 	ruleCacheMutex sync.RWMutex
 	ruleCache      map[string]*readinessv1alpha1.NodeReadinessRule // ruleName -> rule
+
+	// cacheWarmed is set to true after the first successful pre-population of
+	// ruleCache from the informer cache. It prevents the startup race where
+	// NodeReconciler processes node events before RuleReconciler has reconciled
+	// existing rules and populated the cache.
+	cacheWarmed atomic.Bool
 }
 
 // RuleReconciler handles NodeReadinessRule reconciliation.
@@ -460,6 +467,43 @@ func (r *RuleReadinessController) removeRuleFromCache(ctx context.Context, ruleN
 	delete(r.ruleCache, ruleName)
 	metrics.RulesTotal.Set(float64(len(r.ruleCache)))
 	log.Info("Removed rule from cache", "rule", ruleName, "totalRules", len(r.ruleCache))
+}
+
+// ensureCacheWarmed pre-populates ruleCache from the informer cache on the first
+// call. This closes the startup race where NodeReconciler can process node events
+// before RuleReconciler has reconciled existing rules and populated the cache.
+// For bootstrap-only rules this race is non-recoverable: the taint is never
+// applied and the bootstrap annotation is never written if the rule is absent
+// from the cache when the node is first evaluated. Subsequent calls are no-ops.
+//
+// Only rules not already present in the cache are added. Rules that the
+// RuleReconciler has already cached (including those marked for deletion) are
+// intentionally preserved so that in-flight state is not overwritten.
+func (r *RuleReadinessController) ensureCacheWarmed(ctx context.Context) error {
+	if r.cacheWarmed.Load() {
+		return nil
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+	ruleList := &readinessv1alpha1.NodeReadinessRuleList{}
+	if err := r.List(ctx, ruleList); err != nil {
+		return fmt.Errorf("failed to pre-populate rule cache: %w", err)
+	}
+
+	added := 0
+	for i := range ruleList.Items {
+		r.ruleCacheMutex.RLock()
+		_, alreadyCached := r.ruleCache[ruleList.Items[i].Name]
+		r.ruleCacheMutex.RUnlock()
+
+		if !alreadyCached {
+			r.updateRuleCache(ctx, &ruleList.Items[i])
+			added++
+		}
+	}
+	r.cacheWarmed.Store(true)
+	log.Info("Rule cache pre-populated on first node reconcile", "ruleCount", added)
+	return nil
 }
 
 // updateRuleStatus updates the status of a NodeReadinessRule.

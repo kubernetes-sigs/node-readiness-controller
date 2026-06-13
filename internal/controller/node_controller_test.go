@@ -1007,4 +1007,148 @@ var _ = Describe("Node Controller", func() {
 			Expect(err.Error()).To(ContainSubstring("status patch failed"))
 		})
 	})
+
+	// These tests verify that NodeReconciler pre-populates the rule cache from the
+	// informer cache on its first reconcile, closing the startup race where node
+	// events arrive before RuleReconciler has warmed the cache. The scenario is
+	// particularly critical for bootstrap-only rules: if the cache is cold when a
+	// node is first evaluated, the taint is never applied and the bootstrap
+	// completion annotation is never written, permanently bypassing the admission gate.
+	Context("cold-start rule cache warm-up", func() {
+		var (
+			ctx                 context.Context
+			readinessController *RuleReadinessController
+			nodeReconciler      *NodeReconciler
+			coldStartNode       *corev1.Node
+			coldStartRule       *nodereadinessiov1alpha1.NodeReadinessRule
+			coldStartNodeName   types.NamespacedName
+		)
+
+		const (
+			coldTaintKey      = "readiness.k8s.io/cold-start-taint"
+			coldConditionType = "ColdStartCondition"
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+
+			// Intentionally do NOT call updateRuleCache — this simulates the
+			// NodeReconciler processing a node event before the RuleReconciler
+			// has reconciled the rule and populated the cache.
+			readinessController = &RuleReadinessController{
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+
+			nodeReconciler = &NodeReconciler{
+				Client:     k8sClient,
+				Scheme:     k8sClient.Scheme(),
+				Controller: readinessController,
+			}
+
+			coldStartNode = &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "cold-start-node",
+					Labels: map[string]string{"cold-start-group": "test"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						// Condition not yet satisfied — taint should be applied.
+						{Type: coldConditionType, Status: corev1.ConditionFalse},
+					},
+				},
+			}
+
+			coldStartRule = &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "cold-start-rule",
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: coldConditionType, RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    coldTaintKey,
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"cold-start-group": "test"},
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+
+			coldStartNodeName = types.NamespacedName{Name: coldStartNode.Name}
+
+			Expect(k8sClient.Create(ctx, coldStartNode)).To(Succeed())
+			Expect(k8sClient.Create(ctx, coldStartRule)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			_ = k8sClient.Delete(ctx, coldStartNode)
+
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: coldStartRule.Name}, updatedRule); err == nil {
+				updatedRule.Finalizers = nil
+				_ = k8sClient.Update(ctx, updatedRule)
+				_ = k8sClient.Delete(ctx, updatedRule)
+			}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: coldStartRule.Name}, &nodereadinessiov1alpha1.NodeReadinessRule{})
+				return apierrors.IsNotFound(err)
+			}, time.Second*10).Should(BeTrue())
+
+			readinessController.removeRuleFromCache(ctx, coldStartRule.Name)
+		})
+
+		It("should apply bootstrap-only taint even when ruleCache is empty at reconcile time", func() {
+			By("Verifying the rule cache is empty before reconcile (cold-start simulation)")
+			readinessController.ruleCacheMutex.RLock()
+			Expect(readinessController.ruleCache).To(BeEmpty())
+			readinessController.ruleCacheMutex.RUnlock()
+
+			By("Triggering NodeReconciler with a cold cache — ensureCacheWarmed must discover the rule")
+			_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: coldStartNodeName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying the bootstrap-only taint was applied despite the cache being cold at start")
+			Eventually(func() bool {
+				updatedNode := &corev1.Node{}
+				if err := k8sClient.Get(ctx, coldStartNodeName, updatedNode); err != nil {
+					return false
+				}
+				for _, taint := range updatedNode.Spec.Taints {
+					if taint.Key == coldTaintKey && taint.Effect == corev1.TaintEffectNoSchedule {
+						return true
+					}
+				}
+				return false
+			}, time.Second*5).Should(BeTrue(), "bootstrap-only taint must be applied even when the rule cache was empty at the start of reconcile")
+
+			By("Verifying the rule is now present in the cache after warm-up")
+			Expect(readinessController.getCachedRule(coldStartRule.Name)).NotTo(BeNil())
+		})
+
+		It("should not re-warm the cache on subsequent reconciles", func() {
+			By("First reconcile warms the cache")
+			_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: coldStartNodeName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(readinessController.cacheWarmed.Load()).To(BeTrue())
+
+			By("Removing the rule from the cache to detect an unexpected re-warm")
+			readinessController.removeRuleFromCache(ctx, coldStartRule.Name)
+
+			By("Second reconcile must NOT re-warm the cache (cacheWarmed is already true)")
+			_, err = nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: coldStartNodeName})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying the rule is still absent from cache — warm-up was not repeated")
+			Expect(readinessController.getCachedRule(coldStartRule.Name)).To(BeNil())
+		})
+	})
 })
