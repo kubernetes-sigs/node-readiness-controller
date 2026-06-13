@@ -147,12 +147,13 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			"rule", rule.Name,
 			"ruleResourceVersion", rule.ResourceVersion)
 
-		if err := r.evaluateRuleForNode(ctx, rule, node); err != nil {
-			log.Error(err, "Failed to evaluate rule for node",
+		evalErr := r.evaluateRuleForNode(ctx, rule, node)
+		if evalErr != nil {
+			log.Error(evalErr, "Failed to evaluate rule for node",
 				"node", node.Name, "rule", rule.Name)
 			// Continue with other rules even if one fails
-			r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
-			errs = append(errs, err)
+			r.recordNodeFailure(rule, node.Name, "EvaluationError", evalErr.Error())
+			errs = append(errs, evalErr)
 		}
 
 		// Persist the rule status
@@ -169,28 +170,32 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 
 			patch := client.MergeFrom(latestRule.DeepCopy())
 
-			// update only this specific node evaluation status
-			currEval := readinessv1alpha1.NodeEvaluation{}
-			for _, eval := range rule.Status.NodeEvaluations {
-				if eval.NodeName == node.Name {
-					currEval = eval
-					break
+			// Upsert the node's evaluation only after a successful evaluation.
+			// On the failure path evaluateRuleForNode returns before recording a
+			// fresh NodeEvaluation, so this must leave any existing persisted
+			// evaluation untouched and only persist FailedNodes below.
+			if evalErr == nil {
+				var currEval *readinessv1alpha1.NodeEvaluation
+				for i := range rule.Status.NodeEvaluations {
+					if rule.Status.NodeEvaluations[i].NodeName == node.Name {
+						currEval = &rule.Status.NodeEvaluations[i]
+						break
+					}
 				}
-			}
-
-			found := false
-			for i := range latestRule.Status.NodeEvaluations {
-				if latestRule.Status.NodeEvaluations[i].NodeName == node.Name {
-					latestRule.Status.NodeEvaluations[i] = currEval
-					found = true
-					break
+				found := false
+				for i := range latestRule.Status.NodeEvaluations {
+					if latestRule.Status.NodeEvaluations[i].NodeName == node.Name {
+						latestRule.Status.NodeEvaluations[i] = *currEval
+						found = true
+						break
+					}
 				}
-			}
-			if !found {
-				latestRule.Status.NodeEvaluations = append(
-					latestRule.Status.NodeEvaluations,
-					currEval,
-				)
+				if !found {
+					latestRule.Status.NodeEvaluations = append(
+						latestRule.Status.NodeEvaluations,
+						*currEval,
+					)
+				}
 			}
 
 			// handle status.FailedNodes for this node

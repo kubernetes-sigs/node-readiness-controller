@@ -942,7 +942,6 @@ var _ = Describe("Node Controller", func() {
 	Context("when rule status patch fails during node reconciliation", func() {
 		It("should return an error when rule status patch fails", func() {
 			ctx := context.Background()
-
 			testScheme := runtime.NewScheme()
 			Expect(corev1.AddToScheme(testScheme)).To(Succeed())
 			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
@@ -1005,6 +1004,226 @@ var _ = Describe("Node Controller", func() {
 			})
 			Expect(err).To(HaveOccurred(), "Reconcile should return an error when status patch fails")
 			Expect(err.Error()).To(ContainSubstring("status patch failed"))
+		})
+	})
+
+	Context("status updates when evaluateRuleForNode fails", func() {
+		It("records the failure without writing an empty NodeEvaluation", func() {
+			ctx := context.Background()
+			testScheme := runtime.NewScheme()
+			Expect(corev1.AddToScheme(testScheme)).To(Succeed())
+			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
+
+			const (
+				targetNode    = "fail-eval-node"
+				untouchedNode = "untouched-node"
+				targetRule    = "fail-eval-rule"
+				targetTaint   = "readiness.k8s.io/fail-eval-taint"
+			)
+
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   targetNode,
+					Labels: map[string]string{"readiness-test": "fail-eval"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionFalse},
+					},
+				},
+			}
+
+			// Pre-existing evaluation for an unrelated node — must survive the
+			// failed reconcile of targetNode.
+			existingEval := nodereadinessiov1alpha1.NodeEvaluation{
+				NodeName:           untouchedNode,
+				TaintStatus:        nodereadinessiov1alpha1.TaintStatusPresent,
+				LastEvaluationTime: metav1.Now(),
+			}
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: targetRule},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    targetTaint,
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"readiness-test": "fail-eval"},
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+				Status: nodereadinessiov1alpha1.NodeReadinessRuleStatus{
+					NodeEvaluations: []nodereadinessiov1alpha1.NodeEvaluation{existingEval},
+				},
+			}
+
+			// Fail Patch on the target node so addTaintBySpec returns a
+			// non-conflict error and evaluateRuleForNode exits before
+			// updateNodeEvaluationStatus runs. Rule status patches go through.
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node, rule).
+				WithStatusSubresource(rule).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if _, ok := obj.(*corev1.Node); ok && obj.GetName() == targetNode {
+							return apierrors.NewForbidden(corev1.Resource("nodes"), obj.GetName(), nil)
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+			controller.updateRuleCache(ctx, rule)
+
+			reconciler := &NodeReconciler{
+				Client:     fc,
+				Scheme:     testScheme,
+				Controller: controller,
+			}
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: targetNode},
+			})
+			Expect(err).To(HaveOccurred(),
+				"Reconcile propagates the evaluation error so controller-runtime requeues")
+
+			persisted := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: targetRule}, persisted)).To(Succeed())
+
+			// FailedNodes update must land — that's how operators see the failure.
+			Expect(persisted.Status.FailedNodes).To(HaveLen(1))
+			Expect(persisted.Status.FailedNodes[0].NodeName).To(Equal(targetNode))
+			Expect(persisted.Status.FailedNodes[0].Reason).To(Equal("EvaluationError"))
+
+			// No empty NodeEvaluation slipped in, and the unrelated entry
+			// survived untouched.
+			for _, eval := range persisted.Status.NodeEvaluations {
+				Expect(eval.NodeName).NotTo(BeEmpty(),
+					"empty NodeEvaluation would be rejected by CRD validation against a real API server")
+				Expect(eval.NodeName).NotTo(Equal(targetNode),
+					"failed evaluation must not write a NodeEvaluation for the target node")
+			}
+			Expect(persisted.Status.NodeEvaluations).To(ContainElement(
+				HaveField("NodeName", untouchedNode)))
+		})
+
+		It("preserves the existing target NodeEvaluation when recording a failure", func() {
+			ctx := context.Background()
+			testScheme := runtime.NewScheme()
+			Expect(corev1.AddToScheme(testScheme)).To(Succeed())
+			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
+
+			const (
+				targetNode  = "stale-eval-node"
+				targetRule  = "stale-eval-rule"
+				targetTaint = "readiness.k8s.io/stale-eval-taint"
+			)
+
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   targetNode,
+					Labels: map[string]string{"readiness-test": "stale-eval"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionFalse},
+					},
+				},
+			}
+
+			persistedEval := nodereadinessiov1alpha1.NodeEvaluation{
+				NodeName: targetNode,
+				ConditionResults: []nodereadinessiov1alpha1.ConditionEvaluationResult{
+					{
+						Type:           "Ready",
+						CurrentStatus:  corev1.ConditionTrue,
+						RequiredStatus: corev1.ConditionTrue,
+					},
+				},
+				TaintStatus:        nodereadinessiov1alpha1.TaintStatusAbsent,
+				LastEvaluationTime: metav1.Now(),
+			}
+			staleCachedEval := persistedEval
+			staleCachedEval.TaintStatus = nodereadinessiov1alpha1.TaintStatusPresent
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: targetRule},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    targetTaint,
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"readiness-test": "stale-eval"},
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+				Status: nodereadinessiov1alpha1.NodeReadinessRuleStatus{
+					NodeEvaluations: []nodereadinessiov1alpha1.NodeEvaluation{persistedEval},
+				},
+			}
+			cachedRule := rule.DeepCopy()
+			cachedRule.Status.NodeEvaluations = []nodereadinessiov1alpha1.NodeEvaluation{staleCachedEval}
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node, rule).
+				WithStatusSubresource(rule).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if _, ok := obj.(*corev1.Node); ok && obj.GetName() == targetNode {
+							return apierrors.NewForbidden(corev1.Resource("nodes"), obj.GetName(), nil)
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+			controller.updateRuleCache(ctx, cachedRule)
+
+			reconciler := &NodeReconciler{
+				Client:     fc,
+				Scheme:     testScheme,
+				Controller: controller,
+			}
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: targetNode},
+			})
+			Expect(err).To(HaveOccurred(),
+				"Reconcile propagates the evaluation error so controller-runtime requeues")
+
+			persisted := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: targetRule}, persisted)).To(Succeed())
+
+			Expect(persisted.Status.FailedNodes).To(HaveLen(1))
+			Expect(persisted.Status.FailedNodes[0].NodeName).To(Equal(targetNode))
+			Expect(persisted.Status.NodeEvaluations).To(HaveLen(1))
+			Expect(persisted.Status.NodeEvaluations[0].NodeName).To(Equal(targetNode))
+			Expect(persisted.Status.NodeEvaluations[0].TaintStatus).To(Equal(
+				nodereadinessiov1alpha1.TaintStatusAbsent))
 		})
 	})
 })
