@@ -182,6 +182,14 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
+	if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
+		log.Info("Cleaning up bootstrap annotations for deleted rule", "rule", rule.Name)
+		if err := r.Controller.cleanupBootstrapAnnotationsForRule(ctx, rule, nodeList); err != nil {
+			log.Error(err, "Failed to cleanup bootstrap annotations for rule", "rule", rule.Name)
+			return ctrl.Result{RequeueAfter: time.Minute}, err
+		}
+	}
+
 	log.V(3).Info("Removing the rule from cache")
 	r.Controller.removeRuleFromCache(ctx, rule.Name)
 

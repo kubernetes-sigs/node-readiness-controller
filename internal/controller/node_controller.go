@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -322,6 +323,54 @@ func (r *RuleReadinessController) removeTaintBySpec(ctx context.Context, node *c
 
 		return nil
 	})
+}
+
+// cleanupBootstrapAnnotationsForRule removes bootstrap-completion annotations written by this
+// rule from all nodes that currently match the rule's selector. Called during rule deletion so
+// that stale annotations cannot bypass enforcement if the rule is later recreated with the same name.
+func (r *RuleReadinessController) cleanupBootstrapAnnotationsForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) error {
+	log := ctrl.LoggerFrom(ctx)
+	annotationKey := fmt.Sprintf("readiness.k8s.io/bootstrap-completed-%s", rule.Name)
+
+	var errs []string
+	for _, node := range nodeList.Items {
+		if !r.ruleAppliesTo(ctx, rule, &node) {
+			continue
+		}
+		if node.Annotations == nil {
+			continue
+		}
+		if _, exists := node.Annotations[annotationKey]; !exists {
+			continue
+		}
+
+		log.Info("Removing bootstrap annotation during rule cleanup",
+			"node", node.Name,
+			"rule", rule.Name)
+
+		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			latest := &corev1.Node{}
+			if err := r.Get(ctx, client.ObjectKey{Name: node.Name}, latest); err != nil {
+				return err
+			}
+			if latest.Annotations == nil {
+				return nil
+			}
+			if _, exists := latest.Annotations[annotationKey]; !exists {
+				return nil
+			}
+			patch := client.MergeFrom(latest.DeepCopy())
+			delete(latest.Annotations, annotationKey)
+			return r.Patch(ctx, latest, patch)
+		}); err != nil {
+			errs = append(errs, fmt.Sprintf("node %s: %v", node.Name, err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to remove bootstrap annotations from some nodes: %s", strings.Join(errs, "; "))
+	}
+	return nil
 }
 
 // Bootstrap completion tracking.
