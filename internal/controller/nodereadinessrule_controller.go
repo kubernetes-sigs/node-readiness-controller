@@ -289,7 +289,7 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 
 // evaluateRuleForNode evaluates a single rule against a single node.
 func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, node *corev1.Node) error {
-	timer := prometheus.NewTimer(metrics.EvaluationDuration)
+	timer := prometheus.NewTimer(metrics.EvaluationDuration.WithLabelValues(rule.Name))
 	defer timer.ObserveDuration()
 	log := ctrl.LoggerFrom(ctx)
 
