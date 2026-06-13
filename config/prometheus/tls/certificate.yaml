@@ -4,6 +4,9 @@ metadata:
   name: metrics-certs
   namespace: system
 spec:
+  subject:
+    organizations:
+    - k8s-sig-node
   dnsNames:
   - nrr-metrics-service.nrr-system.svc
   - nrr-metrics-service.nrr-system.svc.cluster.local

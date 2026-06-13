@@ -4,6 +4,9 @@ metadata:
   name: serving-cert
   namespace: system
 spec:
+  subject:
+    organizations:
+    - k8s-sig-node
   dnsNames:
   - nrr-webhook-service.nrr-system.svc
   - nrr-webhook-service.nrr-system.svc.cluster.local
