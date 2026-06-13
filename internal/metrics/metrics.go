@@ -65,6 +65,58 @@ var (
 		},
 		[]string{"rule"},
 	)
+
+	// BootstrapDuration tracks the time from node creation to bootstrap completion (taint removal).
+	// This measures the end-to-end bootstrap time for nodes in bootstrap-only mode.
+	BootstrapDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "node_readiness_bootstrap_duration_seconds",
+			Help:    "Time from node creation to bootstrap completion (taint removal) for bootstrap-only rules",
+			Buckets: []float64{1, 5, 10, 30, 60, 120, 300, 600, 1200}, // 1s to 20min
+		},
+		[]string{"rule"},
+	)
+
+	// ReconciliationLatency tracks end-to-end latency from condition change to taint operation.
+	// This measures how quickly the controller responds to node condition changes.
+	ReconciliationLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "node_readiness_reconciliation_latency_seconds",
+			Help:    "End-to-end latency from node condition change to taint operation completion",
+			Buckets: []float64{0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300}, // 10ms to 5min
+		},
+		[]string{"rule", "operation"}, // operation: add_taint, remove_taint
+	)
+
+	// NodesByState tracks nodes in each readiness state per rule.
+	// Provides a quick overview of cluster health.
+	NodesByState = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "node_readiness_nodes_by_state",
+			Help: "Number of nodes in each readiness state per rule",
+		},
+		[]string{"rule", "state"}, // state: ready, not_ready, bootstrapping
+	)
+
+	// ConditionEvaluationFailures tracks which specific checks within a rule are failing.
+	// This allows operators to pinpoint the exact infrastructure component blocking node readiness.
+	ConditionEvaluationFailures = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "node_readiness_condition_failures_total",
+			Help: "Total number of failed condition evaluations by rule and condition name",
+		},
+		[]string{"rule", "condition"},
+	)
+
+	// RuleLastReconciliationTime tracks when a rule was last reconciled.
+	// This provides rule-level visibility for admins to detect stuck rules.
+	RuleLastReconciliationTime = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "node_readiness_rule_last_reconciliation_timestamp_seconds",
+			Help: "Unix timestamp of the last rule reconciliation",
+		},
+		[]string{"rule"},
+	)
 )
 
 func init() {
@@ -74,4 +126,9 @@ func init() {
 	metrics.Registry.MustRegister(EvaluationDuration)
 	metrics.Registry.MustRegister(Failures)
 	metrics.Registry.MustRegister(BootstrapCompleted)
+	metrics.Registry.MustRegister(BootstrapDuration)
+	metrics.Registry.MustRegister(ReconciliationLatency)
+	metrics.Registry.MustRegister(NodesByState)
+	metrics.Registry.MustRegister(ConditionEvaluationFailures)
+	metrics.Registry.MustRegister(RuleLastReconciliationTime)
 }
