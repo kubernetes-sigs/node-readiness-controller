@@ -663,6 +663,76 @@ spec:
 			exec.Command("kubectl", "delete", "node", nodeName).Run()
 			exec.Command("kubectl", "delete", "nodereadinessrule", "event-test-rule").Run()
 		})
+
+		It("should support NPD-driven taint-based remediation flow", func() {
+			nodeName := "remediation-test-node"
+
+			By("creating a test node with custom condition False (healthy)")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(`
+apiVersion: v1
+kind: Node
+metadata:
+  name: %s
+  labels:
+    e2e-test: "remediation"
+status:
+  conditions:
+    - type: CustomCondition/MyComponentNotReady
+      status: "False"
+      lastHeartbeatTime: %s
+      lastTransitionTime: %s
+`, nodeName, time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339)))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("applying the continuous remediation rule")
+			cmd = exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/npd-descheduler-remediation-rule.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying no taint is added initially (healthy)")
+			Consistently(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return !strings.Contains(output, "readiness.k8s.io/my-component-ready")
+			}, 10*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("simulating failure by updating condition to True (unhealthy)")
+			err = patchNodeCondition(nodeName, "CustomCondition/MyComponentNotReady", "True")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying taint is quickly added")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "readiness.k8s.io/my-component-ready")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("simulating recovery by updating condition back to False (healthy)")
+			err = patchNodeCondition(nodeName, "CustomCondition/MyComponentNotReady", "False")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying taint is removed")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return !strings.Contains(output, "readiness.k8s.io/my-component-ready")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("cleaning up test resources")
+			exec.Command("kubectl", "delete", "node", nodeName).Run()
+			exec.Command("kubectl", "delete", "nodereadinessrule", "remediation-test-rule").Run()
+		})
 	})
 })
 

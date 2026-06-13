@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: npd-custom-monitor-config
+  namespace: node-problem-detector
+data:
+  # NPD custom plugin that monitors a hardware/daemon component.
+  # When the check script exits 0, the condition is healthy (MyComponentNotReady=False).
+  # When it exits 1, the condition is unhealthy (MyComponentNotReady=True).
+  custom-plugin.json: |
+    {
+      "plugin": "custom",
+      "pluginConfig": {
+        "invoke_interval": "10s",
+        "timeout": "5s",
+        "max_output_length": 80,
+        "concurrency": 1
+      },
+      "source": "custom-component-monitor",
+      "conditions": [
+        {
+          "type": "CustomCondition/MyComponentNotReady",
+          "reason": "ComponentHealthy",
+          "message": "Custom component is functioning normally"
+        }
+      ],
+      "rules": [
+        {
+          "type": "permanent",
+          "condition": "CustomCondition/MyComponentNotReady",
+          "reason": "ComponentUnhealthy",
+          "path": "/config/plugin/check-component.sh"
+        }
+      ]
+    }
+
+  # Example health check script.
+  # Replace the check logic with your actual component health verification.
+  check-component.sh: |
+    #!/bin/bash
+    # Check if the custom component/daemon is healthy.
+    # Exit 0 = healthy (MyComponentNotReady=False, i.e., component IS ready)
+    # Exit 1 = unhealthy (MyComponentNotReady=True, i.e., component is NOT ready)
+    #
+    # Example: check if a local daemon is listening on port 9100
+    timeout 2 bash -c '</dev/tcp/127.0.0.1/9100' 2>/dev/null
+    if [ $? -eq 0 ]; then
+      exit 0  # Component is healthy
+    else
+      echo "Custom component is not responding on port 9100"
+      exit 1  # Component has a problem
+    fi
