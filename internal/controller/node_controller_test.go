@@ -344,6 +344,60 @@ var _ = Describe("Node Controller", func() {
 					return false
 				}, time.Second*5).Should(BeTrue())
 			})
+
+			It("should remove a managed taint when node labels stop matching the rule selector", func() {
+				_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+				Expect(err).NotTo(HaveOccurred())
+
+				By("verifying the rule recorded this node as evaluated")
+				Eventually(func() bool {
+					updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+					if err := k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, updatedRule); err != nil {
+						return false
+					}
+					for _, evaluation := range updatedRule.Status.NodeEvaluations {
+						if evaluation.NodeName == nodeName {
+							return true
+						}
+					}
+					return false
+				}, time.Second*5).Should(BeTrue())
+
+				By("changing the node labels so the rule no longer applies")
+				updatedNode := &corev1.Node{}
+				Expect(k8sClient.Get(ctx, namespacedName, updatedNode)).To(Succeed())
+				updatedNode.Labels = map[string]string{"env": "other"}
+				Expect(k8sClient.Update(ctx, updatedNode)).To(Succeed())
+
+				_, err = nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+				Expect(err).NotTo(HaveOccurred())
+
+				By("verifying the taint managed by the rule is removed")
+				Eventually(func() bool {
+					recheckedNode := &corev1.Node{}
+					_ = k8sClient.Get(ctx, namespacedName, recheckedNode)
+					for _, taint := range recheckedNode.Spec.Taints {
+						if taint.Key == taintKey {
+							return true
+						}
+					}
+					return false
+				}, time.Second*5).Should(BeFalse())
+
+				By("verifying node-specific rule status is removed")
+				Eventually(func() bool {
+					updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+					if err := k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, updatedRule); err != nil {
+						return false
+					}
+					for _, evaluation := range updatedRule.Status.NodeEvaluations {
+						if evaluation.NodeName == nodeName {
+							return false
+						}
+					}
+					return true
+				}, time.Second*5).Should(BeTrue())
+			})
 		})
 
 		When("a rule's node selector does not match", func() {

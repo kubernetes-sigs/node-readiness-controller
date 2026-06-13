@@ -407,20 +407,40 @@ func (r *RuleReadinessController) updateNodeEvaluationStatus(
 	nodeEval.LastEvaluationTime = metav1.Now()
 }
 
-// getApplicableRulesForNode returns all rules applicable to a node.
-func (r *RuleReadinessController) getApplicableRulesForNode(ctx context.Context, node *corev1.Node) []*readinessv1alpha1.NodeReadinessRule {
+// getRulesForNodeReconcile returns rules applicable to a node plus rules that
+// previously recorded this node and may need cleanup after label changes.
+func (r *RuleReadinessController) getRulesForNodeReconcile(ctx context.Context, node *corev1.Node) []*readinessv1alpha1.NodeReadinessRule {
 	r.ruleCacheMutex.RLock()
 	defer r.ruleCacheMutex.RUnlock()
 
-	var applicableRules []*readinessv1alpha1.NodeReadinessRule
+	var rules []*readinessv1alpha1.NodeReadinessRule
 
 	for _, rule := range r.ruleCache {
-		if r.ruleAppliesTo(ctx, rule, node) {
-			applicableRules = append(applicableRules, rule)
+		if r.ruleAppliesTo(ctx, rule, node) || ruleHasNodeStatus(rule, node.Name) {
+			rules = append(rules, rule)
 		}
 	}
 
-	return applicableRules
+	return rules
+}
+
+func ruleHasNodeStatus(rule *readinessv1alpha1.NodeReadinessRule, nodeName string) bool {
+	for _, appliedNode := range rule.Status.AppliedNodes {
+		if appliedNode == nodeName {
+			return true
+		}
+	}
+	for _, evaluation := range rule.Status.NodeEvaluations {
+		if evaluation.NodeName == nodeName {
+			return true
+		}
+	}
+	for _, failure := range rule.Status.FailedNodes {
+		if failure.NodeName == nodeName {
+			return true
+		}
+	}
+	return false
 }
 
 // ruleAppliesTo checks if a rule applies to a node.

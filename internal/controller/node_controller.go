@@ -109,12 +109,13 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context, node *corev1.Node) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Get all known (cached) applicable rules for this node
-	applicableRules := r.getApplicableRulesForNode(ctx, node)
+	// Get all known cached rules that either currently match this node or
+	// previously recorded status for it and may need cleanup.
+	rules := r.getRulesForNodeReconcile(ctx, node)
 	var errs []error
-	log.Info("Processing node against rules", "node", node.Name, "ruleCount", len(applicableRules))
+	log.Info("Processing node against rules", "node", node.Name, "ruleCount", len(rules))
 
-	for _, rule := range applicableRules {
+	for _, rule := range rules {
 		log.V(4).Info("Processing rule from cache",
 			"node", node.Name,
 			"rule", rule.Name,
@@ -125,6 +126,15 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			log.V(4).Info("Skipping rule being deleted",
 				"node", node.Name,
 				"rule", rule.Name)
+			continue
+		}
+
+		if !r.ruleAppliesTo(ctx, rule, node) {
+			if err := r.cleanupNodeForUnmatchedRule(ctx, rule, node); err != nil {
+				log.Error(err, "Failed to cleanup node for unmatched rule",
+					"node", node.Name, "rule", rule.Name)
+				errs = append(errs, err)
+			}
 			continue
 		}
 
@@ -226,6 +236,67 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 	}
 
 	return errors.Join(errs...)
+}
+
+func (r *RuleReadinessController) cleanupNodeForUnmatchedRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, node *corev1.Node) error {
+	log := ctrl.LoggerFrom(ctx)
+	if !ruleHasNodeStatus(rule, node.Name) {
+		return nil
+	}
+
+	if r.hasTaintBySpec(node, rule.Spec.Taint) {
+		log.Info("Removing taint from node that no longer matches rule selector",
+			"node", node.Name,
+			"rule", rule.Name,
+			"taint", rule.Spec.Taint.Key)
+		if err := r.removeTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name); err != nil {
+			metrics.Failures.WithLabelValues(rule.Name, "RemoveTaintError").Inc()
+			return fmt.Errorf("failed to remove taint after selector mismatch: %w", err)
+		}
+		metrics.TaintOperations.WithLabelValues(rule.Name, "remove").Inc()
+	}
+
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latestRule := &readinessv1alpha1.NodeReadinessRule{}
+		if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, latestRule); err != nil {
+			return err
+		}
+
+		patch := client.MergeFrom(latestRule.DeepCopy())
+		removeNodeFromRuleStatus(latestRule, node.Name)
+		return r.Status().Patch(ctx, latestRule, patch)
+	}); err != nil {
+		return err
+	}
+
+	removeNodeFromRuleStatus(rule, node.Name)
+	return nil
+}
+
+func removeNodeFromRuleStatus(rule *readinessv1alpha1.NodeReadinessRule, nodeName string) {
+	var appliedNodes []string
+	for _, appliedNode := range rule.Status.AppliedNodes {
+		if appliedNode != nodeName {
+			appliedNodes = append(appliedNodes, appliedNode)
+		}
+	}
+	rule.Status.AppliedNodes = appliedNodes
+
+	var nodeEvaluations []readinessv1alpha1.NodeEvaluation
+	for _, evaluation := range rule.Status.NodeEvaluations {
+		if evaluation.NodeName != nodeName {
+			nodeEvaluations = append(nodeEvaluations, evaluation)
+		}
+	}
+	rule.Status.NodeEvaluations = nodeEvaluations
+
+	var failedNodes []readinessv1alpha1.NodeFailure
+	for _, failure := range rule.Status.FailedNodes {
+		if failure.NodeName != nodeName {
+			failedNodes = append(failedNodes, failure)
+		}
+	}
+	rule.Status.FailedNodes = failedNodes
 }
 
 // getConditionStatus gets the status of a condition on a node.
