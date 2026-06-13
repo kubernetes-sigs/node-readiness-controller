@@ -22,7 +22,7 @@ import (
 )
 
 var (
-	// RulesTotal tracks the number of NodeReadinessRules .
+	// RulesTotal tracks the number of NodeReadinessRules.
 	RulesTotal = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "node_readiness_rules_total",
@@ -65,6 +65,35 @@ var (
 		},
 		[]string{"rule"},
 	)
+
+	// NodesByState tracks the number of nodes per rule per readiness state.
+	NodesByState = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "node_readiness_nodes_by_state",
+			Help: "Number of nodes per rule broken down by readiness state (ready, not_ready, bootstrapping)",
+		},
+		[]string{"rule", "state"},
+	)
+
+	// ReconciliationLatency tracks end-to-end latency of taint operations per rule.
+	ReconciliationLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "node_readiness_reconciliation_latency_seconds",
+			Help:    "End-to-end latency of taint add/remove operations per rule",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"rule", "operation"},
+	)
+
+	// BootstrapDuration tracks time taken for a node to complete bootstrap per rule.
+	BootstrapDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "node_readiness_bootstrap_duration_seconds",
+			Help:    "Time taken for a node to complete bootstrap per rule",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"rule"},
+	)
 )
 
 func init() {
@@ -74,4 +103,7 @@ func init() {
 	metrics.Registry.MustRegister(EvaluationDuration)
 	metrics.Registry.MustRegister(Failures)
 	metrics.Registry.MustRegister(BootstrapCompleted)
+	metrics.Registry.MustRegister(NodesByState)
+	metrics.Registry.MustRegister(ReconciliationLatency)
+	metrics.Registry.MustRegister(BootstrapDuration)
 }

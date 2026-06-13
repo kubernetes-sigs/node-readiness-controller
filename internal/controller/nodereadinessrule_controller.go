@@ -331,11 +331,13 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 	case shouldRemoveTaint && currentlyHasTaint:
 		log.Info("Removing taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
 
+		start := time.Now()
 		if err = r.removeTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name); err != nil {
 			metrics.Failures.WithLabelValues(rule.Name, "RemoveTaintError").Inc()
 			return fmt.Errorf("failed to remove taint: %w", err)
 		}
 		metrics.TaintOperations.WithLabelValues(rule.Name, "remove").Inc()
+		metrics.ReconciliationLatency.WithLabelValues(rule.Name, "remove").Observe(time.Since(start).Seconds())
 
 		// Mark bootstrap completed if bootstrap-only mode
 		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
@@ -345,11 +347,13 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 	case !shouldRemoveTaint && !currentlyHasTaint:
 		log.Info("Adding taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
 
+		start := time.Now()
 		if err = r.addTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name); err != nil {
 			metrics.Failures.WithLabelValues(rule.Name, "AddTaintError").Inc()
 			return fmt.Errorf("failed to add taint: %w", err)
 		}
 		metrics.TaintOperations.WithLabelValues(rule.Name, "add").Inc()
+		metrics.ReconciliationLatency.WithLabelValues(rule.Name, "add").Observe(time.Since(start).Seconds())
 
 	case !shouldRemoveTaint && currentlyHasTaint:
 		if isFirstEvaluation {
@@ -374,6 +378,13 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 
 	// Update evaluation status
 	r.updateNodeEvaluationStatus(rule, node.Name, conditionResults, taintStatus)
+
+	// Update NodesByState metric
+	if taintStatus == readinessv1alpha1.TaintStatusAbsent {
+		metrics.NodesByState.WithLabelValues(rule.Name, "ready").Inc()
+	} else {
+		metrics.NodesByState.WithLabelValues(rule.Name, "not_ready").Inc()
+	}
 
 	return nil
 }
