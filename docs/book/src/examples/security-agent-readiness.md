@@ -33,17 +33,17 @@ Before starting, ensure the Node Readiness Controller is deployed. See the [Inst
 
 **2. Kubernetes Cluster with Worker Nodes:**
 
-This example requires at least one worker node with the startup taint. For kind clusters, use the provided configuration:
+This example requires at least one worker node with the startup taint. 
+
+For kind clusters, save the provided configuration in [`examples/security-agent-readiness/kind-cluster-config.yaml`](https://github.com/kubernetes-sigs/node-readiness-controller/blob/main/examples/security-agent-readiness/kind-cluster-config.yaml) to a file, then create the cluster using the following command:
 
 ```sh
-kind create cluster --config examples/security-agent-readiness/kind-cluster-config.yaml
+kind create cluster --config <your-kind-config-file.yaml>
 ```
 
 This creates a cluster with:
 - 1 control-plane node
 - 1 worker node pre-tainted with `readiness.k8s.io/security-agent-ready=pending:NoSchedule`
-
-See [`examples/security-agent-readiness/kind-cluster-config.yaml`](../../../../examples/security-agent-readiness/kind-cluster-config.yaml) for details.
 
 ### 1. Deploy the Readiness Condition Reporter
 
@@ -139,7 +139,7 @@ data:
     fi
 ```
 
-Then deploy NPD DaemonSet and RBAC. See complete NPD manifests in [`examples/security-agent-readiness/npd-variant/`](../../../../examples/security-agent-readiness/npd-variant/).
+Then deploy NPD DaemonSet and RBAC. See complete NPD manifests in [`examples/security-agent-readiness/npd-variant/`](https://github.com/kubernetes-sigs/node-readiness-controller/tree/main/examples/security-agent-readiness/npd-variant).
 
 ### 2. Create the Node Readiness Rule
 
