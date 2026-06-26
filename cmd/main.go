@@ -66,6 +66,8 @@ func main() {
 	var metricsSecure bool
 	var metricsCertDir string
 	var leaderElectionNamespace string
+	var enableNodeStateMetrics bool
+
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.BoolVar(&metricsSecure, "metrics-secure", false,
@@ -80,6 +82,8 @@ func main() {
 	flag.BoolVar(&enableWebhook, "enable-webhook", false,
 		"Enable validation webhook. Requires TLS certificates to be configured.")
 	flag.StringVar(&leaderElectionNamespace, "leader-election-namespace", "", "The namespace where the leader election resource will be created.")
+	flag.BoolVar(&enableNodeStateMetrics, "enable-node-state-metrics", false,
+		"Enable aggregate node state metrics on node updates)")
 
 	opts := zap.Options{
 		Development:     true,
@@ -124,7 +128,7 @@ func main() {
 	}
 
 	// Create the main RuleReadinessController
-	readinessController := controller.NewRuleReadinessController(mgr, clientset)
+	readinessController := controller.NewRuleReadinessController(mgr, clientset, enableNodeStateMetrics)
 
 	// Create reconcilers linked to the main controller
 	ruleReconciler := &controller.RuleReconciler{

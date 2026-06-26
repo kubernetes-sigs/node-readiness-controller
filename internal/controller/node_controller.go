@@ -230,8 +230,10 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 				"rule", rule.Name,
 				"newResourceVersion", rule.ResourceVersion)
 
-			if successfullyPatchedRule != nil {
-				r.SyncNodeStateMetrics(ctx, successfullyPatchedRule)
+			if r.EnableNodeStateMetrics {
+				if successfullyPatchedRule != nil {
+					r.SyncNodeStateMetrics(ctx, successfullyPatchedRule)
+				}
 			}
 		}
 	}
@@ -427,12 +429,10 @@ func (r *RuleReadinessController) SyncNodeStateMetrics(ctx context.Context, rule
 		if eval.TaintStatus == readinessv1alpha1.TaintStatusAbsent {
 			ready++
 		} else {
+			// The taint is still present.
 			if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
-				if !r.isBootstrapCompleted(ctx, eval.NodeName, rule.Name) {
-					bootstrapping++
-				} else {
-					notReady++
-				}
+				// In BootstrapOnly mode, if the taint is present, it is still bootstrapping.
+				bootstrapping++
 			} else {
 				notReady++
 			}
