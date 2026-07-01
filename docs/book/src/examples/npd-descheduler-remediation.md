@@ -34,9 +34,15 @@ kind create cluster --config examples/npd-descheduler-remediation/kind-cluster-c
 
 This creates a cluster with 1 control-plane and 2 worker nodes. The workers are pre-tainted with `readiness.k8s.io/my-component-ready=false:NoSchedule` to represent starting in an "unknown" or initializing state.
 
-### 1. (Optional) Deploy Node Problem Detector
+### 1. Choose Your Simulation Path
 
-> **Note**: For the verification section below, we will use manual patching to simulate failures. If you deploy NPD, it will overwrite manual patches every 10 seconds. You can skip this step or delete the NPD DaemonSet when you reach the verification steps.
+This guide supports two independent paths. **Do not mix them** — NPD continuously reconciles node conditions and will overwrite any manual patches you apply while it is running.
+
+---
+
+#### Path A — Real NPD Deployment (production-like)
+
+Use this path to test the full automated loop end-to-end with an actual NPD DaemonSet reporting real node health.
 
 NPD monitors node health with a custom plugin that checks a local component (e.g., a hardware driver listening on port 9100).
 
@@ -54,6 +60,21 @@ NPD sets the condition `CustomCondition/MyComponentNotReady`:
 - `True` → component has a problem
 
 **Customizing the health check:** Edit `check-component.sh` in [`npd-custom-plugin-config.yaml`](../../../../examples/npd-descheduler-remediation/npd-custom-plugin-config.yaml) to check your actual component.
+
+Proceed with steps 2–4, then skip to [Path A Verification](#path-a-verification-npd-driven).
+
+---
+
+#### Path B — Manual Node Condition Patching (quick local simulation)
+
+Use this path to simulate failures and recovery without deploying NPD. You will use `kubectl patch` commands in the [Verification](#path-b-verification-manual-simulation) section to drive condition changes directly.
+
+> **Important**: If you previously deployed NPD (Path A), delete the NPD DaemonSet before proceeding:
+> ```sh
+> kubectl delete daemonset node-problem-detector -n kube-system
+> ```
+
+Skip the NPD deployment above and continue with steps 2–4.
 
 ### 2. Create the NodeReadinessRule
 
@@ -119,15 +140,51 @@ kubectl apply -f examples/npd-descheduler-remediation/sample-workload.yaml
 
 ## Verification
 
-**1. Check node conditions:**
+**Check node taints at any point:**
 
 ```sh
 kubectl get nodes -o custom-columns=NAME:.metadata.name,TAINTS:.spec.taints[*].key
 ```
 
-**2. Simulate component recovery:**
+---
 
-First, let's mark the component as healthy so the initial taint is removed and our pods can schedule:
+### Path A Verification (NPD-driven)
+
+With NPD running, node conditions are updated automatically based on the real health of the monitored component (e.g., the service on port 9100). No manual patching is needed or expected.
+
+**1. Simulate component failure** by stopping the monitored service on a worker node. NPD will detect this within its configured polling interval and set `CustomCondition/MyComponentNotReady=True`.
+
+**2. Observe taint applied by NRC:**
+
+```sh
+kubectl get node npd-descheduler-demo-worker -o jsonpath='{"\n"}{.spec.taints}{"\n"}'
+```
+
+**3. Observe pod eviction by Descheduler:**
+
+The Descheduler scans every 30 seconds. Within a half-minute you will see the pod evicted and rescheduled:
+
+```sh
+kubectl get pods -o wide
+kubectl get events --sort-by=.lastTimestamp | grep -i evict
+```
+
+**4. Simulate recovery** by restarting the monitored service. NPD will set the condition back to `False`, NRC will remove the taint, and the node becomes schedulable again:
+
+```sh
+kubectl get nodes -o custom-columns=NAME:.metadata.name,TAINTS:.spec.taints[*].key
+```
+
+---
+
+### Path B Verification (Manual Simulation)
+
+> **Important**: Ensure NPD is **not running** before proceeding. If it is, delete it first:
+> ```sh
+> kubectl delete daemonset node-problem-detector -n kube-system
+> ```
+
+**1. Simulate component recovery** (mark node as healthy so pods can schedule):
 
 ```sh
 kubectl patch node npd-descheduler-demo-worker --type=strategic --subresource=status -p \
@@ -140,35 +197,35 @@ Wait a moment, then verify the pods have scheduled onto the node:
 kubectl get pods -o wide
 ```
 
-**3. Simulate a component failure:**
+**2. Simulate a component failure:**
 
-Now, let's simulate the component failing over time. NRC will detect this and add the taint.
+NRC will detect the condition change and add the taint:
 
 ```sh
 kubectl patch node npd-descheduler-demo-worker --type=strategic --subresource=status -p \
   '{"status":{"conditions":[{"type":"CustomCondition/MyComponentNotReady","status":"True","lastHeartbeatTime":"'$(date -u +%FT%TZ)'","lastTransitionTime":"'$(date -u +%FT%TZ)'"}]}}'
 ```
 
-**4. Observe taint applied by NRC:**
+**3. Observe taint applied by NRC:**
 
 ```sh
 kubectl get node npd-descheduler-demo-worker -o jsonpath='{"\n"}{.spec.taints}{"\n"}'
 ```
 
-**5. Observe pod eviction by Descheduler:**
+**4. Observe pod eviction by Descheduler:**
 
-Since the Descheduler scans every 30 seconds, within a half-minute you will see the pod evicted and rescheduled.
+The Descheduler scans every 30 seconds. Within a half-minute you will see the pod evicted and rescheduled:
 
 ```sh
-kubectl get pods -o wide   # The pod should be rescheduled away from the tainted node
+kubectl get pods -o wide
 kubectl get events --sort-by=.lastTimestamp | grep -i evict
 ```
 
 **5. Simulate recovery:**
 
 ```sh
-kubectl patch node <worker-node> --type=strategic --subresource=status -p \
+kubectl patch node npd-descheduler-demo-worker --type=strategic --subresource=status -p \
   '{"status":{"conditions":[{"type":"CustomCondition/MyComponentNotReady","status":"False","lastHeartbeatTime":"'$(date -u +%FT%TZ)'","lastTransitionTime":"'$(date -u +%FT%TZ)'"}]}}'
 ```
 
-The NRC removes the taint, and the node becomes schedulable again.
+NRC removes the taint and the node becomes schedulable again.

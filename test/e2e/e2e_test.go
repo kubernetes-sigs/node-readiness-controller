@@ -664,7 +664,7 @@ spec:
 			exec.Command("kubectl", "delete", "nodereadinessrule", "event-test-rule").Run()
 		})
 
-		It("should support NPD-driven taint-based remediation flow", func() {
+		It("should manage taint lifecycle based on NRC-watched node conditions", func() {
 			nodeName := "remediation-test-node"
 
 			By("creating a test node with custom condition False (healthy)")
