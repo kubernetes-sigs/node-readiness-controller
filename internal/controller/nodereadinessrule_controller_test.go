@@ -55,6 +55,12 @@ func histogramSampleCount(histogram interface{ Write(*dto.Metric) error }) uint6
 	return metric.GetHistogram().GetSampleCount()
 }
 
+func gaugeValue(gauge interface{ Write(*dto.Metric) error }) float64 {
+	metric := &dto.Metric{}
+	Expect(gauge.Write(metric)).To(Succeed())
+	return metric.GetGauge().GetValue()
+}
+
 // errorInjectingClient forces Patch to fail for selected nodes.
 type errorInjectingClient struct {
 	client.Client
@@ -2533,6 +2539,144 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			// Taint should be removed because all conditions are satisfied
 			Expect(readinessController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeFalse())
+		})
+	})
+
+	Context("Metric: node_readiness_rule_matched_nodes", func() {
+		It("should set gauge to matched node count after reconcile", func() {
+			ruleName := "sel-gauge-match-rule"
+			matchLabel := "sel-gauge-match"
+
+			nodeA := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "sel-gauge-node-a", Labels: map[string]string{matchLabel: "true"}}}
+			nodeB := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "sel-gauge-node-b", Labels: map[string]string{matchLabel: "true"}}}
+			nodeC := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "sel-gauge-node-c", Labels: map[string]string{"other": "label"}}}
+			for _, n := range []*corev1.Node{nodeA, nodeB, nodeC} {
+				Expect(k8sClient.Create(ctx, n)).To(Succeed())
+			}
+			defer func() {
+				for _, n := range []*corev1.Node{nodeA, nodeB, nodeC} {
+					_ = k8sClient.Delete(ctx, n)
+				}
+			}()
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: ruleName, Finalizers: []string{finalizerName}},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "Ready", RequiredStatus: corev1.ConditionTrue}},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/sel-gauge-taint", Effect: corev1.TaintEffectNoSchedule},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{matchLabel: "true"}},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: ruleName}})
+			Expect(err).NotTo(HaveOccurred())
+
+			gauge, err := metrics.RuleMatchedNodes.GetMetricWith(prometheus.Labels{"rule": ruleName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(gaugeValue(gauge)).To(Equal(2.0))
+		})
+
+		It("should set gauge to 0 when no nodes match the selector", func() {
+			ruleName := "sel-gauge-nomatch-rule"
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: ruleName, Finalizers: []string{finalizerName}},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "Ready", RequiredStatus: corev1.ConditionTrue}},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/sel-nomatch-taint", Effect: corev1.TaintEffectNoSchedule},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"definitely-no-such-label": "true"}},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: ruleName}})
+			Expect(err).NotTo(HaveOccurred())
+
+			gauge, err := metrics.RuleMatchedNodes.GetMetricWith(prometheus.Labels{"rule": ruleName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(gaugeValue(gauge)).To(Equal(0.0))
+		})
+
+		It("should clean up label values on rule deletion", func() {
+			ruleName := "sel-gauge-del-rule"
+			matchLabel := "sel-gauge-del"
+
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "sel-gauge-del-node", Labels: map[string]string{matchLabel: "true"}}}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: ruleName, Finalizers: []string{finalizerName}},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "Ready", RequiredStatus: corev1.ConditionTrue}},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/sel-del-taint", Effect: corev1.TaintEffectNoSchedule},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{matchLabel: "true"}},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: ruleName}})
+			Expect(err).NotTo(HaveOccurred())
+
+			gauge, err := metrics.RuleMatchedNodes.GetMetricWith(prometheus.Labels{"rule": ruleName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(gaugeValue(gauge)).To(Equal(1.0), "gauge should be 1 before deletion")
+
+			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
+
+			// Deletion reconcile triggers reconcileDelete, which calls DeleteLabelValues.
+			Eventually(func() bool {
+				_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: ruleName}})
+				Expect(err).NotTo(HaveOccurred())
+				readinessController.ruleCacheMutex.RLock()
+				_, exists := readinessController.ruleCache[ruleName]
+				readinessController.ruleCacheMutex.RUnlock()
+				return !exists
+			}).Should(BeTrue())
+
+			// After DeleteLabelValues, GetMetricWith allocates a fresh gauge at 0 (old value removed).
+			freshGauge, err := metrics.RuleMatchedNodes.GetMetricWith(prometheus.Labels{"rule": ruleName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(gaugeValue(freshGauge)).To(Equal(0.0))
+		})
+	})
+
+	Context("Metric: failures_total (reason=AnnotationPatchFailed)", func() {
+		It("should increment counter when annotation write fails", func() {
+			ruleName := "bce-error-rule"
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: ruleName, UID: types.UID("33333333-3333-3333-3333-333333333333")},
+			}
+
+			before := counterValue(metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)))
+
+			readinessController.markBootstrapCompleted(ctx, "nonexistent-node-for-bce-test", rule)
+
+			Expect(counterValue(metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)))).To(Equal(before + 1))
+		})
+
+		It("should not increment counter on successful annotation write", func() {
+			nodeName := "bce-success-node"
+			ruleName := "bce-success-rule"
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: ruleName, UID: types.UID("44444444-4444-4444-4444-444444444444")},
+			}
+
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			before := counterValue(metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)))
+
+			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+
+			Expect(counterValue(metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)))).To(Equal(before))
 		})
 	})
 })
