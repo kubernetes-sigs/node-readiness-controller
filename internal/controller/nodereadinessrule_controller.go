@@ -399,17 +399,6 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 
 			// Only record the bootstrap duration if the node was created AFTER the rule.
 			// This prevents legacy nodes from poisoning the histogram with massive outliers.
-			if !node.CreationTimestamp.Time.Before(rule.CreationTimestamp.Time) {
-				duration := latestTransition.Time.Sub(node.CreationTimestamp.Time).Seconds()
-				metrics.BootstrapDuration.WithLabelValues(rule.Name).Observe(duration)
-			} else {
-				log.V(4).Info("Skipping bootstrap duration metric for legacy node",
-					"node", node.Name,
-					"rule", rule.Name)
-			}
-
-			// Only record the bootstrap duration if the node was created AFTER the rule.
-			// This prevents legacy nodes from poisoning the histogram with massive outliers.
 			if !node.CreationTimestamp.Time.Before(rule.CreationTimestamp.Time) && !latestTransition.IsZero() {
 				// Use ONLY API-server-generated timestamps to avoid Controller/Node clock skew
 				duration := latestTransition.Time.Sub(node.CreationTimestamp.Time).Seconds()

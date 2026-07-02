@@ -23,6 +23,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -46,6 +47,12 @@ func counterValue(counter interface{ Write(*dto.Metric) error }) float64 {
 	metric := &dto.Metric{}
 	Expect(counter.Write(metric)).To(Succeed())
 	return metric.GetCounter().GetValue()
+}
+
+func histogramSampleCount(histogram interface{ Write(*dto.Metric) error }) uint64 {
+	metric := &dto.Metric{}
+	Expect(histogram.Write(metric)).To(Succeed())
+	return metric.GetHistogram().GetSampleCount()
 }
 
 // errorInjectingClient forces Patch to fail for selected nodes.
@@ -1029,6 +1036,72 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName)
 
 			Expect(counterValue(counter)).To(Equal(before + 1))
+		})
+
+		It("should observe bootstrap duration metric exactly once on taint removal", func() {
+			ruleName := "bootstrap-duration-metric-rule"
+			nodeName := "bootstrap-duration-metric-node"
+			taintKey := "readiness.k8s.io/bootstrap-duration-test"
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       ruleName,
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    taintKey,
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"env": "bootstrap-duration"},
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			transitionTime := metav1.NewTime(time.Now().Add(5 * time.Second))
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{"env": "bootstrap-duration"},
+				},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: taintKey, Effect: corev1.TaintEffectNoSchedule},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
+					return err
+				}
+				node.Status.Conditions = []corev1.NodeCondition{
+					{
+						Type:               "Ready",
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: transitionTime,
+					},
+				}
+				return k8sClient.Status().Update(ctx, node)
+			}, time.Second*5, time.Millisecond*100).Should(Succeed())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, rule)).To(Succeed())
+
+			histogram := metrics.BootstrapDuration.WithLabelValues(ruleName).(prometheus.Histogram)
+			before := histogramSampleCount(histogram)
+
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, node)).To(Succeed())
+
+			Expect(histogramSampleCount(histogram)).To(Equal(before + 1))
 		})
 	})
 
