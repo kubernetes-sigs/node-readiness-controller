@@ -25,9 +25,10 @@ import (
 type FailureReason string
 
 const (
-	FailureReasonEvaluationError  FailureReason = "EvaluationError"
-	FailureReasonAddTaintError    FailureReason = "AddTaintError"
-	FailureReasonRemoveTaintError FailureReason = "RemoveTaintError"
+	FailureReasonEvaluationError       FailureReason = "EvaluationError"
+	FailureReasonAddTaintError         FailureReason = "AddTaintError"
+	FailureReasonRemoveTaintError      FailureReason = "RemoveTaintError"
+	FailureReasonAnnotationPatchFailed FailureReason = "AnnotationPatchFailed"
 )
 
 // TaintOperation represents a taint operation.
@@ -152,6 +153,15 @@ var (
 		},
 		[]string{"rule"},
 	)
+
+	// RuleMatchedNodes tracks how many nodes match each rule's selector.
+	RuleMatchedNodes = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "node_readiness_rule_matched_nodes",
+			Help: "Number of nodes matched by a rule's NodeSelector",
+		},
+		[]string{"rule"},
+	)
 )
 
 func init() {
@@ -166,4 +176,5 @@ func init() {
 	metrics.Registry.MustRegister(NodesByState)
 	metrics.Registry.MustRegister(ConditionEvaluationFailures)
 	metrics.Registry.MustRegister(RuleLastReconciliationTime)
+	metrics.Registry.MustRegister(RuleMatchedNodes)
 }
