@@ -155,12 +155,14 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// Update rule status
 	if err := r.Controller.updateRuleStatus(ctx, rule); err != nil {
 		log.Error(err, "Failed to update rule status", "rule", rule.Name)
+		metrics.ReconcileRequeue.WithLabelValues(rule.Name, "status_update_error").Inc()
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
 	// Clean up status for deleted nodes
 	if err := r.Controller.cleanupDeletedNodes(ctx, rule, nodeList); err != nil {
 		log.Error(err, "Failed to clean up deleted nodes", "rule", rule.Name)
+		metrics.ReconcileRequeue.WithLabelValues(rule.Name, "cleanup_error").Inc()
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
@@ -188,6 +190,7 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	log.Info("Cleaning up taints for deleted rule", "rule", rule.Name)
 	if err := r.Controller.cleanupTaintsForRule(ctx, rule, nodeList); err != nil {
 		log.Error(err, "Failed to cleanup taints for rule", "rule", rule.Name)
+		metrics.ReconcileRequeue.WithLabelValues(rule.Name, "taint_cleanup_error").Inc()
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
@@ -216,6 +219,8 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	metrics.ConditionEvaluationFailures.DeletePartialMatch(ruleLabel)
 	metrics.TaintOperations.DeletePartialMatch(ruleLabel)
 	metrics.ReconciliationLatency.DeletePartialMatch(ruleLabel)
+	metrics.APIConflicts.DeletePartialMatch(ruleLabel)
+	metrics.ReconcileRequeue.DeletePartialMatch(ruleLabel)
 
 	return ctrl.Result{}, nil
 }
@@ -267,7 +272,13 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 
 		patch := client.MergeFrom(fresh.DeepCopy())
 		fresh.Status.NodeEvaluations = freshNodeEvaluations
-		return r.Status().Patch(ctx, fresh, patch)
+		if err := r.Status().Patch(ctx, fresh, patch); err != nil {
+			if apierrors.IsConflict(err) {
+				metrics.APIConflicts.WithLabelValues(rule.Name, "cleanup_nodes").Inc()
+			}
+			return err
+		}
+		return nil
 	})
 }
 
@@ -563,6 +574,9 @@ func (r *RuleReadinessController) updateRuleStatus(ctx context.Context, rule *re
 			log.V(1).Info("Status patch conflict, will retry",
 				"rule", rule.Name,
 				"error", err.Error())
+			if apierrors.IsConflict(err) {
+				metrics.APIConflicts.WithLabelValues(rule.Name, "update_status").Inc()
+			}
 			return err
 		}
 
