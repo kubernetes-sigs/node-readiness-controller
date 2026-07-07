@@ -1,0 +1,31 @@
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: maintenance-problem-gate-rule
+spec:
+  # MaintenanceRequired is a problem-oriented condition (NPD-style): it is only
+  # ever reported when a problem is detected. On a freshly bootstrapped node,
+  # NPD may not have written this condition yet.
+  conditions:
+    - type: "MaintenanceRequired"
+      requiredStatus: "False"
+      # defaultStatus:False makes an absent condition evaluate as "no problem",
+      # so the node is not blocked by the reporter's startup race. Once NPD
+      # reports MaintenanceRequired=True, the taint is (re-)applied.
+      defaultStatus: "False"
+
+  # Taint managed by this rule
+  taint:
+    key: "readiness.k8s.io/problem-gate"
+    effect: "NoSchedule"
+
+  # "continuous" mode re-applies the taint any time MaintenanceRequired flips
+  # to True later in the node's lifecycle, not just during bootstrap.
+  # Note: defaultStatus is rejected by the validating webhook when
+  # enforcementMode is "bootstrap-only" (see docs/book/src/user-guide/concepts.md).
+  enforcementMode: "continuous"
+
+  # Update to target only the nodes that need this guardrail
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/worker: ""

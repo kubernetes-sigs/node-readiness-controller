@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: npd-maintenance-config
+  namespace: kube-system
+data:
+  # NPD uses problem-oriented conditions. MaintenanceRequired=True means an
+  # operator (or an external signal, such as a cloud provider maintenance
+  # notice) has flagged the node for maintenance.
+  maintenance-plugin.json: |
+    {
+      "plugin": "custom",
+      "pluginConfig": {
+        "invoke_interval": "30s",
+        "timeout": "5s",
+        "max_output_length": 80,
+        "concurrency": 1
+      },
+      "source": "maintenance-monitor",
+      "conditions": [
+        {
+          "type": "MaintenanceRequired",
+          "reason": "NoMaintenanceScheduled",
+          "message": "No maintenance has been scheduled for this node"
+        }
+      ],
+      "rules": [
+        {
+          "type": "permanent",
+          "condition": "MaintenanceRequired",
+          "reason": "MaintenanceScheduled",
+          "path": "/config/plugin/check-maintenance.sh"
+        }
+      ]
+    }
+
+  check-maintenance.sh: |
+    #!/bin/bash
+    # Exit 0 when no maintenance is scheduled (MaintenanceRequired=False).
+    # Exit 1 when maintenance has been flagged (MaintenanceRequired=True).
+    if [ -f /var/run/maintenance/scheduled ]; then
+      echo "Maintenance has been flagged for this node"
+      exit 1
+    fi
+    exit 0

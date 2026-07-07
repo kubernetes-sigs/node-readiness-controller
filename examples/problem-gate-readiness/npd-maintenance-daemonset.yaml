@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-problem-detector-maintenance
+  namespace: kube-system
+  labels:
+    app: node-problem-detector
+    component: maintenance-monitor
+spec:
+  selector:
+    matchLabels:
+      app: node-problem-detector
+      component: maintenance-monitor
+  template:
+    metadata:
+      labels:
+        app: node-problem-detector
+        component: maintenance-monitor
+    spec:
+      serviceAccountName: node-problem-detector-maintenance
+      hostNetwork: true
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+      containers:
+      - name: node-problem-detector
+        image: registry.k8s.io/node-problem-detector/node-problem-detector:v0.8.19
+        command:
+        - /node-problem-detector
+        - --logtostderr
+        - --config.custom-plugin-monitor=/config/maintenance-plugin.json
+        securityContext:
+          privileged: true
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        - name: plugin
+          mountPath: /config/plugin
+          readOnly: true
+        - name: maintenance-flag
+          mountPath: /var/run/maintenance
+          readOnly: true
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 20m
+            memory: 64Mi
+      volumes:
+      - name: config
+        configMap:
+          name: npd-maintenance-config
+          items:
+          - key: maintenance-plugin.json
+            path: maintenance-plugin.json
+      - name: plugin
+        configMap:
+          name: npd-maintenance-config
+          defaultMode: 0755
+          items:
+          - key: check-maintenance.sh
+            path: check-maintenance.sh
+      - name: maintenance-flag
+        hostPath:
+          path: /var/run/maintenance
+          type: DirectoryOrCreate

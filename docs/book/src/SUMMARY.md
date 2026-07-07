@@ -16,6 +16,7 @@
 - [Security Agent](./examples/security-agent-readiness.md)
 <!-- - [Device Drivers](./examples/dra-readiness.md) -->
 - [Constrained Impersonation](./examples/constrained-impersonation.md)
+- [Problem-Gate Readiness](./examples/problem-gate-readiness.md)
 
 # Releases
 
