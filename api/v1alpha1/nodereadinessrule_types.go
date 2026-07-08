@@ -246,6 +246,11 @@ type NodeEvaluation struct {
 	//
 	// +required
 	LastEvaluationTime metav1.Time `json:"lastEvaluationTime,omitempty,omitzero"`
+
+	// taintAppliedAt is the timestamp when the controller applied the readiness taint to this Node.
+	//
+	// +optional
+	TaintAppliedAt metav1.Time `json:"taintAppliedAt,omitempty,omitzero"`
 }
 
 // ConditionEvaluationResult provides a detailed report of the comparison between

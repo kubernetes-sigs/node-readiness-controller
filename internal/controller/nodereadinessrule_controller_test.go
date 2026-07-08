@@ -55,6 +55,12 @@ func histogramSampleCount(histogram interface{ Write(*dto.Metric) error }) uint6
 	return metric.GetHistogram().GetSampleCount()
 }
 
+func histogramSampleSum(histogram interface{ Write(*dto.Metric) error }) float64 {
+	metric := &dto.Metric{}
+	Expect(histogram.Write(metric)).To(Succeed())
+	return metric.GetHistogram().GetSampleSum()
+}
+
 // errorInjectingClient forces Patch to fail for selected nodes.
 type errorInjectingClient struct {
 	client.Client
@@ -2233,6 +2239,386 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				failedNames = append(failedNames, f.NodeName)
 			}
 			Expect(failedNames).NotTo(ContainElement("stale-recovery-node"))
+		})
+	})
+
+	Context("Metric: bootstrap_nrc_duration_seconds", func() {
+		const (
+			nrcTaintKey = "readiness.k8s.io/nrc-duration-taint"
+		)
+
+		newBootstrapOnlyRule := func(name, labelKey string) *nodereadinessiov1alpha1.NodeReadinessRule {
+			return &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       name,
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "Ready", RequiredStatus: corev1.ConditionTrue}},
+					Taint:           corev1.Taint{Key: nrcTaintKey, Effect: corev1.TaintEffectNoSchedule},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{labelKey: "true"}},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+		}
+
+		// taintAppliedAtIsZero reports whether TaintAppliedAt is unset for nodeName.
+		taintAppliedAtIsZero := func(rule *nodereadinessiov1alpha1.NodeReadinessRule, nodeName string) bool {
+			for i := range rule.Status.NodeEvaluations {
+				if rule.Status.NodeEvaluations[i].NodeName == nodeName {
+					return rule.Status.NodeEvaluations[i].TaintAppliedAt.IsZero()
+				}
+			}
+			return true
+		}
+
+		It("should stamp TaintAppliedAt in status when NRC adds a taint", func() {
+			ruleName := "nrc-dur-stamp-rule"
+			nodeName := "nrc-dur-stamp-node"
+			labelKey := "nrc-dur-stamp"
+
+			rule := newBootstrapOnlyRule(ruleName, labelKey)
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			// Node without taint, condition NOT satisfied
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{labelKey: "true"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionFalse},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, rule)).To(Succeed())
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, node)).To(Succeed())
+
+			Expect(taintAppliedAtIsZero(rule, nodeName)).To(BeFalse())
+		})
+
+		It("should emit a histogram observation when bootstrap completes with a TaintAppliedAt anchor", func() {
+			ruleName := "nrc-dur-observe-rule"
+			nodeName := "nrc-dur-observe-node"
+			labelKey := "nrc-dur-observe"
+
+			rule := newBootstrapOnlyRule(ruleName, labelKey)
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			// Node without taint, condition NOT satisfied
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{labelKey: "true"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionFalse},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, rule)).To(Succeed())
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, node)).To(Succeed())
+
+			Expect(taintAppliedAtIsZero(rule, nodeName)).To(BeFalse())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)).To(Succeed())
+			node.Status.Conditions = []corev1.NodeCondition{
+				{Type: "Ready", Status: corev1.ConditionTrue, LastTransitionTime: metav1.NewTime(time.Now().Add(2 * time.Second))},
+			}
+			Expect(k8sClient.Status().Update(ctx, node)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)).To(Succeed())
+
+			histogram := metrics.BootstrapNRCDuration.WithLabelValues(ruleName).(prometheus.Histogram)
+			before := histogramSampleCount(histogram)
+
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, node)).To(Succeed())
+
+			Expect(histogramSampleCount(histogram)).To(Equal(before + 1))
+		})
+
+		It("should not re-observe the histogram when the taint is manually re-added after bootstrap already completed", func() {
+			ruleName := "nrc-dur-readd-rule"
+			nodeName := "nrc-dur-readd-node"
+			labelKey := "nrc-dur-readd"
+
+			rule := newBootstrapOnlyRule(ruleName, labelKey)
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			// Node without taint, condition NOT satisfied
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{labelKey: "true"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionFalse},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, rule)).To(Succeed())
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, node)).To(Succeed())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)).To(Succeed())
+			node.Status.Conditions = []corev1.NodeCondition{
+				{Type: "Ready", Status: corev1.ConditionTrue, LastTransitionTime: metav1.NewTime(time.Now().Add(2 * time.Second))},
+			}
+			Expect(k8sClient.Status().Update(ctx, node)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)).To(Succeed())
+
+			histogram := metrics.BootstrapNRCDuration.WithLabelValues(ruleName).(prometheus.Histogram)
+			before := histogramSampleCount(histogram)
+
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, node)).To(Succeed())
+			Expect(histogramSampleCount(histogram)).To(Equal(before + 1))
+
+			afterFirstCompletion := histogramSampleCount(histogram)
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)).To(Succeed())
+			node.Spec.Taints = append(node.Spec.Taints, corev1.Taint{Key: nrcTaintKey, Effect: corev1.TaintEffectNoSchedule})
+			Expect(k8sClient.Update(ctx, node)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)).To(Succeed())
+
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, node)).To(Succeed())
+
+			Expect(histogramSampleCount(histogram)).To(Equal(afterFirstCompletion))
+		})
+
+		It("should not stamp TaintAppliedAt when a pre-existing taint is adopted", func() {
+			ruleName := "nrc-dur-adopt-rule"
+			nodeName := "nrc-dur-adopt-node"
+			labelKey := "nrc-dur-adopt"
+
+			rule := newBootstrapOnlyRule(ruleName, labelKey)
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			// Node already has the taint, condition NOT satisfied
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{labelKey: "true"},
+				},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: nrcTaintKey, Effect: corev1.TaintEffectNoSchedule},
+					},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionFalse},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, rule)).To(Succeed())
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, node)).To(Succeed())
+
+			Expect(taintAppliedAtIsZero(rule, nodeName)).To(BeTrue())
+
+			// Satisfy condition and complete bootstrap
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)).To(Succeed())
+			node.Status.Conditions = []corev1.NodeCondition{
+				{Type: "Ready", Status: corev1.ConditionTrue},
+			}
+			Expect(k8sClient.Status().Update(ctx, node)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)).To(Succeed())
+
+			histogram := metrics.BootstrapNRCDuration.WithLabelValues(ruleName).(prometheus.Histogram)
+			before := histogramSampleCount(histogram)
+
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, node)).To(Succeed())
+
+			Expect(taintAppliedAtIsZero(rule, nodeName)).To(BeTrue())
+			Expect(histogramSampleCount(histogram)).To(Equal(before))
+		})
+
+		It("should NOT stamp TaintAppliedAt for a Continuous mode rule", func() {
+			ruleName := "nrc-dur-continuous-rule"
+			nodeName := "nrc-dur-continuous-node"
+			labelKey := "nrc-dur-continuous"
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       ruleName,
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "Ready", RequiredStatus: corev1.ConditionTrue}},
+					Taint:           corev1.Taint{Key: nrcTaintKey, Effect: corev1.TaintEffectNoSchedule},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{labelKey: "true"}},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			// Node without taint, condition NOT satisfied.
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{labelKey: "true"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionFalse},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, rule)).To(Succeed())
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, node)).To(Succeed())
+
+			Expect(taintAppliedAtIsZero(rule, nodeName)).To(BeTrue())
+		})
+
+		It("should use LastTransitionTime to calculate BootstrapNRCDuration", func() {
+			ruleName := "nrc-dur-clock-anchor-rule"
+			nodeName := "nrc-dur-clock-anchor-node"
+			labelKey := "nrc-dur-clock-anchor"
+
+			rule := newBootstrapOnlyRule(ruleName, labelKey)
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			// Node without taint, condition NOT satisfied.
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{labelKey: "true"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionFalse},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, rule)).To(Succeed())
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, node)).To(Succeed())
+			Expect(taintAppliedAtIsZero(rule, nodeName)).To(BeFalse())
+
+			// Backdate TaintAppliedAt to verify the duration uses LastTransitionTime
+			backdated := metav1.NewTime(time.Now().Add(-1 * time.Hour))
+			for i := range rule.Status.NodeEvaluations {
+				if rule.Status.NodeEvaluations[i].NodeName == nodeName {
+					rule.Status.NodeEvaluations[i].TaintAppliedAt = backdated
+				}
+			}
+
+			transitionTime := metav1.NewTime(backdated.Add(2 * time.Second))
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)).To(Succeed())
+			node.Status.Conditions = []corev1.NodeCondition{
+				{Type: "Ready", Status: corev1.ConditionTrue, LastTransitionTime: transitionTime},
+			}
+			Expect(k8sClient.Status().Update(ctx, node)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)).To(Succeed())
+
+			histogram := metrics.BootstrapNRCDuration.WithLabelValues(ruleName).(prometheus.Histogram)
+			sumBefore := histogramSampleSum(histogram)
+			countBefore := histogramSampleCount(histogram)
+
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, node)).To(Succeed())
+
+			Expect(histogramSampleCount(histogram)).To(Equal(countBefore + 1))
+			observed := histogramSampleSum(histogram) - sumBefore
+
+			Expect(observed).To(BeNumerically(">=", 0))
+			Expect(observed).To(BeNumerically("<", 10))
+		})
+
+		It("should skip BootstrapNRCDuration when LastTransitionTime is unset", func() {
+			ruleName := "nrc-dur-zero-transition-rule"
+			nodeName := "nrc-dur-zero-transition-node"
+			labelKey := "nrc-dur-zero-transition"
+
+			rule := newBootstrapOnlyRule(ruleName, labelKey)
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{labelKey: "true"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionFalse},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, rule)).To(Succeed())
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, node)).To(Succeed())
+			Expect(taintAppliedAtIsZero(rule, nodeName)).To(BeFalse())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)).To(Succeed())
+			node.Status.Conditions = []corev1.NodeCondition{
+				{Type: "Ready", Status: corev1.ConditionTrue},
+			}
+			Expect(k8sClient.Status().Update(ctx, node)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)).To(Succeed())
+
+			histogram := metrics.BootstrapNRCDuration.WithLabelValues(ruleName).(prometheus.Histogram)
+			before := histogramSampleCount(histogram)
+
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, node)).To(Succeed())
+
+			Expect(histogramSampleCount(histogram)).To(Equal(before))
+		})
+
+		It("should clean up BootstrapNRCDuration label values on rule deletion", func() {
+			ruleName := "nrc-dur-del-rule"
+			labelKey := "nrc-dur-del"
+
+			rule := newBootstrapOnlyRule(ruleName, labelKey)
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+
+			metrics.BootstrapNRCDuration.WithLabelValues(ruleName).Observe(1.0)
+
+			histogram := metrics.BootstrapNRCDuration.WithLabelValues(ruleName).(prometheus.Histogram)
+			Expect(histogramSampleCount(histogram)).To(BeNumerically(">", 0))
+
+			// Trigger reconcile to populate cache, then delete the rule.
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: ruleName}})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
+
+			Eventually(func() bool {
+				_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: ruleName}})
+				Expect(err).NotTo(HaveOccurred())
+				readinessController.ruleCacheMutex.RLock()
+				_, exists := readinessController.ruleCache[ruleName]
+				readinessController.ruleCacheMutex.RUnlock()
+				return !exists
+			}).Should(BeTrue())
+
+			// After DeleteLabelValues, GetMetricWith returns a fresh zero value series.
+			freshHistogram := metrics.BootstrapNRCDuration.WithLabelValues(ruleName).(prometheus.Histogram)
+			Expect(histogramSampleCount(freshHistogram)).To(Equal(uint64(0)))
 		})
 	})
 })
