@@ -433,6 +433,16 @@ setup-envtest: $(SETUP_ENVTEST) ## Download the binaries required for ENVTEST in
 	@echo KUBEBUILDER_ASSETS=$(KUBEBUILDER_ASSETS)
 
 ## --------------------------------------
+## Scale Testing
+## --------------------------------------
+
+##@ scale:
+
+.PHONY: test-scale
+test-scale: manifests generate ## Run the scale performance tests. Supported parameters: NODE_COUNT, NODE_CONCURRENT_RECONCILES, RULE_CONCURRENT_RECONCILES, KUBE_API_QPS, KUBE_API_BURST, DISABLE_QPS_LIMITS, NODE_LEASE_DURATION_SECONDS, ARTIFACTS, KUBECONFIG, SKIP_TEARDOWN
+	go test -tags=scale -v ./test/scale/... -ginkgo.v -timeout 30m -count=1
+
+## --------------------------------------
 ## Hack / Tools
 ## --------------------------------------
 

@@ -1,0 +1,27 @@
+apiVersion: kwok.x-k8s.io/v1alpha1
+kind: Stage
+metadata:
+  name: security-agent-stage-false
+spec:
+  resourceRef:
+    apiGroup: ""
+    kind: Node
+  selector:
+    matchLabels:
+      type: kwok
+  next:
+    statusTemplate: |
+      conditions:
+      {{- range .status.conditions }}
+      {{- if ne .type "security.node.x-k8s.io/SecurityAgentReady" }}
+      - type: {{ .type }}
+        status: {{ .status | quote }}
+        reason: {{ .reason | quote }}
+        message: {{ .message | quote }}
+      {{- end }}
+      {{- end }}
+      - type: security.node.x-k8s.io/SecurityAgentReady
+        status: "False"
+        reason: "SecurityAgentUnhealthy"
+        message: "Security agent not running"
+        lastTransitionTime: "{{ Now }}"
