@@ -73,7 +73,7 @@ func (w *NodeReadinessRuleWebhook) validateSpec(
 		allErrs = append(allErrs, field.Required(field.NewPath("spec", "nodeSelector"), "nodeSelector must not be empty"))
 	}
 
-	// skip below checks for update because both `enforcementMode` and `conditions` 
+	// skip below checks for update because both `enforcementMode` and `conditions`
 	// are immutable as constrained by CEL XValidation rules
 	if isUpdate {
 		return allErrs

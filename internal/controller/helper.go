@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+//nolint:godot
 const (
 	// bootstrapAnnotationPrefix is the common prefix for all bootstrap completion
 	// annotations on a Node. The suffix is the rule's metadata.uid (RFC 4122 UUID,
@@ -51,8 +52,6 @@ func bootstrapAnnotationValue(ruleName string) string {
 	}
 	return string(b)
 }
-
-
 
 // legacyBootstrapAnnotationKey returns the old-format annotation key used
 // before the UID migration: readiness.k8s.io/bootstrap-completed-<ruleName>.
