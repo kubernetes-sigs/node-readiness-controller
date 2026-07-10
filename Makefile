@@ -320,9 +320,12 @@ install: manifests $(KUSTOMIZE) ## Install CRDs into the K8s cluster specified i
 	if [ -n "$$out" ]; then echo "$$out" | $(KUBECTL) apply -f -; else echo "No CRDs to install; skipping."; fi
 
 .PHONY: uninstall
-uninstall: manifests $(KUSTOMIZE) ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	@out="$$( $(KUSTOMIZE) build config/crd 2>/dev/null || true )"; \
-	if [ -n "$$out" ]; then echo "$$out" | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -; else echo "No CRDs to delete; skipping."; fi
+uninstall: manifests $(KUSTOMIZE) ## Uninstall CRDs from the K8s cluster and wait for full deletion. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+	@set -euo pipefail; \
+	out="$$( $(KUSTOMIZE) build config/crd 2>/dev/null || true )"; \
+	if [ -z "$$out" ]; then echo "No CRDs to delete; skipping."; exit 0; fi; \
+	echo "$$out" | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -; \
+	echo "$$out" | $(KUBECTL) wait --for=delete --timeout=180s -f -
 
 .PHONY: deploy
 deploy: build-manifests-temp ## Deploy controller to the K8s cluster. Use ENABLE_METRICS=true and ENABLE_TLS=true to enable features.
