@@ -245,14 +245,27 @@ status:
 				return !strings.Contains(output, "readiness.k8s.io/TestReady")
 			}, 30*time.Second, 2*time.Second).Should(BeTrue())
 
+			By("getting the bootstrap rule UID")
+			var ruleUID string
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "nodereadinessrule", "bootstrap-test-rule", "-o", "jsonpath={.metadata.uid}")
+				uid, err := utils.Run(cmd)
+				if err != nil {
+					return ""
+				}
+				ruleUID = strings.TrimSpace(uid)
+				return ruleUID
+			}, 10*time.Second, 1*time.Second).Should(Not(BeEmpty()))
+
 			By("verifying node has bootstrap completion annotation")
 			Eventually(func() bool {
-				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.metadata.annotations.readiness\\.k8s\\.io/bootstrap-completed-bootstrap-test-rule}")
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.metadata.annotations}")
 				output, err := utils.Run(cmd)
 				if err != nil {
 					return false
 				}
-				return strings.Contains(output, "true")
+				expectedAnnotation := fmt.Sprintf("readiness.k8s.io/bootstrap-completed-%s", ruleUID)
+				return strings.Contains(output, expectedAnnotation)
 			}, 30*time.Second, 2*time.Second).Should(BeTrue())
 
 			By("updating node condition back to False")
