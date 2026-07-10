@@ -103,12 +103,12 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 		}
 
-		By("undeploying the controller-manager")
-		cmd = exec.Command("make", "undeploy")
-		_, _ = utils.Run(cmd)
-
 		By("uninstalling CRDs")
 		cmd = exec.Command("make", "uninstall")
+		_, _ = utils.Run(cmd)
+
+		By("undeploying the controller-manager")
+		cmd = exec.Command("make", "undeploy")
 		_, _ = utils.Run(cmd)
 
 		By("removing manager namespace")
