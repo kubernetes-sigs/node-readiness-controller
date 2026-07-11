@@ -35,7 +35,11 @@ export PATH := $(abspath $(TOOLS_BIN_DIR)):$(PATH)
 # Binaries.
 #
 KUBECTL ?= kubectl
-KIND ?= kind
+
+KIND_VER ?= v0.32.0
+KIND_BIN := kind
+KIND ?= $(abspath $(TOOLS_BIN_DIR)/$(KIND_BIN)-$(KIND_VER))
+KIND_PKG := sigs.k8s.io/kind
 
 KUSTOMIZE_VER := v5.7.0
 KUSTOMIZE_BIN := kustomize
@@ -220,19 +224,19 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	- $(CONTAINER_TOOL) buildx rm nrrcontroller-builder
 
 .PHONY: kind-load
-kind-load: ## Load the built image into kind cluster
+kind-load: $(KIND) ## Load the built image into kind cluster
 ifeq ($(CONTAINER_TOOL),podman)
 	@echo "Loading Podman image into kind cluster: $(KIND_CLUSTER)"
 	@echo "Saving image to temporary tar archive..."
 	@$(CONTAINER_TOOL) save -o /tmp/controller-image.tar localhost/$(IMG_PREFIX):$(IMG_TAG)
 	@echo "Loading tar archive into kind cluster..."
-	@kind load image-archive /tmp/controller-image.tar --name $(KIND_CLUSTER)
+	@$(KIND) load image-archive /tmp/controller-image.tar --name $(KIND_CLUSTER)
 	@echo "Cleaning up temporary tar archive..."
 	@rm /tmp/controller-image.tar
 	@echo "Image loaded successfully!"
 else
 	@echo "Loading Docker image into kind cluster: $(KIND_CLUSTER)"
-	@kind load docker-image $(IMG_PREFIX):$(IMG_TAG) --name $(KIND_CLUSTER)
+	@$(KIND) load docker-image $(IMG_PREFIX):$(IMG_TAG) --name $(KIND_CLUSTER)
 endif
 
 .PHONY: docker-build-reporter
@@ -400,11 +404,7 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # - CERT_MANAGER_INSTALL_SKIP=true
 
 .PHONY: setup-test-e2e
-setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
-	@command -v $(KIND) >/dev/null 2>&1 || { \
-		echo "Kind is not installed. Please install Kind manually."; \
-		exit 1; \
-	}
+setup-test-e2e: $(KIND) ## Set up a Kind cluster for e2e tests if it does not exist
 	@case "$$($(KIND) get clusters)" in \
 		*"$(KIND_CLUSTER)"*) \
 			echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation." ;; \
@@ -423,7 +423,7 @@ cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
 .PHONY: test-e2e-kind
-test-e2e-kind: manifests generate fmt vet ## Run e2e tests on a Kind cluster with artifact collection and log export.
+test-e2e-kind: $(KIND) manifests generate fmt vet ## Run e2e tests on a Kind cluster with artifact collection and log export.
 	E2E_KIND_VERSION=$(E2E_KIND_VERSION) KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) \
 	USE_EXISTING_CLUSTER=$(USE_EXISTING_CLUSTER) ARTIFACTS=$(ARTIFACTS) \
 	./hack/e2e-test.sh
@@ -453,6 +453,9 @@ $(SETUP_ENVTEST_BIN): $(SETUP_ENVTEST) ## Build a local copy of setup-envtest.
 .PHONY: $(GOLANGCI_LINT_BIN)
 $(GOLANGCI_LINT_BIN): $(GOLANGCI_LINT) ## Build a local copy of golangci-lint.
 
+.PHONY: $(KIND_BIN)
+$(KIND_BIN): $(KIND) ## Build a local copy of kind.
+
 $(KUSTOMIZE): # Build kustomize from tools folder.
 	CGO_ENABLED=0 GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(KUSTOMIZE_PKG) $(KUSTOMIZE_BIN) $(KUSTOMIZE_VER)
 
@@ -470,6 +473,9 @@ $(GOLANGCI_LINT_KAL): $(GOLANGCI_LINT) # Build golangci-lint-kal from custom con
 
 $(GOVULNCHECK): # Build govulncheck from tools folder.
 	GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(GOVULNCHECK_PKG) $(GOVULNCHECK_BIN) $(GOVULNCHECK_VER)
+
+$(KIND): # Build kind from tools folder.
+	GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(KIND_PKG) $(KIND_BIN) $(KIND_VER)
 
 
 ## --------------------------------------
