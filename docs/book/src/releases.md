@@ -2,6 +2,12 @@
 
 This page details the official releases of the Node Readiness Controller.
 
+## v0.4.1
+
+**Date:** 2026-07-12
+
+Re-cut of v0.4.0. This patch release carries the same content as v0.4.0 with a fix for build pipeline for publishing the images correctly. See the v0.4.0 notes below for the full changelog.
+
 ## v0.4.0
 
 **Date:** 2026-07-10
