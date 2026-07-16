@@ -9,6 +9,10 @@ metadata:
     {{- include "nrr-controller.labels" . | nindent 4 }}
 spec:
   secretName: {{ .Values.metrics.certSecretName }}
+  {{- with .Values.certManager.certificateSubject }}
+  subject:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   dnsNames:
     - {{ include "nrr-controller.fullname" . }}-metrics-service.{{ include "nrr-controller.namespace" . }}.svc
     - {{ include "nrr-controller.fullname" . }}-metrics-service.{{ include "nrr-controller.namespace" . }}.svc.cluster.local
@@ -27,6 +31,10 @@ metadata:
     {{- include "nrr-controller.labels" . | nindent 4 }}
 spec:
   secretName: {{ .Values.webhook.certSecretName }}
+  {{- with .Values.certManager.certificateSubject }}
+  subject:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   dnsNames:
     - {{ include "nrr-controller.fullname" . }}-webhook-service.{{ include "nrr-controller.namespace" . }}.svc
     - {{ include "nrr-controller.fullname" . }}-webhook-service.{{ include "nrr-controller.namespace" . }}.svc.cluster.local

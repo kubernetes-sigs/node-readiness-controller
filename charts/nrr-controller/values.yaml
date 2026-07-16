@@ -104,6 +104,9 @@ webhook:
 # cert-manager configuration for generating TLS certificates for the webhook and metrics server
 certManager:
   enabled: false
+  certificateSubject:
+    organizations:
+      - k8s-sig-node
   issuer:
     create: true
     name: selfsigned-issuer
@@ -117,7 +120,7 @@ certManager:
 validatingWebhook:
   enabled: false
   name: validating-webhook-configuration
-  webhookName: vnodereadinessrule.kb.io
+  webhookName: vnodereadinessrule.readiness.node.x-k8s.io
   failurePolicy: Fail
   sideEffects: None
   path: /validate-readiness-node-x-k8s-io-v1alpha1-nodereadinessrule

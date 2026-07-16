@@ -34,6 +34,9 @@ tests:
     template: templates/validatingwebhookconfiguration.yaml
     asserts:
       - equal:
+          path: webhooks[0].name
+          value: vnodereadinessrule.readiness.node.x-k8s.io
+      - equal:
           path: webhooks[0].clientConfig.service.name
           value: nrr-controller-webhook-service
       - equal:
@@ -66,3 +69,13 @@ tests:
       - equal:
           path: spec.template.spec.volumes[?(@.name=="metrics-certs")].name
           value: metrics-certs
+
+  - it: adds cert-manager certificate subject
+    template: templates/certificates.yaml
+    set:
+      certManager:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.subject.organizations[0]
+          value: k8s-sig-node

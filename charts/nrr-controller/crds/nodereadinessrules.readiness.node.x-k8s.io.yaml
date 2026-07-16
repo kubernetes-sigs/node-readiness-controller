@@ -70,8 +70,24 @@ spec:
                 items:
                   description: |-
                     ConditionRequirement defines a specific Node condition and the status value
-                    required to trigger the controller's action.
+                    required to trigger the controller's action. It also contains an optional
+                    default status value.
                   properties:
+                    defaultStatus:
+                      description: |-
+                        defaultStatus is the status a condition is evaluated to if the condition
+                        is not found in a node.
+
+                        Accepted values are True, False, Unknown. It is optional.
+                        When omitted, the effective default is Unknown, applied transparently by
+                        the controller at evaluation time.
+
+                        Note: This field must not be set when enforcementMode is bootstrap-only.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
                     requiredStatus:
                       description: requiredStatus is status of the condition, one
                         of True, False, Unknown.
@@ -358,6 +374,16 @@ spec:
                           currentStatus:
                             description: currentStatus is the actual status value
                               observed on the Node, one of True, False, Unknown.
+                            enum:
+                            - "True"
+                            - "False"
+                            - Unknown
+                            type: string
+                          defaultStatus:
+                            description: |-
+                              defaultStatus is the status a condition is evaluated to if the condition
+                              is not found in a node. Reflects the defaultStatus configured in the rule
+                              spec.
                             enum:
                             - "True"
                             - "False"
