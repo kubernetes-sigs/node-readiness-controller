@@ -676,6 +676,107 @@ spec:
 			exec.Command("kubectl", "delete", "node", nodeName).Run()
 			exec.Command("kubectl", "delete", "nodereadinessrule", "event-test-rule").Run()
 		})
+
+		It("should support FieldSelectors for enforcementMode and taint key", func() {
+			By("applying test rules with different modes and taint keys")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(`
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: selector-test-bootstrap
+spec:
+  conditions:
+    - type: SelectorTest
+      requiredStatus: "True"
+  taint:
+    key: readiness.k8s.io/test-bootstrap
+    effect: NoSchedule
+  enforcementMode: "bootstrap-only"
+  nodeSelector:
+    matchLabels:
+      e2e-test: "selector"
+---
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: selector-test-continuous
+spec:
+  conditions:
+    - type: SelectorTest
+      requiredStatus: "True"
+  taint:
+    key: readiness.k8s.io/test-continuous
+    effect: NoSchedule
+  enforcementMode: "continuous"
+  nodeSelector:
+    matchLabels:
+      e2e-test: "selector"
+`)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("querying rules by enforcementMode=bootstrap-only")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "nrr", "--field-selector", "spec.enforcementMode=bootstrap-only", "-o", "jsonpath={.items[*].metadata.name}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "selector-test-bootstrap") && !strings.Contains(output, "selector-test-continuous")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("querying rules by taint key")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "nrr", "--field-selector", "spec.taint.key=readiness.k8s.io/test-continuous", "-o", "jsonpath={.items[*].metadata.name}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "selector-test-continuous") && !strings.Contains(output, "selector-test-bootstrap")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("cleaning up test resources")
+			exec.Command("kubectl", "delete", "nodereadinessrule", "selector-test-bootstrap", "selector-test-continuous").Run()
+		})
+
+		It("should support FieldSelectors for dryRun", func() {
+			By("applying test rules for dryRun")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(`
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: selector-test-dryrun
+spec:
+  conditions:
+    - type: SelectorTest
+      requiredStatus: "True"
+  taint:
+    key: readiness.k8s.io/test-dryrun
+    effect: NoSchedule
+  enforcementMode: "bootstrap-only"
+  dryRun: true
+  nodeSelector:
+    matchLabels:
+      e2e-test: "selector"
+`)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("querying rules by dryRun=true")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "nrr", "--field-selector", "spec.dryRun=true", "-o", "jsonpath={.items[*].metadata.name}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "selector-test-dryrun")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("cleaning up test resources")
+			exec.Command("kubectl", "delete", "nodereadinessrule", "selector-test-dryrun").Run()
+		})
 	})
 })
 
