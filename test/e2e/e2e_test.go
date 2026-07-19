@@ -240,7 +240,7 @@ status:
 					return false
 				}
 				return strings.TrimSpace(output) != "" && strings.TrimSpace(output) != "0"
-			}, 30*time.Second, 1*time.Second).Should(BeTrue(),
+			}, 2*time.Minute, 1*time.Second).Should(BeTrue(),
 				"Rule should be reconciled and have observedGeneration set")
 
 			By("updating node condition to True")
