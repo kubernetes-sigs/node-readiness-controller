@@ -101,6 +101,33 @@ To help you integrate custom checks where NPD might not be suitable, the project
 *   **Simplicity**: Good for simple "is this HTTP endpoint up?" checks without configuring external scripts.
 *   **Direct Coupling**: Useful when you want the readiness reporting lifecycle of the component to strictly match the pod's lifecycle.
 
+### Reducing unnecessary node status writes
+
+On every check interval, the reporter compares the health result it just
+observed against the condition already stored on the Node (`Status`,
+`Reason`, and `Message`). If all three match what's already there, the
+reporter skips the write entirely.
+
+This matters at scale: writing a Node's status forces the API server to
+persist the entire Node object to `etcd`, even if only one condition field
+would have changed. Skipping no-op writes avoids that cost across large
+fleets of nodes reporting on a short interval.
+
+To make sure a reporter with nothing new to add doesn't look stalled, it
+still writes at least once every `HEARTBEAT_PERIOD` (default `5m`),
+refreshing the condition's `lastHeartbeatTime` even when nothing changed.
+If the health status *does* change, the reporter writes immediately,
+regardless of this timer.
+
+> [!NOTE]
+> This only reduces *writes*. The reporter still reads the Node object on
+> every check interval to compare state, so this does not reduce the
+> number of requests sent to the API server, only the number of updates
+> persisted to `etcd`.
+
+See [Reporter Configuration](../reference/reporter-configuration.md) for the
+full list of environment variables, including `HEARTBEAT_PERIOD`.
+
 ## Dry Run Mode
 
 To reduce the operational risks while deploying new readiness rules in production, the controller includes a `dryRun` capability to first analyze the impact before actual deployment.

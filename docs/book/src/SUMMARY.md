@@ -42,4 +42,5 @@
 
 # Reference
 
+- [Reporter Configuration](./reference/reporter-configuration.md)
 - [API Specification](./reference/api-spec.md)
