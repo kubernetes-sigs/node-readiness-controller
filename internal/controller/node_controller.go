@@ -24,10 +24,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -38,14 +40,17 @@ import (
 // NodeReconciler reconciles a Node object.
 type NodeReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	Controller *RuleReadinessController
+	Scheme                  *runtime.Scheme
+	Controller              *RuleReadinessController
+	MaxConcurrentReconciles int // caps how many nodes are reconciled concurrently
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *NodeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	concurrency := max(r.MaxConcurrentReconciles, 1)
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("node").
+		WithOptions(controller.Options{MaxConcurrentReconciles: concurrency}).
 		For(&corev1.Node{}, builder.WithPredicates(predicate.Funcs{
 			CreateFunc: func(e event.CreateEvent) bool {
 				log := ctrl.LoggerFrom(ctx)
@@ -129,7 +134,7 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 		}
 
 		// Skip if bootstrap-only and already completed
-		if r.isBootstrapCompleted(ctx, node.Name, rule.Name) && rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
+		if r.isBootstrapCompleted(ctx, node.Name, rule.Name, rule.GetUID()) && rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
 			log.Info("Skipping bootstrap-only rule - already completed",
 				"node", node.Name, "rule", rule.Name)
 			continue
@@ -242,13 +247,17 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 }
 
 // getConditionStatus gets the status of a condition on a node.
-func (r *RuleReadinessController) getConditionStatus(node *corev1.Node, conditionType string) corev1.ConditionStatus {
+func (r *RuleReadinessController) getConditionStatus(
+	node *corev1.Node,
+	conditionType string,
+	defaultStatus corev1.ConditionStatus,
+) (corev1.ConditionStatus, bool) {
 	for _, condition := range node.Status.Conditions {
 		if string(condition.Type) == conditionType {
-			return condition.Status
+			return condition.Status, true
 		}
 	}
-	return corev1.ConditionUnknown
+	return defaultStatus, false
 }
 
 // hasTaintBySpec checks if a node has a specific taint.
@@ -337,24 +346,20 @@ func (r *RuleReadinessController) removeTaintBySpec(ctx context.Context, node *c
 	})
 }
 
-// Bootstrap completion tracking.
-func (r *RuleReadinessController) isBootstrapCompleted(ctx context.Context, nodeName, ruleName string) bool {
-	// Check node annotation
+func (r *RuleReadinessController) isBootstrapCompleted(ctx context.Context, nodeName string, ruleName string, ruleUID types.UID) bool {
 	node := &corev1.Node{}
 	if err := r.Get(ctx, client.ObjectKey{Name: nodeName}, node); err != nil {
 		return false
 	}
-
-	annotationKey := fmt.Sprintf("readiness.k8s.io/bootstrap-completed-%s", ruleName)
-	_, exists := node.Annotations[annotationKey]
-	return exists
+	_, existsNew := node.Annotations[bootstrapAnnotationKey(ruleUID)]
+	_, existsLegacy := node.Annotations[legacyBootstrapAnnotationKey(ruleName)]
+	return existsNew || existsLegacy
 }
 
-func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, nodeName, ruleName string) {
+func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, nodeName, ruleName string, ruleUID types.UID) {
 	log := ctrl.LoggerFrom(ctx)
-
-	annotationKey := fmt.Sprintf("readiness.k8s.io/bootstrap-completed-%s", ruleName)
 	marked := false
+	annotationKey := bootstrapAnnotationKey(ruleUID)
 
 	// retry to handle conflict with concurrent node updates
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -363,21 +368,19 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 			return err
 		}
 
-		// Check if already marked to avoid unnecessary updates
-		if node.Annotations != nil {
-			if _, exists := node.Annotations[annotationKey]; exists {
-				return nil
-			}
+		// Check if already marked to avoid unnecessary updates.
+		if _, exists := node.Annotations[annotationKey]; exists {
+			return nil
 		}
 
 		patch := client.MergeFrom(node.DeepCopy())
 
-		// Initialize annotations if nil
+		// Initialize annotations map if nil.
 		if node.Annotations == nil {
 			node.Annotations = make(map[string]string)
 		}
 
-		node.Annotations[annotationKey] = "true"
+		node.Annotations[annotationKey] = bootstrapAnnotationValue(ruleName)
 		if err := r.Patch(ctx, node, patch); err != nil {
 			return err
 		}
@@ -388,12 +391,12 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 
 	switch {
 	case err != nil:
-		log.Error(err, "Failed to mark bootstrap completed", "node", nodeName, "rule", ruleName)
+		log.Error(err, "Failed to mark bootstrap completed", "node", nodeName, "rule", ruleName, "uid", ruleUID)
 	case marked:
-		log.Info("Marked bootstrap completed", "node", nodeName, "rule", ruleName)
+		log.Info("Marked bootstrap completed", "node", nodeName, "rule", ruleName, "uid", ruleUID)
 		metrics.BootstrapCompleted.WithLabelValues(ruleName).Inc()
 	default:
-		log.V(4).Info("Bootstrap already completed", "node", nodeName, "rule", ruleName)
+		log.V(4).Info("Bootstrap already completed", "node", nodeName, "rule", ruleName, "uid", ruleUID)
 	}
 }
 

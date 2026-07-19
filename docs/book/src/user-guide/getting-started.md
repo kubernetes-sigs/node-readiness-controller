@@ -53,6 +53,7 @@ Use the `nodeSelector` to target specific nodes (eg., GPU nodes).
 The `conditions` list defines the criteria. The controller watches the Node's status for these conditions.
 *   `type`: The exact string matching the NodeCondition type.
 *   `requiredStatus`: The status required (`True`, `False`, or `Unknown`).
+*   `defaultStatus`: (Optional) The status to assume if the condition is completely missing from the Node's status. (`True`, `False`, or `Unknown`, defaults to `Unknown` if not provided). Must not be set in `bootstrap-only` mode. (See [Concepts](./concepts.md#default-condition-status-defaultstatus) for usage implications).
 
 ### 3. Choose an Enforcement Mode
 The `enforcementMode` determines how the controller manages the taint lifecycle.

@@ -4,7 +4,7 @@ metadata:
   name: remediation-test-rule
 spec:
   conditions:
-    - type: "CustomCondition/MyComponentNotReady"
+    - type: "MyComponentNotReady"
       requiredStatus: "False"
   taint:
     key: "readiness.k8s.io/my-component-ready"

@@ -45,9 +45,29 @@ import (
 	// +kubebuilder:scaffold:imports
 )
 
+const (
+	defaultKubeAPIQPS               = 20.0
+	defaultKubeAPIBurst             = 30
+	defaultNodeConcurrentReconciles = 1
+	defaultRuleConcurrentReconciles = 1
+)
+
 var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
+
+	metricsAddr              string
+	enableLeaderElection     bool
+	probeAddr                string
+	enableWebhook            bool
+	metricsSecure            bool
+	metricsCertDir           string
+	leaderElectionNamespace  string
+	enableNodeStateMetrics   bool
+	kubeAPIQPS               float64
+	kubeAPIBurst             int
+	nodeConcurrentReconciles int
+	ruleConcurrentReconciles int
 )
 
 func init() {
@@ -59,15 +79,6 @@ func init() {
 
 //nolint:gocyclo
 func main() {
-	var metricsAddr string
-	var enableLeaderElection bool
-	var probeAddr string
-	var enableWebhook bool
-	var metricsSecure bool
-	var metricsCertDir string
-	var leaderElectionNamespace string
-	var enableNodeStateMetrics bool
-
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.BoolVar(&metricsSecure, "metrics-secure", false,
@@ -84,6 +95,16 @@ func main() {
 	flag.StringVar(&leaderElectionNamespace, "leader-election-namespace", "", "The namespace where the leader election resource will be created.")
 	flag.BoolVar(&enableNodeStateMetrics, "enable-node-state-metrics", false,
 		"Enable aggregate node state metrics on node updates)")
+	flag.Float64Var(&kubeAPIQPS, "kube-api-qps", defaultKubeAPIQPS,
+		"Maximum queries per second to the API server from this client. "+
+			"Raise together with --kube-api-burst on large clusters.")
+	flag.IntVar(&kubeAPIBurst, "kube-api-burst", defaultKubeAPIBurst,
+		"Maximum number of queries that should be allowed in one burst.")
+	flag.IntVar(&nodeConcurrentReconciles, "node-concurrent-reconciles", defaultNodeConcurrentReconciles,
+		"Maximum number of Node objects reconciled concurrently. "+
+			"Raise on large clusters to reduce readiness-taint latency during node join/condition updates.")
+	flag.IntVar(&ruleConcurrentReconciles, "rule-concurrent-reconciles", defaultRuleConcurrentReconciles,
+		"Maximum number of NodeReadinessRule objects reconciled concurrently.")
 
 	opts := zap.Options{
 		Development:     true,
@@ -107,7 +128,11 @@ func main() {
 		}(),
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	restConfig := ctrl.GetConfigOrDie()
+	restConfig.QPS = float32(kubeAPIQPS)
+	restConfig.Burst = kubeAPIBurst
+
+	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
 		Scheme:                  scheme,
 		Metrics:                 metricsServerOptions,
 		HealthProbeBindAddress:  probeAddr,
@@ -132,15 +157,17 @@ func main() {
 
 	// Create reconcilers linked to the main controller
 	ruleReconciler := &controller.RuleReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		Controller: readinessController,
+		Client:                  mgr.GetClient(),
+		Scheme:                  mgr.GetScheme(),
+		Controller:              readinessController,
+		MaxConcurrentReconciles: ruleConcurrentReconciles,
 	}
 
 	nodeReconciler := &controller.NodeReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		Controller: readinessController,
+		Client:                  mgr.GetClient(),
+		Scheme:                  mgr.GetScheme(),
+		Controller:              readinessController,
+		MaxConcurrentReconciles: nodeConcurrentReconciles,
 	}
 
 	// Setup controllers with manager

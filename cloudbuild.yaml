@@ -1,15 +1,18 @@
-# See https://cloud.google.com/cloud-build/docs/build-config
-
+# See https://cloud.google.com/cloud-build/docs/build-config for gcb schema
+# See https://github.com/kubernetes/test-infra/tree/master/config/jobs/image-pushing#build-example
+# for example config
+# See https://console.cloud.google.com/artifacts/docker/k8s-staging-test-infra/us/gcr.io/gcb-docker-gcloud
+# for available images
 options:
   substitution_option: ALLOW_LOOSE
 steps:
-  - name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20251211-3eba3d0954
+  - name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:latest
     entrypoint: ./scripts/build-and-publish-image.sh
     env:
     - IMG_PREFIX=us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller
     - COMPONENT=controller
 
-  - name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20251211-3eba3d0954
+  - name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:latest
     entrypoint: ./scripts/build-and-publish-image.sh
     env:
     - IMG_PREFIX=us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller

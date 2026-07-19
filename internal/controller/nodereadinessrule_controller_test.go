@@ -23,6 +23,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -46,6 +47,12 @@ func counterValue(counter interface{ Write(*dto.Metric) error }) float64 {
 	metric := &dto.Metric{}
 	Expect(counter.Write(metric)).To(Succeed())
 	return metric.GetCounter().GetValue()
+}
+
+func histogramSampleCount(histogram interface{ Write(*dto.Metric) error }) uint64 {
+	metric := &dto.Metric{}
+	Expect(histogram.Write(metric)).To(Succeed())
+	return metric.GetHistogram().GetSampleCount()
 }
 
 // errorInjectingClient forces Patch to fail for selected nodes.
@@ -503,22 +510,17 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			))
 		})
 
-		It("should count riskyOps when a condition status is Unknown", func() {
-			// Node matches selector; condition status is Unknown → missingConditions++ → riskyOps++
-			// Unknown also means condition is not satisfied → taintsToAdd++ too (no pre-existing taint)
+		It("should count riskyOps when a condition is missing from a node", func() {
+			// Node matches selector but has NO Ready condition at all → conditionFound=false
+			// → missingConditions++ → riskyOps++
+			// Condition not found falls back to GetDefaultStatus() (Unknown), which doesn't
+			// satisfy RequiredStatus=True → taintsToAdd++ as well (no pre-existing taint)
 			testNode := &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:   "dry-run-risky-node",
 					Labels: map[string]string{"env": "risky-test"},
 				},
-				Status: corev1.NodeStatus{
-					Conditions: []corev1.NodeCondition{
-						{
-							Type:   "Ready",
-							Status: corev1.ConditionUnknown, // triggers missingConditions++
-						},
-					},
-				},
+				// Intentionally no Status.Conditions — the Ready condition is absent
 			}
 			Expect(k8sClient.Create(ctx, testNode)).To(Succeed())
 			defer func() { _ = k8sClient.Delete(ctx, testNode) }()
@@ -570,6 +572,103 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				}
 				return updated.Status.DryRunResults.Summary
 			}, time.Second*5).Should(ContainSubstring("missing conditions"))
+		})
+
+		It("should count riskyOps and taintsToRemove when absent condition is satisfied via defaultStatus", func() {
+			// Absent condition + defaultStatus:False + requiredStatus:False:
+			// conditionFound=false → missingConditions++ → riskyOps++ (condition absent = risky)
+			// effectiveStatus=False == requiredStatus=False → allConditionsSatisfied=true
+			// node already has the taint → taintsToRemove++
+			const (
+				nodeName = "dry-run-default-status-node"
+				ruleName = "dry-run-default-status-rule"
+				labelKey = "env"
+				labelVal = "default-status-dry-run"
+				taintKey = "readiness.k8s.io/maintenance"
+			)
+
+			testNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{labelKey: labelVal},
+				},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: taintKey, Effect: corev1.TaintEffectNoSchedule},
+					},
+				},
+				// Intentionally NO Status.Conditions — MaintenanceRequired is absent.
+			}
+			Expect(k8sClient.Create(ctx, testNode)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, testNode) }()
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       ruleName,
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					DryRun: true,
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{labelKey: labelVal},
+					},
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{
+							Type:           "MaintenanceRequired",
+							RequiredStatus: corev1.ConditionFalse,
+							DefaultStatus:  corev1.ConditionFalse, // absent → False → satisfied, but still risky
+						},
+					},
+					Taint: corev1.Taint{
+						Key:    taintKey,
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: ruleName},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Absent condition is always risky even if the default satisfies the rule.
+			Eventually(func() *int32 {
+				updated := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, updated); err != nil {
+					return nil
+				}
+				return updated.Status.DryRunResults.RiskyOperations
+			}, time.Second*5).Should(SatisfyAll(
+				Not(BeNil()),
+				HaveValue(BeNumerically(">=", int32(1))),
+			))
+
+			// Condition is satisfied via default → taint would be removed.
+			Eventually(func() *int32 {
+				updated := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, updated); err != nil {
+					return nil
+				}
+				return updated.Status.DryRunResults.TaintsToRemove
+			}, time.Second*5).Should(SatisfyAll(
+				Not(BeNil()),
+				HaveValue(BeNumerically(">=", int32(1))),
+			))
+
+			// Taints to add should remain 0
+			Eventually(func() *int32 {
+				updated := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, updated); err != nil {
+					return nil
+				}
+				return updated.Status.DryRunResults.TaintsToAdd
+			}, time.Second*5).Should(SatisfyAll(
+				Not(BeNil()),
+				HaveValue(BeNumerically("==", int32(0))),
+			))
 		})
 
 		It("should not count a node that does not match the selector", func() {
@@ -683,11 +782,8 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 					Name:   "dry-run-multi-risky",
 					Labels: map[string]string{"env": "multi-test"},
 				},
-				Status: corev1.NodeStatus{
-					Conditions: []corev1.NodeCondition{
-						{Type: "Ready", Status: corev1.ConditionUnknown}, // risky branch
-					},
-				},
+				// Intentionally no Status.Conditions — the Ready condition is absent,
+				// making this a genuinely missing condition (riskyOps branch)
 			}
 			nodeSkip := &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
@@ -766,6 +862,108 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				}, BeNumerically(">=", int32(1))),
 			))
 		})
+
+		It(
+			"should satisfy a rule when an absent condition matches via defaultStatus (problem-gate scenario)",
+			func() {
+				// Scenario: NPD-style gate — taint is added when a problem condition fires.
+				// When the condition is completely absent (node just bootstrapped, NPD hasn't
+				// written it yet), defaultStatus:False makes it satisfy requiredStatus:False
+				// and the taint should NOT be added (or be removed if pre-existing).
+				const (
+					nodeName = "default-status-gate-node"
+					ruleName = "default-status-gate-rule"
+					labelKey = "app"
+					labelVal = "default-status-test"
+					taintKey = "readiness.k8s.io/problem-gate"
+				)
+
+				node := &corev1.Node{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:   nodeName,
+						Labels: map[string]string{labelKey: labelVal},
+						// Pre-add the taint so we can observe it being removed.
+					},
+					Spec: corev1.NodeSpec{
+						Taints: []corev1.Taint{
+							{Key: taintKey, Effect: corev1.TaintEffectNoSchedule},
+						},
+					},
+					// Intentionally NO Status.Conditions — MaintenanceRequired is absent.
+				}
+				Expect(k8sClient.Create(ctx, node)).To(Succeed())
+				defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+				rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       ruleName,
+						Finalizers: []string{finalizerName},
+					},
+					Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+						NodeSelector: metav1.LabelSelector{
+							MatchLabels: map[string]string{labelKey: labelVal},
+						},
+						Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+							{
+								Type:           "MaintenanceRequired",
+								RequiredStatus: corev1.ConditionFalse,
+								DefaultStatus:  corev1.ConditionFalse, // absent → treated as False → satisfied
+							},
+						},
+						Taint: corev1.Taint{
+							Key:    taintKey,
+							Effect: corev1.TaintEffectNoSchedule,
+						},
+						EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+					},
+				}
+				Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+				defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+				_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: types.NamespacedName{Name: ruleName},
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				// The pre-existing taint should be removed because the absent condition
+				// is satisfied via defaultStatus:False.
+				Eventually(func() bool {
+					updatedNode := &corev1.Node{}
+					if err := k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, updatedNode); err != nil {
+						return true // assume taint still there on error
+					}
+					for _, taint := range updatedNode.Spec.Taints {
+						if taint.Key == taintKey {
+							return true
+						}
+					}
+					return false
+				}, time.Second*5).Should(BeFalse(), "taint should be removed when absent condition satisfies via defaultStatus")
+
+				// Validate that CurrentStatus is Unknown (observed status), RequiredStatus is False, and DefaultStatus is False.
+				Eventually(func() nodereadinessiov1alpha1.ConditionEvaluationResult {
+					updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+					if err := k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, updatedRule); err != nil {
+						return nodereadinessiov1alpha1.ConditionEvaluationResult{}
+					}
+					for _, ne := range updatedRule.Status.NodeEvaluations {
+						if ne.NodeName == nodeName && len(ne.ConditionResults) > 0 {
+							return ne.ConditionResults[0]
+						}
+					}
+					return nodereadinessiov1alpha1.ConditionEvaluationResult{}
+				}, time.Second*5).Should(SatisfyAll(
+					WithTransform(func(r nodereadinessiov1alpha1.ConditionEvaluationResult) corev1.ConditionStatus {
+						return r.CurrentStatus
+					}, Equal(corev1.ConditionUnknown)),
+					WithTransform(func(r nodereadinessiov1alpha1.ConditionEvaluationResult) corev1.ConditionStatus {
+						return r.RequiredStatus
+					}, Equal(corev1.ConditionFalse)),
+					WithTransform(func(r nodereadinessiov1alpha1.ConditionEvaluationResult) corev1.ConditionStatus {
+						return r.DefaultStatus
+					}, Equal(corev1.ConditionFalse)),
+				))
+			})
 	})
 
 	Context("Node Processing", func() {
@@ -846,16 +1044,33 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			}
 
 			// Test condition exists and matches
-			status := readinessController.getConditionStatus(node, "Ready")
+			status, ok := readinessController.getConditionStatus(
+				node, "Ready", corev1.ConditionUnknown,
+			)
 			Expect(status).To(Equal(corev1.ConditionTrue))
+			Expect(ok).To(BeTrue())
 
 			// Test condition exists but doesn't match
-			status = readinessController.getConditionStatus(node, "NetworkReady")
+			status, ok = readinessController.getConditionStatus(
+				node, "NetworkReady", corev1.ConditionUnknown,
+			)
 			Expect(status).To(Equal(corev1.ConditionFalse))
+			Expect(ok).To(BeTrue())
 
 			// Test missing condition
-			status = readinessController.getConditionStatus(node, "StorageReady")
+			status, ok = readinessController.getConditionStatus(
+				node, "StorageReady", corev1.ConditionUnknown,
+			)
 			Expect(status).To(Equal(corev1.ConditionUnknown))
+			Expect(ok).To(BeFalse())
+
+			// Test missing condition with a non-Unknown default — condition is absent so
+			// conditionFound=false, but the returned status equals the supplied default.
+			status, ok = readinessController.getConditionStatus(
+				node, "NewCondition", corev1.ConditionTrue,
+			)
+			Expect(status).To(Equal(corev1.ConditionTrue))
+			Expect(ok).To(BeFalse())
 		})
 
 		It("should detect taints correctly", func() {
@@ -932,9 +1147,10 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		It("should handle bootstrap completion tracking", func() {
 			nodeName := "bootstrap-test-node"
 			ruleName := "bootstrap-test-rule"
+			ruleUID := types.UID("11111111-1111-1111-1111-111111111111")
 
 			// Initially not completed
-			completed := readinessController.isBootstrapCompleted(ctx, nodeName, ruleName)
+			completed := readinessController.isBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)
 			Expect(completed).To(BeFalse())
 
 			// Create a node for testing
@@ -947,24 +1163,25 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			defer func() { _ = k8sClient.Delete(ctx, node) }()
 
 			// Mark as completed
-			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName)
+			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)
 
 			// Should now be completed
 			Eventually(func() bool {
-				return readinessController.isBootstrapCompleted(ctx, nodeName, ruleName)
+				return readinessController.isBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)
 			}).Should(BeTrue())
 		})
 
 		It("should return false when context is cancelled", func() {
 			nodeName := "bootstrap-ctx-test-node"
 			ruleName := "bootstrap-ctx-test-rule"
+			ruleUID := types.UID("22222222-2222-2222-2222-222222222222")
 
-			// Create a node with the bootstrap annotation already set
+			// Create a node with the UID-based bootstrap annotation already set
 			node := &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: nodeName,
 					Annotations: map[string]string{
-						"readiness.k8s.io/bootstrap-completed-" + ruleName: "true",
+						bootstrapAnnotationKey(ruleUID): `{"rule-name":"bootstrap-ctx-test-rule"}`,
 					},
 				},
 			}
@@ -972,17 +1189,18 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			defer func() { _ = k8sClient.Delete(ctx, node) }()
 
 			// Verify it returns true with a valid context
-			Expect(readinessController.isBootstrapCompleted(ctx, nodeName, ruleName)).To(BeTrue())
+			Expect(readinessController.isBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)).To(BeTrue())
 
 			// A cancelled context should cause the Get to fail, returning false
 			cancelledCtx, cancel := context.WithCancel(ctx)
 			cancel()
-			Expect(readinessController.isBootstrapCompleted(cancelledCtx, nodeName, ruleName)).To(BeFalse())
+			Expect(readinessController.isBootstrapCompleted(cancelledCtx, nodeName, ruleName, ruleUID)).To(BeFalse())
 		})
 
 		It("should set bootstrap annotation via patch in markBootstrapCompleted", func() {
 			nodeName := "bootstrap-patch-test-node"
 			ruleName := "bootstrap-patch-test-rule"
+			ruleUID := types.UID("33333333-3333-3333-3333-333333333333")
 
 			// Create a node with existing annotations that should be preserved
 			node := &corev1.Node{
@@ -997,14 +1215,16 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			defer func() { _ = k8sClient.Delete(ctx, node) }()
 
 			// Mark bootstrap completed
-			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName)
+			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)
 
-			// Verify annotation was added and existing annotation is preserved
+			// Verify UID-based annotation was added and existing annotation is preserved
 			Eventually(func(g Gomega) {
 				updatedNode := &corev1.Node{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, updatedNode)).To(Succeed())
-				g.Expect(updatedNode.Annotations).To(HaveKeyWithValue(
-					"readiness.k8s.io/bootstrap-completed-"+ruleName, "true"))
+				g.Expect(updatedNode.Annotations).To(HaveKey(
+					bootstrapAnnotationKey(ruleUID)))
+				g.Expect(updatedNode.Annotations[bootstrapAnnotationKey(ruleUID)]).To(
+					ContainSubstring(ruleName))
 				g.Expect(updatedNode.Annotations).To(HaveKeyWithValue(
 					"existing-annotation", "should-be-preserved"))
 			}).Should(Succeed())
@@ -1013,6 +1233,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		It("should increment bootstrap completed metric only when newly marked", func() {
 			nodeName := "bootstrap-metric-test-node"
 			ruleName := "bootstrap-metric-test-rule"
+			ruleUID := types.UID("44444444-4444-4444-4444-444444444444")
 
 			node := &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1025,10 +1246,76 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			counter := metrics.BootstrapCompleted.WithLabelValues(ruleName)
 			before := counterValue(counter)
 
-			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName)
-			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName)
+			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)
+			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)
 
 			Expect(counterValue(counter)).To(Equal(before + 1))
+		})
+
+		It("should observe bootstrap duration metric exactly once on taint removal", func() {
+			ruleName := "bootstrap-duration-metric-rule"
+			nodeName := "bootstrap-duration-metric-node"
+			taintKey := "readiness.k8s.io/bootstrap-duration-test"
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       ruleName,
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    taintKey,
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"env": "bootstrap-duration"},
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			transitionTime := metav1.NewTime(time.Now().Add(5 * time.Second))
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{"env": "bootstrap-duration"},
+				},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: taintKey, Effect: corev1.TaintEffectNoSchedule},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
+					return err
+				}
+				node.Status.Conditions = []corev1.NodeCondition{
+					{
+						Type:               "Ready",
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: transitionTime,
+					},
+				}
+				return k8sClient.Status().Update(ctx, node)
+			}, time.Second*5, time.Millisecond*100).Should(Succeed())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, rule)).To(Succeed())
+
+			histogram := metrics.BootstrapDuration.WithLabelValues(ruleName).(prometheus.Histogram)
+			before := histogramSampleCount(histogram)
+
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, node)).To(Succeed())
+
+			Expect(histogramSampleCount(histogram)).To(Equal(before + 1))
 		})
 	})
 

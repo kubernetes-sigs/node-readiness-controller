@@ -103,12 +103,12 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 		}
 
-		By("undeploying the controller-manager")
-		cmd = exec.Command("make", "undeploy")
-		_, _ = utils.Run(cmd)
-
 		By("uninstalling CRDs")
 		cmd = exec.Command("make", "uninstall")
+		_, _ = utils.Run(cmd)
+
+		By("undeploying the controller-manager")
+		cmd = exec.Command("make", "undeploy")
 		_, _ = utils.Run(cmd)
 
 		By("removing manager namespace")
@@ -231,6 +231,18 @@ status:
 			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
+			By("waiting for the rule to be reconciled by the controller")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "nodereadinessrule", "bootstrap-test-rule",
+					"-o", "jsonpath={.status.observedGeneration}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.TrimSpace(output) != "" && strings.TrimSpace(output) != "0"
+			}, 30*time.Second, 1*time.Second).Should(BeTrue(),
+				"Rule should be reconciled and have observedGeneration set")
+
 			By("updating node condition to True")
 			err = patchNodeCondition(nodeName, "TestReady", "True")
 			Expect(err).NotTo(HaveOccurred())
@@ -243,16 +255,29 @@ status:
 					return false
 				}
 				return !strings.Contains(output, "readiness.k8s.io/TestReady")
-			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+			}, 60*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("getting the bootstrap rule UID")
+			var ruleUID string
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "nodereadinessrule", "bootstrap-test-rule", "-o", "jsonpath={.metadata.uid}")
+				uid, err := utils.Run(cmd)
+				if err != nil {
+					return ""
+				}
+				ruleUID = strings.TrimSpace(uid)
+				return ruleUID
+			}, 10*time.Second, 1*time.Second).Should(Not(BeEmpty()))
 
 			By("verifying node has bootstrap completion annotation")
 			Eventually(func() bool {
-				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.metadata.annotations.readiness\\.k8s\\.io/bootstrap-completed-bootstrap-test-rule}")
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.metadata.annotations}")
 				output, err := utils.Run(cmd)
 				if err != nil {
 					return false
 				}
-				return strings.Contains(output, "true")
+				expectedAnnotation := fmt.Sprintf("readiness.k8s.io/bootstrap-completed-%s", ruleUID)
+				return strings.Contains(output, expectedAnnotation)
 			}, 30*time.Second, 2*time.Second).Should(BeTrue())
 
 			By("updating node condition back to False")
@@ -678,7 +703,7 @@ metadata:
     e2e-test: "remediation"
 status:
   conditions:
-    - type: CustomCondition/MyComponentNotReady
+    - type: MyComponentNotReady
       status: "False"
       lastHeartbeatTime: %s
       lastTransitionTime: %s
@@ -702,7 +727,7 @@ status:
 			}, 10*time.Second, 2*time.Second).Should(BeTrue())
 
 			By("simulating failure by updating condition to True (unhealthy)")
-			err = patchNodeCondition(nodeName, "CustomCondition/MyComponentNotReady", "True")
+			err = patchNodeCondition(nodeName, "MyComponentNotReady", "True")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("verifying taint is quickly added")
@@ -716,7 +741,7 @@ status:
 			}, 30*time.Second, 2*time.Second).Should(BeTrue())
 
 			By("simulating recovery by updating condition back to False (healthy)")
-			err = patchNodeCondition(nodeName, "CustomCondition/MyComponentNotReady", "False")
+			err = patchNodeCondition(nodeName, "MyComponentNotReady", "False")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("verifying taint is removed")
@@ -732,6 +757,107 @@ status:
 			By("cleaning up test resources")
 			exec.Command("kubectl", "delete", "node", nodeName).Run()
 			exec.Command("kubectl", "delete", "nodereadinessrule", "remediation-test-rule").Run()
+		})
+
+		It("should support FieldSelectors for enforcementMode and taint key", func() {
+			By("applying test rules with different modes and taint keys")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(`
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: selector-test-bootstrap
+spec:
+  conditions:
+    - type: SelectorTest
+      requiredStatus: "True"
+  taint:
+    key: readiness.k8s.io/test-bootstrap
+    effect: NoSchedule
+  enforcementMode: "bootstrap-only"
+  nodeSelector:
+    matchLabels:
+      e2e-test: "selector"
+---
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: selector-test-continuous
+spec:
+  conditions:
+    - type: SelectorTest
+      requiredStatus: "True"
+  taint:
+    key: readiness.k8s.io/test-continuous
+    effect: NoSchedule
+  enforcementMode: "continuous"
+  nodeSelector:
+    matchLabels:
+      e2e-test: "selector"
+`)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("querying rules by enforcementMode=bootstrap-only")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "nrr", "--field-selector", "spec.enforcementMode=bootstrap-only", "-o", "jsonpath={.items[*].metadata.name}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "selector-test-bootstrap") && !strings.Contains(output, "selector-test-continuous")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("querying rules by taint key")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "nrr", "--field-selector", "spec.taint.key=readiness.k8s.io/test-continuous", "-o", "jsonpath={.items[*].metadata.name}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "selector-test-continuous") && !strings.Contains(output, "selector-test-bootstrap")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("cleaning up test resources")
+			exec.Command("kubectl", "delete", "nodereadinessrule", "selector-test-bootstrap", "selector-test-continuous").Run()
+		})
+
+		It("should support FieldSelectors for dryRun", func() {
+			By("applying test rules for dryRun")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(`
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: selector-test-dryrun
+spec:
+  conditions:
+    - type: SelectorTest
+      requiredStatus: "True"
+  taint:
+    key: readiness.k8s.io/test-dryrun
+    effect: NoSchedule
+  enforcementMode: "bootstrap-only"
+  dryRun: true
+  nodeSelector:
+    matchLabels:
+      e2e-test: "selector"
+`)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("querying rules by dryRun=true")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "nrr", "--field-selector", "spec.dryRun=true", "-o", "jsonpath={.items[*].metadata.name}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "selector-test-dryrun")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("cleaning up test resources")
+			exec.Command("kubectl", "delete", "nodereadinessrule", "selector-test-dryrun").Run()
 		})
 	})
 })

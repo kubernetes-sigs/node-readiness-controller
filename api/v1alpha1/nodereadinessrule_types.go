@@ -107,7 +107,8 @@ type NodeReadinessRuleSpec struct {
 }
 
 // ConditionRequirement defines a specific Node condition and the status value
-// required to trigger the controller's action.
+// required to trigger the controller's action. It also contains an optional
+// default status value.
 type ConditionRequirement struct {
 	// type of Node condition
 	//
@@ -123,6 +124,19 @@ type ConditionRequirement struct {
 	// +required
 	// +kubebuilder:validation:Enum=True;False;Unknown
 	RequiredStatus corev1.ConditionStatus `json:"requiredStatus,omitempty"`
+
+	// defaultStatus is the status a condition is evaluated to if the condition
+	// is not found in a node.
+	//
+	// Accepted values are True, False, Unknown. It is optional.
+	// When omitted, the effective default is Unknown, applied transparently by
+	// the controller at evaluation time.
+	//
+	// Note: This field must not be set when enforcementMode is bootstrap-only.
+	//
+	// +optional
+	// +kubebuilder:validation:Enum=True;False;Unknown
+	DefaultStatus corev1.ConditionStatus `json:"defaultStatus,omitempty"` // Use GetDefaultStatus() for safe access; field may be empty even when a default applies.
 }
 
 // NodeReadinessRuleStatus defines the observed state of NodeReadinessRule.
@@ -255,6 +269,14 @@ type ConditionEvaluationResult struct {
 	// +required
 	// +kubebuilder:validation:Enum=True;False;Unknown
 	RequiredStatus corev1.ConditionStatus `json:"requiredStatus,omitempty"`
+
+	// defaultStatus is the status a condition is evaluated to if the condition
+	// is not found in a node. Reflects the defaultStatus configured in the rule
+	// spec.
+	//
+	// +optional
+	// +kubebuilder:validation:Enum=True;False;Unknown
+	DefaultStatus corev1.ConditionStatus `json:"defaultStatus,omitempty"`
 }
 
 // DryRunResults provides a summary of the actions the controller would perform if DryRun mode is enabled.
@@ -299,9 +321,12 @@ type DryRunResults struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=nrr
 // +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.enforcementMode`,description="The enforcement mode of the rule: bootstrap-only or continuous."
+// +kubebuilder:selectablefield:JSONPath=`.spec.enforcementMode`
 // +kubebuilder:printcolumn:name="Taint",type=string,JSONPath=`.spec.taint.key`,description="The readiness taint applied by this rule."
+// +kubebuilder:selectablefield:JSONPath=`.spec.taint.key`
 // +kubebuilder:printcolumn:name="Effect",type=string,JSONPath=`.spec.taint.effect`,description="The taint effect: NoSchedule, PreferNoSchedule or NoExecute."
 // +kubebuilder:printcolumn:name="DryRun",type=boolean,JSONPath=`.spec.dryRun`,description="Whether the rule is in dry-run mode and only previews taint changes."
+// +kubebuilder:selectablefield:JSONPath=`.spec.dryRun`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`,description="The age of this resource"
 
 // NodeReadinessRule is the Schema for the NodeReadinessRules API.
@@ -337,6 +362,21 @@ type NodeReadinessRuleList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	// items is the list of NodeReadinessRule.
 	Items []NodeReadinessRule `json:"items"`
+}
+
+// GetDefaultStatus returns the effective default status for a condition that is
+// not found on a node. If the field is unset (empty string), it falls back to
+// corev1.ConditionUnknown.
+//
+// Always use this method instead of reading DefaultStatus directly. The field
+// is intentionally left without an OpenAPI schema default (kubebuilder:default
+// is forbidden by project policy) and the Spec is immutable, so defaulting
+// must happen at read time via this accessor.
+func (c *ConditionRequirement) GetDefaultStatus() corev1.ConditionStatus {
+	if c.DefaultStatus == "" {
+		return corev1.ConditionUnknown
+	}
+	return c.DefaultStatus
 }
 
 func init() {

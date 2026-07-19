@@ -2,6 +2,84 @@
 
 This page details the official releases of the Node Readiness Controller.
 
+## v0.4.1
+
+**Date:** 2026-07-12
+
+This release includes critical bug fixes, most notably optimistic locking for taint updates so NRC plays well with other concurrent taint-management controllers like Karpenter, along with bootstrap-mode correctness, handling of long rule names, and reconcile retries. It also adds configurable defaults for missing conditions, letting continuous mode work naturally with problem states — such as those reported by NPD — to keep workloads off nodes where critical readiness is missing.
+
+> **Note:** This release was originally tagged v0.4.0, but the image build for that tag failed to publish. The images were retagged and published as v0.4.1 with no other code changes.
+
+### Release Notes
+
+#### Features & Enhancements
+- Add optional `DefaultStatus` field to `ConditionRequirement` for missing node conditions ([#283](https://github.com/kubernetes-sigs/node-readiness-controller/pull/283))
+- Prevent setting `defaultStatus` in bootstrap-only enforcement mode within validation webhook ([#291](https://github.com/kubernetes-sigs/node-readiness-controller/pull/291))
+- Add options to tune concurrency, QPS, and burst ([#287](https://github.com/kubernetes-sigs/node-readiness-controller/pull/287))
+- Reduce API-server load in reporter by skipping unchanged node conditions ([#263](https://github.com/kubernetes-sigs/node-readiness-controller/pull/263))
+- Add `Effect` and `DryRun` printcolumns to `NodeReadinessRule` ([#193](https://github.com/kubernetes-sigs/node-readiness-controller/pull/193))
+- Add govulncheck GitHub Actions workflow ([#186](https://github.com/kubernetes-sigs/node-readiness-controller/pull/186))
+
+#### Bug Fixes
+- Enhance uninstall target to wait for full deletion of CRDs ([#296](https://github.com/kubernetes-sigs/node-readiness-controller/pull/296))
+- Handle long rule names in bootstrap annotation keys ([#224](https://github.com/kubernetes-sigs/node-readiness-controller/pull/224))
+- Webhook fails closed when rule listing errors ([#252](https://github.com/kubernetes-sigs/node-readiness-controller/pull/252))
+- Detect matchExpression selector overlaps in webhook ([#246](https://github.com/kubernetes-sigs/node-readiness-controller/pull/246))
+- Improve `nodeSelectorsOverlap` to detect subset overlaps ([#212](https://github.com/kubernetes-sigs/node-readiness-controller/pull/212))
+- Target metrics patches to metrics-service only ([#277](https://github.com/kubernetes-sigs/node-readiness-controller/pull/277))
+- Add subject to certificates to satisfy cert-manager ([#280](https://github.com/kubernetes-sigs/node-readiness-controller/pull/280))
+- Avoid double-counting bootstrap completion metric ([#206](https://github.com/kubernetes-sigs/node-readiness-controller/pull/206))
+- Remove duplicate bootstrap duration observation in taint removal path ([#285](https://github.com/kubernetes-sigs/node-readiness-controller/pull/285))
+- Only append to appliedNodes after successful node evaluation ([#216](https://github.com/kubernetes-sigs/node-readiness-controller/pull/216))
+- Reconcile retry on rule processing errors ([#222](https://github.com/kubernetes-sigs/node-readiness-controller/pull/222))
+- Taint optimistic locking fix ([#180](https://github.com/kubernetes-sigs/node-readiness-controller/pull/180))
+
+#### Code Cleanup & Maintenance
+- Harden GitHub Actions workflows security ([#200](https://github.com/kubernetes-sigs/node-readiness-controller/pull/200))
+- Add test-e2e-kind target with hack script and artifact collection ([#270](https://github.com/kubernetes-sigs/node-readiness-controller/pull/270))
+- Output test coverprofile to Artifacts tab in Prow ([#257](https://github.com/kubernetes-sigs/node-readiness-controller/pull/257))
+- Remove dead `cleanupNodesAfterSelectorChange` code path ([#250](https://github.com/kubernetes-sigs/node-readiness-controller/pull/250))
+- Replace kb.io placeholder with NRC API domain in webhook name ([#265](https://github.com/kubernetes-sigs/node-readiness-controller/pull/265))
+- Add issue templates ([#262](https://github.com/kubernetes-sigs/node-readiness-controller/pull/262))
+
+#### Documentation & Examples
+- Fix 404s and improve instructions for cluster creation ([#281](https://github.com/kubernetes-sigs/node-readiness-controller/pull/281))
+- Fix invalid taint key names ([#275](https://github.com/kubernetes-sigs/node-readiness-controller/pull/275))
+- Replace blockquotes with admonitions ([#274](https://github.com/kubernetes-sigs/node-readiness-controller/pull/274))
+- Clarify CNI readiness reporter as DaemonSet instead of sidecar ([#181](https://github.com/kubernetes-sigs/node-readiness-controller/pull/181))
+- Add new metrics and testing documentation ([#271](https://github.com/kubernetes-sigs/node-readiness-controller/pull/271))
+
+### Images
+
+The following container images are published as part of this release.
+
+```
+// Node readiness controller
+registry.k8s.io/node-readiness-controller/node-readiness-controller:v0.4.1
+
+// Report component readiness condition from the node
+registry.k8s.io/node-readiness-controller/node-readiness-reporter:v0.4.1
+```
+
+### Contributors
+
+- ajaysundar.k
+- Anurag Pathak
+- Arunit Chakraborty
+- Avinesh Tripathi
+- Dorothy
+- Himanshu Choudhary
+- Justin
+- Karthik Bhat
+- Mohammad Faraz
+- Priyanka Saggu
+- Rawad Hossain
+- Sahitya Chandra
+- Shreya2005-2005
+- Sujal Shah
+- Vishnu Kothakapu
+- Vitor Floriano
+
 ## v0.3.0
 
 **Date:** 2026-03-18

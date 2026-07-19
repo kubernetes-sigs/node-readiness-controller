@@ -26,8 +26,15 @@ if ! command -v govulncheck &>/dev/null; then
   go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
 fi
 
-# NRC_VERIFY_GIT_BRANCH is populated in verify CI jobs (e.g. GITHUB_BASE_REF).
-BRANCH="${NRC_VERIFY_GIT_BRANCH:-main}"
+# NRC_VERIFY_GIT_BRANCH is populated in verify CI jobs (e.g. GITHUB_BASE_REF
+# for GitHub Actions, PULL_BASE_REF for Prow).
+BRANCH="${NRC_VERIFY_GIT_BRANCH:-${PULL_BASE_REF:-main}}"
+
+# Prow (and other shallow/single-branch checkouts) may not have the base
+# branch available as a local ref, so fetch it if needed.
+if ! git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
+  git fetch --quiet origin "${BRANCH}:${BRANCH}"
+fi
 
 # Create a temp directory and clean it up on exit.
 TMPDIR="$(mktemp -d)"

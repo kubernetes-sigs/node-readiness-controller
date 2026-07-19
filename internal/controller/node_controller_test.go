@@ -105,6 +105,77 @@ var _ = Describe("Node Controller", func() {
 		})
 	})
 
+	Context("isBootstrapCompleted tests", func() {
+		var (
+			ctx                 context.Context
+			readinessController *RuleReadinessController
+			node                *corev1.Node
+			ruleUID             types.UID
+			ruleName            string
+			nodeName            string
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			ruleUID = types.UID("test-rule-uid-1234")
+			ruleName = "test-rule"
+			nodeName = "bootstrap-test-node"
+
+			readinessController = &RuleReadinessController{
+				Client: k8sClient,
+			}
+
+			node = &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nodeName,
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			_ = k8sClient.Delete(ctx, node)
+		})
+
+		It("should return false if no annotations exist", func() {
+			Expect(readinessController.isBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)).To(BeFalse())
+		})
+
+		It("should return true if only new annotation exists", func() {
+			updatedNode := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, updatedNode)).To(Succeed())
+			updatedNode.Annotations = map[string]string{
+				bootstrapAnnotationKey(ruleUID): bootstrapAnnotationValue(ruleName),
+			}
+			Expect(k8sClient.Update(ctx, updatedNode)).To(Succeed())
+
+			Expect(readinessController.isBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)).To(BeTrue())
+		})
+
+		It("should return true if only legacy annotation exists", func() {
+			updatedNode := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, updatedNode)).To(Succeed())
+			updatedNode.Annotations = map[string]string{
+				legacyBootstrapAnnotationKey(ruleName): bootstrapAnnotationValue(ruleName),
+			}
+			Expect(k8sClient.Update(ctx, updatedNode)).To(Succeed())
+
+			Expect(readinessController.isBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)).To(BeTrue())
+		})
+
+		It("should return true if both annotations exist", func() {
+			updatedNode := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, updatedNode)).To(Succeed())
+			updatedNode.Annotations = map[string]string{
+				bootstrapAnnotationKey(ruleUID):        bootstrapAnnotationValue(ruleName),
+				legacyBootstrapAnnotationKey(ruleName): bootstrapAnnotationValue(ruleName),
+			}
+			Expect(k8sClient.Update(ctx, updatedNode)).To(Succeed())
+
+			Expect(readinessController.isBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)).To(BeTrue())
+		})
+	})
+
 	// Reconciliation tests need cluster resources
 	Context("when reconciling a node", func() {
 		var (
@@ -232,12 +303,12 @@ var _ = Describe("Node Controller", func() {
 					return false
 				}, time.Second*5).Should(BeFalse())
 
-				// Verify bootstrap completion annotation is added
+				// Verify bootstrap completion annotation is added (UID-based key)
 				Eventually(func() map[string]string {
 					updatedNode := &corev1.Node{}
 					_ = k8sClient.Get(ctx, namespacedName, updatedNode)
 					return updatedNode.Annotations
-				}).Should(HaveKey("readiness.k8s.io/bootstrap-completed-" + ruleName))
+				}).Should(HaveKey(bootstrapAnnotationKey(rule.GetUID())))
 			})
 
 			It("should not re-add the taint if conditions regress after completion", func() {
@@ -651,6 +722,7 @@ var _ = Describe("Node Controller", func() {
 			Expect(nodeEval.ConditionResults[0].Type).To(Equal("StatusTestCondition"))
 			Expect(nodeEval.ConditionResults[0].CurrentStatus).To(Equal(corev1.ConditionFalse))
 			Expect(nodeEval.ConditionResults[0].RequiredStatus).To(Equal(corev1.ConditionTrue))
+			Expect(nodeEval.ConditionResults[0].DefaultStatus).To(Equal(corev1.ConditionUnknown))
 			Expect(nodeEval.TaintStatus).To(Equal(nodereadinessiov1alpha1.TaintStatusPresent))
 			Expect(nodeEval.LastEvaluationTime.IsZero()).To(BeFalse(), "LastEvaluationTime should be set")
 		})

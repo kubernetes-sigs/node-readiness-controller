@@ -19,7 +19,7 @@ data:
       "source": "custom-component-monitor",
       "conditions": [
         {
-          "type": "CustomCondition/MyComponentNotReady",
+          "type": "MyComponentNotReady",
           "reason": "ComponentHealthy",
           "message": "Custom component is functioning normally"
         }
@@ -27,7 +27,7 @@ data:
       "rules": [
         {
           "type": "permanent",
-          "condition": "CustomCondition/MyComponentNotReady",
+          "condition": "MyComponentNotReady",
           "reason": "ComponentUnhealthy",
           "path": "/config/plugin/check-component.sh"
         }

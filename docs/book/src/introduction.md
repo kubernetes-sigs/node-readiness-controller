@@ -25,6 +25,7 @@ With this controller you can:
 
 - **Multi-condition Rules**: Define rules that require ALL specified conditions to be satisfied
 - **Flexible Enforcement**: Support for bootstrap-only and continuous enforcement modes
+- **Default Condition Status**: Per-condition control over how absent node conditions are evaluated, enabling problem-gate (default-allow) scenarios
 - **Conflict Prevention**: Validation webhook prevents conflicting taint configurations
 - **Dry Run Mode**: Preview rule impact before applying changes
 - **Comprehensive Status**: Detailed observability into rule evaluation and node readiness status

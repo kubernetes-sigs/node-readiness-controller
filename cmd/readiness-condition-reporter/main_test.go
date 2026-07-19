@@ -109,13 +109,16 @@ func TestCheckHealthCancelledContext(t *testing.T) {
 func TestUpdateNodeCondition(t *testing.T) {
 	nodeName := "test-node"
 	conditionType := "TestCondition"
+	staleTime := time.Now().Add(-6 * time.Minute)
 
 	tests := []struct {
-		name         string
-		existingNode *corev1.Node
-		health       *HealthResponse
-		wantStatus   corev1.ConditionStatus
-		wantReason   string
+		name             string
+		existingNode     *corev1.Node
+		health           *HealthResponse
+		heartbeatPeriod  time.Duration
+		wantStatus       corev1.ConditionStatus
+		wantReason       string
+		wantUpdateCalled bool
 	}{
 		{
 			name: "New Condition Healthy",
@@ -127,11 +130,13 @@ func TestUpdateNodeCondition(t *testing.T) {
 				Reason:  "EndpointOK",
 				Message: "All good",
 			},
-			wantStatus: corev1.ConditionTrue,
-			wantReason: "EndpointOK",
+			heartbeatPeriod:  5 * time.Minute,
+			wantStatus:       corev1.ConditionTrue,
+			wantReason:       "EndpointOK",
+			wantUpdateCalled: true,
 		},
 		{
-			name: "Update Condition to Unhealthy",
+			name: "State change triggers immediate write",
 			existingNode: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
 				Status: corev1.NodeStatus{
@@ -148,8 +153,64 @@ func TestUpdateNodeCondition(t *testing.T) {
 				Reason:  "HealthCheckFailed",
 				Message: "Something failed",
 			},
-			wantStatus: corev1.ConditionFalse,
-			wantReason: "HealthCheckFailed",
+			heartbeatPeriod:  5 * time.Minute,
+			wantStatus:       corev1.ConditionFalse,
+			wantReason:       "HealthCheckFailed",
+			wantUpdateCalled: true,
+		},
+		{
+			name: "State unchanged: Fresh heartbeat (skip write)",
+			existingNode: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{
+							Type:               corev1.NodeConditionType(conditionType),
+							Status:             corev1.ConditionTrue,
+							Reason:             "EndpointOk",
+							Message:            "All good",
+							LastHeartbeatTime:  metav1.NewTime(time.Now()),
+							LastTransitionTime: metav1.NewTime(time.Now()),
+						},
+					},
+				},
+			},
+			health: &HealthResponse{
+				Healthy: true,
+				Reason:  "EndpointOk",
+				Message: "All good",
+			},
+			heartbeatPeriod:  5 * time.Minute,
+			wantStatus:       corev1.ConditionTrue,
+			wantReason:       "EndpointOk",
+			wantUpdateCalled: false,
+		},
+		{
+			name: "State unchanged: Stale heartbeat (force write)",
+			existingNode: &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{
+							Type:               corev1.NodeConditionType(conditionType),
+							Status:             corev1.ConditionTrue,
+							Reason:             "EndpointOk",
+							Message:            "All good",
+							LastHeartbeatTime:  metav1.NewTime(staleTime),
+							LastTransitionTime: metav1.NewTime(staleTime),
+						},
+					},
+				},
+			},
+			health: &HealthResponse{
+				Healthy: true,
+				Reason:  "EndpointOk",
+				Message: "All good",
+			},
+			heartbeatPeriod:  5 * time.Minute,
+			wantStatus:       corev1.ConditionTrue,
+			wantReason:       "EndpointOk",
+			wantUpdateCalled: true,
 		},
 	}
 
@@ -157,9 +218,27 @@ func TestUpdateNodeCondition(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := fake.NewSimpleClientset(tt.existingNode)
 
-			err := updateNodeCondition(context.Background(), client, nodeName, conditionType, tt.health)
+			countUpdates := func() int {
+				n := 0
+				for _, a := range client.Actions() {
+					if a.GetVerb() == "update" && a.GetSubresource() == "status" && a.GetResource().Resource == "nodes" {
+						n++
+					}
+				}
+				return n
+			}
+
+			err := updateNodeCondition(context.Background(), client, nodeName, conditionType, tt.health, tt.heartbeatPeriod)
 			if err != nil {
 				t.Errorf("updateNodeCondition() error = %v", err)
+			}
+
+			// Assert API call frequency
+			updateCount := countUpdates()
+			if tt.wantUpdateCalled && updateCount == 0 {
+				t.Errorf("Expected UpdateStatus to be called, but it was skipped")
+			} else if !tt.wantUpdateCalled && updateCount > 0 {
+				t.Errorf("Expected UpdateStatus to be skipped, but it was called %d times", updateCount)
 			}
 
 			updatedNode, err := client.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})

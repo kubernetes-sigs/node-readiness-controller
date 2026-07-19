@@ -64,8 +64,9 @@ type RuleReadinessController struct {
 // RuleReconciler handles NodeReadinessRule reconciliation.
 type RuleReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	Controller *RuleReadinessController
+	Scheme                  *runtime.Scheme
+	Controller              *RuleReadinessController
+	MaxConcurrentReconciles int // caps how many rules are reconciled concurrently
 }
 
 // NewRuleReadinessController creates a new controller.
@@ -82,9 +83,10 @@ func NewRuleReadinessController(mgr ctrl.Manager, clientset kubernetes.Interface
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *RuleReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	concurrency := max(r.MaxConcurrentReconciles, 1)
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("nodereadiness-controller").
-		WithOptions(controller.Options{MaxConcurrentReconciles: 1}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: concurrency}).
 		For(&readinessv1alpha1.NodeReadinessRule{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Complete(r)
 }
@@ -323,8 +325,19 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 	conditionResults := make([]readinessv1alpha1.ConditionEvaluationResult, 0, len(rule.Spec.Conditions))
 
 	for _, condReq := range rule.Spec.Conditions {
-		currentStatus := r.getConditionStatus(node, condReq.Type)
-		satisfied := currentStatus == condReq.RequiredStatus
+		effectiveStatus, conditionFound := r.getConditionStatus(
+			node,
+			condReq.Type,
+			condReq.GetDefaultStatus(),
+		)
+		satisfied := effectiveStatus == condReq.RequiredStatus
+
+		// observedStatus is the condition status of a node without applying the default
+		// fallback in case the condition is not found.
+		observedStatus := effectiveStatus
+		if !conditionFound {
+			observedStatus = corev1.ConditionUnknown
+		}
 
 		if !satisfied {
 			allConditionsSatisfied = false
@@ -333,12 +346,14 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 
 		conditionResults = append(conditionResults, readinessv1alpha1.ConditionEvaluationResult{
 			Type:           condReq.Type,
-			CurrentStatus:  currentStatus,
+			CurrentStatus:  observedStatus,
 			RequiredStatus: condReq.RequiredStatus,
+			DefaultStatus:  condReq.GetDefaultStatus(),
 		})
 
 		log.V(1).Info("Condition evaluation", "node", node.Name, "rule", rule.Name,
-			"conditionType", condReq.Type, "current", currentStatus, "required", condReq.RequiredStatus,
+			"conditionType", condReq.Type, "observed", observedStatus,
+			"effective", effectiveStatus, "required", condReq.RequiredStatus,
 			"satisfied", satisfied)
 	}
 
@@ -395,18 +410,7 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 
 		// Mark bootstrap completed if bootstrap-only mode
 		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
-			r.markBootstrapCompleted(ctx, node.Name, rule.Name)
-
-			// Only record the bootstrap duration if the node was created AFTER the rule.
-			// This prevents legacy nodes from poisoning the histogram with massive outliers.
-			if !node.CreationTimestamp.Time.Before(rule.CreationTimestamp.Time) {
-				duration := latestTransition.Time.Sub(node.CreationTimestamp.Time).Seconds()
-				metrics.BootstrapDuration.WithLabelValues(rule.Name).Observe(duration)
-			} else {
-				log.V(4).Info("Skipping bootstrap duration metric for legacy node",
-					"node", node.Name,
-					"rule", rule.Name)
-			}
+			r.markBootstrapCompleted(ctx, node.Name, rule.Name, rule.GetUID())
 
 			// Only record the bootstrap duration if the node was created AFTER the rule.
 			// This prevents legacy nodes from poisoning the histogram with massive outliers.
@@ -447,6 +451,10 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 	default:
 		log.Info("No taint action needed", "node", node.Name, "rule", rule.Name,
 			"shouldRemove", shouldRemoveTaint, "hasTaint", currentlyHasTaint)
+		// Mark bootstrap completed if bootstrap-only mode
+		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
+			r.markBootstrapCompleted(ctx, node.Name, rule.Name, rule.GetUID())
+		}
 	}
 
 	// Determine observed taint status after any actions
@@ -601,8 +609,12 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 		missingConditions := 0
 
 		for _, condReq := range rule.Spec.Conditions {
-			currentStatus := r.getConditionStatus(&node, condReq.Type)
-			if currentStatus == corev1.ConditionUnknown {
+			currentStatus, conditionFound := r.getConditionStatus(
+				&node,
+				condReq.Type,
+				condReq.GetDefaultStatus(),
+			)
+			if !conditionFound {
 				missingConditions++
 			}
 			if currentStatus != condReq.RequiredStatus {

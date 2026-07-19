@@ -63,8 +63,8 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 					},
 				},
 			}
-
-			allErrs := webhook.validateSpec(rule.Spec)
+			// using isUpdate true to keep the test isolated to nodeSelector validation
+			allErrs := webhook.validateSpec(rule.Spec, true)
 			Expect(allErrs).To(HaveLen(1))
 			Expect(allErrs[0].Field).To(Equal("spec.nodeSelector"))
 		})
@@ -80,7 +80,8 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 				},
 			}
 
-			allErrs := webhook.validateSpec(rule.Spec)
+			// using isUpdate true to keep the test isolated to nodeSelector validation
+			allErrs := webhook.validateSpec(rule.Spec, true)
 			Expect(allErrs).To(BeEmpty())
 		})
 
@@ -99,7 +100,8 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 					},
 				}
 
-				allErrs := webhook.validateSpec(rule.Spec)
+				// using isUpdate true to keep the test isolated to nodeSelector validation
+				allErrs := webhook.validateSpec(rule.Spec, true)
 				Expect(allErrs).To(HaveLen(1))
 				Expect(allErrs[0].Field).To(Equal("spec.nodeSelector"))
 				Expect(allErrs[0].Type).To(Equal(field.ErrorTypeRequired))
@@ -123,11 +125,76 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 					},
 				}
 
-				allErrs := webhook.validateSpec(rule.Spec)
+				// using isUpdate true to keep the test isolated to nodeSelector validation
+				allErrs := webhook.validateSpec(rule.Spec, true)
 				Expect(allErrs).To(HaveLen(1))
 				Expect(allErrs[0].Field).To(Equal("spec.nodeSelector"))
 				Expect(allErrs[0].Type).To(Equal(field.ErrorTypeInvalid))
 			})
+		})
+
+		Context("defaultStatus enforcement", func() {
+			var spec readinessv1alpha1.NodeReadinessRuleSpec
+
+			BeforeEach(func() {
+				spec = readinessv1alpha1.NodeReadinessRuleSpec{
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{
+							Type:           "Ready",
+							RequiredStatus: corev1.ConditionTrue,
+							DefaultStatus:  corev1.ConditionTrue, // offending field
+						},
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
+				}
+			})
+
+			It("should skip defaultStatus check on update (early return)", func() {
+				allErrs := webhook.validateSpec(spec, true)
+				Expect(allErrs).To(BeEmpty())
+			})
+
+			It("should skip defaultStatus check for continuous enforcement", func() {
+				spec.EnforcementMode = readinessv1alpha1.EnforcementModeContinuous
+				allErrs := webhook.validateSpec(spec, false)
+				Expect(allErrs).To(BeEmpty())
+			})
+
+			It("should forbid defaultStatus with bootstrap-only enforcement", func() {
+				allErrs := webhook.validateSpec(spec, false)
+				Expect(allErrs).To(HaveLen(1))
+				Expect(allErrs[0].Field).To(Equal("spec.conditions[0].defaultStatus"))
+				Expect(allErrs[0].Type).To(Equal(field.ErrorTypeForbidden))
+			})
+		})
+
+		It("should accumulate errors across nodeSelector and multiple defaultStatus violations", func() {
+			spec := readinessv1alpha1.NodeReadinessRuleSpec{
+				NodeSelector: metav1.LabelSelector{}, // empty → ErrorTypeRequired
+				Conditions: []readinessv1alpha1.ConditionRequirement{
+					{
+						Type:           "Ready",
+						RequiredStatus: corev1.ConditionTrue,
+						DefaultStatus:  corev1.ConditionFalse,
+					},
+					{Type: "NetworkReady",
+						RequiredStatus: corev1.ConditionTrue,
+						DefaultStatus:  corev1.ConditionTrue,
+					},
+				},
+				EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
+			}
+
+			allErrs := webhook.validateSpec(spec, false)
+			Expect(allErrs).To(HaveLen(3))
+			Expect(allErrs[0].Field).To(Equal("spec.nodeSelector"))
+			Expect(allErrs[1].Field).To(Equal("spec.conditions[0].defaultStatus"))
+			Expect(allErrs[2].Field).To(Equal("spec.conditions[1].defaultStatus"))
 		})
 
 		It("should pass validation for valid spec", func() {
@@ -151,7 +218,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 				},
 			}
 
-			allErrs := webhook.validateSpec(rule.Spec)
+			allErrs := webhook.validateSpec(rule.Spec, false)
 			Expect(allErrs).To(BeEmpty())
 		})
 	})
@@ -801,6 +868,35 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			allErrs = webhook.validateNodeReadinessRule(ctx, invalidRule, false)
 			Expect(allErrs).To(HaveLen(1)) // Empty nodeSelector validation
 			Expect(allErrs[0].Field).To(Equal("spec.nodeSelector"))
+
+			// Test defaultStatus used with bootstrap-only enforcement
+			bootstrapDefaultStatusRule := &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "bootstrap-defaultstatus-comprehensive"},
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{
+							Type:           "Ready",
+							RequiredStatus: corev1.ConditionTrue,
+							DefaultStatus:  corev1.ConditionFalse,
+						},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/test-key",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+
+			allErrs = webhook.validateNodeReadinessRule(ctx, bootstrapDefaultStatusRule, false)
+			Expect(allErrs).To(HaveLen(1))
+			Expect(allErrs[0].Field).To(Equal("spec.conditions[0].defaultStatus"))
+			Expect(allErrs[0].Type).To(Equal(field.ErrorTypeForbidden))
 		})
 	})
 })

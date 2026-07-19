@@ -17,8 +17,47 @@ limitations under the License.
 package controller
 
 import (
+	"encoding/json"
+
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
+
+//nolint:godot
+const (
+	// bootstrapAnnotationPrefix is the common prefix for all bootstrap completion
+	// annotations on a Node. The suffix is the rule's metadata.uid (RFC 4122 UUID,
+	// ~36 chars), which is immutable for the object's lifetime and globally unique.
+	//
+	// Full key format: readiness.k8s.io/bootstrap-completed-<ruleUID>
+	// Value format:    {"rule-name":"<ruleName>"}   (for human readability)
+	bootstrapAnnotationPrefix = "readiness.k8s.io/bootstrap-completed-"
+)
+
+// bootstrapAnnotationKey returns the annotation key for a rule's bootstrap
+// completion state, using the rule's UID as the suffix.
+func bootstrapAnnotationKey(uid types.UID) string {
+	return bootstrapAnnotationPrefix + string(uid)
+}
+
+// bootstrapAnnotationValue returns the JSON-encoded value to store in the
+// bootstrap annotation. It includes the rule name for human readability.
+func bootstrapAnnotationValue(ruleName string) string {
+	v := struct {
+		RuleName string `json:"rule-name"`
+	}{RuleName: ruleName}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return `{"rule-name":""}` // should never happen
+	}
+	return string(b)
+}
+
+// legacyBootstrapAnnotationKey returns the old-format annotation key used
+// before the UID migration: readiness.k8s.io/bootstrap-completed-<ruleName>.
+func legacyBootstrapAnnotationKey(ruleName string) string {
+	return bootstrapAnnotationPrefix + ruleName
+}
 
 // conditionsEqual checks if two condition slices are equal.
 func conditionsEqual(a, b []corev1.NodeCondition) bool {

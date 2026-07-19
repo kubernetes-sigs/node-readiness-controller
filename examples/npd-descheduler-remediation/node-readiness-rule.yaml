@@ -4,9 +4,9 @@ metadata:
   name: my-component-readiness-rule
 spec:
   # Watch the NPD-reported condition.
-  # NPD sets CustomCondition/MyComponentNotReady=False when healthy.
+  # NPD sets MyComponentNotReady=False when healthy.
   conditions:
-    - type: "CustomCondition/MyComponentNotReady"
+    - type: "MyComponentNotReady"
       requiredStatus: "False"
 
   # Taint managed by this rule.

@@ -30,6 +30,7 @@ _Appears in:_
 | `type` _string_ | type corresponds to the Node condition type being evaluated. |  | MaxLength: 316 <br />MinLength: 1 <br /> |
 | `currentStatus` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#conditionstatus-v1-core)_ | currentStatus is the actual status value observed on the Node, one of True, False, Unknown. |  | Enum: [True False Unknown] <br /> |
 | `requiredStatus` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#conditionstatus-v1-core)_ | requiredStatus is the status value defined in the rule that must be matched, one of True, False, Unknown. |  | Enum: [True False Unknown] <br /> |
+| `defaultStatus` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#conditionstatus-v1-core)_ | defaultStatus is the fallback status value configured in the rule spec, which is used for evaluation if the condition is not present on the Node. |  | Enum: [True False Unknown] <br /> |
 
 
 #### ConditionRequirement
@@ -48,6 +49,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `type` _string_ | type of Node condition<br />Following kubebuilder validation is referred from https://pkg.go.dev/k8s.io/apimachinery/pkg/apis/meta/v1#Condition |  | MaxLength: 316 <br />MinLength: 1 <br /> |
 | `requiredStatus` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#conditionstatus-v1-core)_ | requiredStatus is status of the condition, one of True, False, Unknown. |  | Enum: [True False Unknown] <br /> |
+| `defaultStatus` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#conditionstatus-v1-core)_ | defaultStatus is the fallback status assumed when the condition is completely missing from the Node's status. <br /><br />Note: This field must not be set when enforcementMode is bootstrap-only. | Unknown | Enum: [True False Unknown] <br /> |
 
 
 #### DryRunResults
