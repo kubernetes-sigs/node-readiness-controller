@@ -26,7 +26,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"testing"
 	"text/template"
@@ -84,12 +83,7 @@ var _ = BeforeSuite(func() {
 
 	By("Cleaning up any existing simulated cluster and stale controller processes")
 	_ = exec.Command(kwokctlBinaryPath, "delete", "cluster").Run()
-
-	if runtime.GOOS == "windows" {
-		_ = exec.Command("taskkill", "/IM", "node-readiness-controller.exe", "/F").Run()
-	} else {
-		_ = exec.Command("pkill", "-f", "node-readiness-controller").Run()
-	}
+	_ = exec.Command("pkill", "-f", "node-readiness-controller").Run()
 
 	By("Creating the simulated KWOK cluster")
 	createArgs := []string{
@@ -117,9 +111,6 @@ var _ = BeforeSuite(func() {
 
 	By("Compiling node-readiness-controller manager binary")
 	controllerBinName := "node-readiness-controller"
-	if runtime.GOOS == "windows" {
-		controllerBinName += ".exe"
-	}
 	controllerBinPath = filepath.Join(toolsBinDir, controllerBinName)
 	controllerMainPath := filepath.Join(".", "cmd", "main.go")
 
@@ -206,11 +197,7 @@ var _ = BeforeSuite(func() {
 		args = append(args, "--rule-concurrent-reconciles="+ruleConc)
 	}
 
-	if runtime.GOOS != "windows" {
-		controllerCmd = exec.Command("setsid", append([]string{controllerBinPath}, args...)...) // #nosec G204
-	} else {
-		controllerCmd = exec.Command(controllerBinPath, args...) // #nosec G204
-	}
+	controllerCmd = exec.Command(controllerBinPath, args...) // #nosec G204
 	controllerCmd.Stdout = controllerLogFile
 	controllerCmd.Stderr = controllerLogFile
 
