@@ -215,8 +215,7 @@ func queryPrometheusInstant(ctx context.Context, query string, ts float64) (stri
 	return valStr, nil
 }
 
-//nolint:unparam
-func collectAndReportMetricsForWindow(ctx context.Context, phaseTitle string, phaseStart time.Time, phaseEnd time.Time) (queryResult, error) {
+func collectMetricsForPhase(ctx context.Context, phaseStart time.Time, phaseEnd time.Time) map[string]string {
 	// Add a 5-second offset to the query time. Prometheus scrapes metrics asynchronously,
 	// so querying exactly at phaseEnd might miss metrics events that occurred in the last second
 	// of the phase because they haven't been scraped and written to the database yet.
@@ -247,7 +246,7 @@ func collectAndReportMetricsForWindow(ctx context.Context, phaseTitle string, ph
 			// This returns: Value(end) - (Value(start) or 0).
 			val, err = queryPrometheusInstant(ctx, queryStr, ts)
 			if err != nil {
-				metricsMap[q.Key] = "0 " + q.Unit
+				metricsMap[q.Key] = "0"
 				continue
 			}
 		} else {
@@ -263,19 +262,30 @@ func collectAndReportMetricsForWindow(ctx context.Context, phaseTitle string, ph
 			}
 		}
 
-		// Append the display unit (e.g., "s", "ops", "cores") to the formatted string.
-		if q.Unit != "" {
-			metricsMap[q.Key] = val + " " + q.Unit
+		metricsMap[q.Key] = val
+	}
+
+	return metricsMap
+}
+
+func buildReportForPhase(phaseTitle string, phaseStart time.Time, phaseEnd time.Time, metricsMap map[string]string) queryResult {
+	formattedMetrics := make(map[string]string, len(metricsMap))
+	for _, q := range metricQueries {
+		metricValue, ok := metricsMap[q.Key]
+		if !ok {
+			continue
+		}
+
+		if q.Unit != "" && metricValue != "N/A" {
+			formattedMetrics[q.Key] = metricValue + " " + q.Unit
 		} else {
-			metricsMap[q.Key] = val
+			formattedMetrics[q.Key] = metricValue
 		}
 	}
 
-	res := queryResult{
+	return queryResult{
 		PhaseTitle:      phaseTitle,
 		DurationSeconds: phaseEnd.Sub(phaseStart).Seconds(),
-		Metrics:         metricsMap,
+		Metrics:         formattedMetrics,
 	}
-
-	return res, nil
 }

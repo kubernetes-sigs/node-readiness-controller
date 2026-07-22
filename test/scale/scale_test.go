@@ -122,8 +122,8 @@ var _ = Describe("Node Readiness Controller Scalability Test", func() {
 		time.Sleep(10 * time.Second)
 
 		for _, phase := range phases {
-			reportStruct, err := collectAndReportMetricsForWindow(ctx, phase.title, phase.start, phase.end)
-			Expect(err).NotTo(HaveOccurred(), "Failed to construct the report struct")
+			metricsMap := collectMetricsForPhase(ctx, phase.start, phase.end)
+			reportStruct := buildReportForPhase(phase.title, phase.start, phase.end, metricsMap)
 			queryResults = append(queryResults, reportStruct)
 		}
 	})
