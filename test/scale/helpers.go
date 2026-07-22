@@ -129,14 +129,14 @@ func getKubeClient() (*kubernetes.Clientset, error) {
 	return clientset, nil
 }
 
-func countKwokNodes(ctx context.Context) (int, error) {
+func countKwokNodes(ctx context.Context, labelSelector string) (int, error) {
 	client, err := getKubeClient()
 	if err != nil {
 		return 0, err
 	}
 
 	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{
-		LabelSelector: "type=kwok",
+		LabelSelector: labelSelector,
 	})
 	if err != nil {
 		return 0, err
@@ -145,14 +145,14 @@ func countKwokNodes(ctx context.Context) (int, error) {
 	return len(nodes.Items), nil
 }
 
-func countTaintedNodes(ctx context.Context) (int, error) {
+func countTaintedNodes(ctx context.Context, labelSelector string, taintKey string, taintValue string) (int, error) {
 	client, err := getKubeClient()
 	if err != nil {
 		return 0, err
 	}
 
 	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{
-		LabelSelector: "type=kwok",
+		LabelSelector: labelSelector,
 	})
 	if err != nil {
 		return 0, err
@@ -161,7 +161,7 @@ func countTaintedNodes(ctx context.Context) (int, error) {
 	count := 0
 	for _, node := range nodes.Items {
 		for _, taint := range node.Spec.Taints {
-			if taint.Key == "readiness.k8s.io/SecurityAgentNotReady" && taint.Value == "pending" {
+			if taint.Key == taintKey && taint.Value == taintValue {
 				count++
 				break
 			}

@@ -158,7 +158,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred(), "Failed to scale nodes: %s", scaleOutput)
 
 	Eventually(func(g Gomega) int {
-		count, err := countKwokNodes(context.Background())
+		count, err := countKwokNodes(context.Background(), "type=kwok")
 		g.Expect(err).NotTo(HaveOccurred())
 		return count
 	}, "15m", "1s").Should(Equal(nodeCount), "Nodes failed to scale")

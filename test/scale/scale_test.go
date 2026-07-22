@@ -68,7 +68,7 @@ var _ = Describe("Node Readiness Controller Scalability Test", func() {
 
 		By("Waiting for the controller manager to reconcile and add taints to all nodes")
 		Eventually(func(g Gomega) int {
-			count, err := countTaintedNodes(ctx)
+			count, err := countTaintedNodes(ctx, "type=kwok", "readiness.k8s.io/SecurityAgentNotReady", "pending")
 			g.Expect(err).NotTo(HaveOccurred())
 			By(fmt.Sprintf("Progress: %d/%d nodes successfully tainted", count, nodeCount))
 			return count
@@ -103,7 +103,7 @@ var _ = Describe("Node Readiness Controller Scalability Test", func() {
 
 		By("Waiting for the controller manager to reconcile and remove taints on all nodes")
 		Eventually(func(g Gomega) int {
-			tainted, err := countTaintedNodes(ctx)
+			tainted, err := countTaintedNodes(ctx, "type=kwok", "readiness.k8s.io/SecurityAgentNotReady", "pending")
 			g.Expect(err).NotTo(HaveOccurred())
 			By(fmt.Sprintf("Progress: %d/%d nodes remaining tainted", tainted, nodeCount))
 			return tainted
