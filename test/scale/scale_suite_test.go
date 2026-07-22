@@ -131,7 +131,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred(), "Failed to update Prometheus configuration with new job")
 
 	By("Restarting Prometheus to load updated configuration")
-	err = exec.Command("pkill", "-SIGHUP", "prometheus").Run()
+	err = exec.Command("pkill", "-HUP", "prometheus").Run()
 	Expect(err).NotTo(HaveOccurred(), "Failed to restart Prometheus instance to load updated configuration")
 
 	By("Waiting for Prometheus endpoint to be ready")
