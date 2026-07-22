@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -46,6 +47,12 @@ import (
 const (
 	// finalizerName is the finalizer added to NodeReadinessRule to ensure cleanup.
 	finalizerName = "readiness.node.x-k8s.io/cleanup-taints"
+)
+
+// Sentinel errors for add/remove taint failures.
+var (
+	errAddTaintFailed    = errors.New("add taint operation failed")
+	errRemoveTaintFailed = errors.New("remove taint operation failed")
 )
 
 // RuleReadinessController manages node taints based on readiness rules.
@@ -286,7 +293,14 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 		if r.ruleAppliesTo(ctx, rule, &node) {
 			log.Info("Processing node for rule", "rule", rule.Name, "node", node.Name)
 			if err := r.evaluateRuleForNode(ctx, rule, &node); err != nil {
-				log.Error(err, "Failed to evaluate node for rule", "rule", rule.Name, "node", node.Name)
+				operation := "unknown"
+				switch {
+				case errors.Is(err, errAddTaintFailed):
+					operation = "add_taint"
+				case errors.Is(err, errRemoveTaintFailed):
+					operation = "remove_taint"
+				}
+				log.Error(err, "Failed to evaluate node for rule", "rule", rule.Name, "node", node.Name, "operation", operation)
 				r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
 				metrics.Failures.WithLabelValues(rule.Name, "EvaluationError").Inc()
 			} else {
@@ -400,8 +414,12 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		log.Info("Removing taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
 
 		if err = r.removeTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name); err != nil {
-			metrics.Failures.WithLabelValues(rule.Name, "RemoveTaintError").Inc()
-			return fmt.Errorf("failed to remove taint: %w", err)
+			reason := "RemoveTaintError"
+			if apierrors.IsConflict(err) {
+				reason = "RemoveTaintConflictExhausted"
+			}
+			metrics.Failures.WithLabelValues(rule.Name, reason).Inc()
+			return fmt.Errorf("failed to remove taint: %w: %w", errRemoveTaintFailed, err)
 		}
 
 		// Record taint removal latency and taint operation counter.
@@ -432,8 +450,12 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		log.Info("Adding taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
 
 		if err = r.addTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name); err != nil {
-			metrics.Failures.WithLabelValues(rule.Name, "AddTaintError").Inc()
-			return fmt.Errorf("failed to add taint: %w", err)
+			reason := "AddTaintError"
+			if apierrors.IsConflict(err) {
+				reason = "AddTaintConflictExhausted"
+			}
+			metrics.Failures.WithLabelValues(rule.Name, reason).Inc()
+			return fmt.Errorf("failed to add taint: %w: %w", errAddTaintFailed, err)
 		}
 
 		// Record add taint latency and taint operation counter
@@ -668,7 +690,7 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	var errors []string
+	var cleanupErrors []string
 	for _, node := range nodeList.Items {
 		if !r.ruleAppliesTo(ctx, rule, &node) {
 			continue
@@ -682,13 +704,13 @@ func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule
 				"taint", rule.Spec.Taint.Key)
 
 			if err := r.removeTaintBySpec(ctx, &node, rule.Spec.Taint, rule.Name); err != nil {
-				errors = append(errors, fmt.Sprintf("node %s: %v", node.Name, err))
+				cleanupErrors = append(cleanupErrors, fmt.Sprintf("node %s: %v", node.Name, err))
 			}
 		}
 	}
 
-	if len(errors) > 0 {
-		return fmt.Errorf("failed to cleanup taints on some nodes: %s", strings.Join(errors, "; "))
+	if len(cleanupErrors) > 0 {
+		return fmt.Errorf("failed to cleanup taints on some nodes: %s", strings.Join(cleanupErrors, "; "))
 	}
 
 	return nil

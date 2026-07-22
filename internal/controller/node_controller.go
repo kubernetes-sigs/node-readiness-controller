@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -153,8 +154,15 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			"ruleResourceVersion", rule.ResourceVersion)
 
 		if err := r.evaluateRuleForNode(ctx, rule, node); err != nil {
+			operation := "unknown"
+			switch {
+			case errors.Is(err, errAddTaintFailed):
+				operation = "add_taint"
+			case errors.Is(err, errRemoveTaintFailed):
+				operation = "remove_taint"
+			}
 			log.Error(err, "Failed to evaluate rule for node",
-				"node", node.Name, "rule", rule.Name)
+				"node", node.Name, "rule", rule.Name, "operation", operation)
 			// Continue with other rules even if one fails
 			r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
 			errs = append(errs, err)
@@ -223,6 +231,11 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 		})
 
 		if err != nil {
+			reason := "StatusPatchError"
+			if apierrors.IsConflict(err) {
+				reason = "StatusPatchConflictExhausted"
+			}
+			metrics.Failures.WithLabelValues(rule.Name, reason).Inc()
 			log.Error(err, "Failed to update rule status after node evaluation",
 				"node", node.Name,
 				"rule", rule.Name,
