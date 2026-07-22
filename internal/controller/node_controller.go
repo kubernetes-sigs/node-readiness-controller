@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -214,6 +215,11 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 		})
 
 		if err != nil {
+			reason := "StatusPatchError"
+			if apierrors.IsConflict(err) {
+				reason = "StatusPatchConflictExhausted"
+			}
+			metrics.Failures.WithLabelValues(rule.Name, reason).Inc()
 			log.Error(err, "Failed to update rule status after node evaluation",
 				"node", node.Name,
 				"rule", rule.Name,
