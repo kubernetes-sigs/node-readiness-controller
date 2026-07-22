@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"text/template"
 
@@ -126,7 +127,14 @@ var _ = BeforeSuite(func() {
 	prometheusConfigBytes, err := os.ReadFile(prometheusConfigPath) // #nosec G304
 	Expect(err).NotTo(HaveOccurred(), "Failed to read Prometheus configuration")
 
-	newConfig := string(prometheusConfigBytes) + fmt.Sprintf(prometheusJobTemplate, controllerMetricsPort)
+	tmpl, err := template.New("prometheus-job").Parse(prometheusJobTemplate)
+	Expect(err).NotTo(HaveOccurred(), "Failed to parse Prometheus job template")
+
+	var jobConfig strings.Builder
+	err = tmpl.Execute(&jobConfig, map[string]string{"Port": controllerMetricsPort})
+	Expect(err).NotTo(HaveOccurred(), "Failed to execute Prometheus job template")
+
+	newConfig := string(prometheusConfigBytes) + jobConfig.String()
 	err = os.WriteFile(prometheusConfigPath, []byte(newConfig), 0600)
 	Expect(err).NotTo(HaveOccurred(), "Failed to update Prometheus configuration with new job")
 
