@@ -33,19 +33,38 @@ func TestScale(t *testing.T) {
 	RunSpecs(t, "Node Readiness Controller Scale Performance Suite")
 }
 
-const (
-	kwokctlVersion   = "v0.8.0"
-	defaultNodeCount = 1000
-)
+type scaleConfig struct {
+	KwokctlVersion           string
+	MetricsPort              string
+	PrometheusPort           string
+	NodeCount                int
+	ArtifactsDir             string
+	KubeAPIQPS               string
+	KubeAPIBurst             string
+	NodeConcurrentReconciles string
+	RuleConcurrentReconciles string
+	DisableQPSLimits         bool
+	NodeLeaseDurationSeconds string
+	SkipTeardown             bool
+	TaintTimeout             string
+	UntaintTimeout           string
+}
+
+var defaultScaleConfig = scaleConfig{
+	KwokctlVersion: "v0.8.0",
+	MetricsPort:    "8080",
+	PrometheusPort: "9090",
+	NodeCount:      1000,
+	TaintTimeout:   "15m",
+	UntaintTimeout: "15m",
+}
 
 var (
-	kwokctlBinaryPath     string
-	controllerBinPath     string
-	controllerCmd         *exec.Cmd
-	controllerLogFile     *os.File
-	artifactsDir          string
-	controllerMetricsPort = "8080"
-	prometheusPort        = "9090"
+	cfg               scaleConfig
+	kwokctlBinaryPath string
+	controllerBinPath string
+	controllerCmd     *exec.Cmd
+	controllerLogFile *os.File
 )
 
 //go:embed testdata/security-agent-rule.yaml
@@ -64,13 +83,13 @@ var _ = BeforeSuite(func() {
 	readEnvConfig()
 
 	By("Ensuring kwokctl binary is present")
-	kwokctlBinaryPath = ensureKwokctl(kwokctlVersion)
+	kwokctlBinaryPath = ensureKwokctl(cfg.KwokctlVersion)
 
 	By("Cleaning up any existing simulated cluster and stale controller processes")
 	cleanupStaleResources(kwokctlBinaryPath)
 
 	By("Creating the simulated KWOK cluster")
-	createKwokCluster(kwokctlBinaryPath, prometheusPort)
+	createKwokCluster(kwokctlBinaryPath)
 
 	By("Applying NodeReadinessRule CRD manifests")
 	applyCRDs()
@@ -79,23 +98,23 @@ var _ = BeforeSuite(func() {
 	controllerBinPath = buildController()
 
 	By("Configuring controller scraper job in Prometheus config")
-	setupPrometheusScraper(controllerMetricsPort, prometheusPort)
+	setupPrometheusScraper()
 
 	By("Scaling nodes up")
-	nodeCountUsed = scaleKwokNodes(kwokctlBinaryPath)
+	scaleKwokNodes(kwokctlBinaryPath)
 
 	By("Creating subdirectory for storing test artifacts and log file")
-	artifactsDir, controllerLogFile = setupArtifacts()
+	controllerLogFile = setupArtifacts()
 
 	By("Starting the node-readiness-controller manager daemon process")
-	controllerCmd = startControllerDaemon(controllerBinPath, controllerMetricsPort, controllerLogFile)
+	controllerCmd = startControllerDaemon(controllerBinPath, controllerLogFile)
 })
 
 var _ = AfterSuite(func() {
 	By("Writing Markdown scalability report")
 	generateScalabilityReport()
 
-	if os.Getenv("SKIP_TEARDOWN") == "true" {
+	if cfg.SkipTeardown {
 		By("Skipping teardown. Controller background process, KWOK cluster and Prometheus kept alive.")
 		return
 	}

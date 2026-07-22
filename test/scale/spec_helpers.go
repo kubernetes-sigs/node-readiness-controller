@@ -22,20 +22,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"time"
 
-	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck
-	. "github.com/onsi/gomega"    //nolint:staticcheck
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
-	"sigs.k8s.io/node-readiness-controller/test/utils"
 )
 
 type prometheusResponse struct {
@@ -60,58 +55,6 @@ var (
 	// We need an HTTP client to query Prometheus endpoint.
 	promHTTPClient = &http.Client{Timeout: 5 * time.Second}
 )
-
-func getProjectDir() string {
-	dir, err := utils.GetProjectDir()
-	Expect(err).NotTo(HaveOccurred(), "Failed to retrieve project directory")
-	return dir
-}
-
-func getToolsBinDir() string {
-	return filepath.Join(getProjectDir(), "hack", "tools", "bin")
-}
-
-func ensureKwokctl(version string) string {
-	targetDir := getToolsBinDir()
-	goOS := runtime.GOOS
-	goArch := runtime.GOARCH
-
-	binaryName := "kwokctl"
-	if goOS == "windows" {
-		binaryName += ".exe"
-	}
-	localBinaryPath := filepath.Join(targetDir, binaryName)
-
-	if _, err := os.Stat(localBinaryPath); err == nil {
-		return localBinaryPath
-	}
-
-	err := os.MkdirAll(targetDir, 0750)
-	Expect(err).NotTo(HaveOccurred(), "Failed to create tools directory structure")
-	downloadURL := fmt.Sprintf(
-		"https://github.com/kubernetes-sigs/kwok/releases/download/%s/kwokctl-%s-%s",
-		version, goOS, goArch,
-	)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, downloadURL, nil)
-	Expect(err).NotTo(HaveOccurred(), "Failed to create download request")
-	resp, err := http.DefaultClient.Do(req) // #nosec G107
-	Expect(err).NotTo(HaveOccurred(), "Failed to initiate kwokctl binary download")
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		Fail(fmt.Sprintf("Failed to download kwokctl from URL %s: Status %s", downloadURL, resp.Status))
-	}
-
-	out, err := os.OpenFile(localBinaryPath, os.O_CREATE|os.O_WRONLY, 0700) // #nosec G304 G302
-	Expect(err).NotTo(HaveOccurred(), "Failed to create local binary destination file")
-	defer func() { _ = out.Close() }()
-
-	_, err = io.Copy(out, resp.Body)
-	Expect(err).NotTo(HaveOccurred(), "Failed to write binary content to disk target")
-
-	return localBinaryPath
-}
 
 func getKubeClient() (*kubernetes.Clientset, error) {
 	if clientset != nil {
@@ -185,7 +128,7 @@ func countTaintedNodes(ctx context.Context, labelSelector string, taintKey strin
 func queryPrometheusInstant(ctx context.Context, query string, ts float64) (string, error) {
 	// Construct the Prometheus Instant Query HTTP endpoint.
 	// Query parameters are URL-escaped, and the evaluation timestamp float is formatted to 3 decimal places.
-	urlStr := fmt.Sprintf("http://127.0.0.1:%s/api/v1/query?query=%s&time=%.3f", prometheusPort, url.QueryEscape(query), ts)
+	urlStr := fmt.Sprintf("http://127.0.0.1:%s/api/v1/query?query=%s&time=%.3f", cfg.PrometheusPort, url.QueryEscape(query), ts)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
 	if err != nil {

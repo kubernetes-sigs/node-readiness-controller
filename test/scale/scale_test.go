@@ -37,8 +37,7 @@ type phaseStats struct {
 }
 
 var (
-	queryResults  []queryResult
-	nodeCountUsed int
+	queryResults []queryResult
 )
 
 var _ = Describe("Node Readiness Controller Scalability Test", func() {
@@ -46,7 +45,7 @@ var _ = Describe("Node Readiness Controller Scalability Test", func() {
 	It("should successfully run the scale test phases and evaluate performance", func() {
 		queryResults = make([]queryResult, 0, 2)
 		ctx := context.Background()
-		nodeCount := nodeCountUsed
+		nodeCount := cfg.NodeCount
 
 		var phases []phaseStats
 
@@ -72,7 +71,7 @@ var _ = Describe("Node Readiness Controller Scalability Test", func() {
 			g.Expect(err).NotTo(HaveOccurred())
 			By(fmt.Sprintf("Progress: %d/%d nodes successfully tainted", count, nodeCount))
 			return count
-		}, "15m", "1s").Should(Equal(nodeCount), "Tainted nodes count did not reach target replicas")
+		}, cfg.TaintTimeout, "1s").Should(Equal(nodeCount), "Tainted nodes count did not reach target replicas")
 
 		taintEnd := time.Now()
 		taintDuration := taintEnd.Sub(taintStart)
@@ -107,7 +106,7 @@ var _ = Describe("Node Readiness Controller Scalability Test", func() {
 			g.Expect(err).NotTo(HaveOccurred())
 			By(fmt.Sprintf("Progress: %d/%d nodes remaining tainted", tainted, nodeCount))
 			return tainted
-		}, "15m", "1s").Should(Equal(0), "Failed to complete untainting phase")
+		}, cfg.UntaintTimeout, "1s").Should(Equal(0), "Failed to complete untainting phase")
 
 		untaintEnd := time.Now()
 		untaintDuration := untaintEnd.Sub(untaintStart)

@@ -25,6 +25,7 @@ All scale parameters are configurable via shell environment variables passed dir
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
+| `KWOKCTL_VERSION` | `v0.8.0` | Target KWOK cluster simulator release version to download and execute. |
 | `NODE_COUNT` | `1000` | The total number of simulated nodes to register. |
 | `NODE_CONCURRENT_RECONCILES` | `1` | Number of concurrent worker threads allocated to the Node controller. |
 | `RULE_CONCURRENT_RECONCILES` | `1` | Number of concurrent worker threads allocated to the NodeReadinessRule controller. |
@@ -34,9 +35,11 @@ All scale parameters are configurable via shell environment variables passed dir
 | `NODE_LEASE_DURATION_SECONDS` | `40` | The duration of the node lease lease window configured in KWOK. |
 | `CONTROLLER_METRICS_PORT` | `8080` | Port for the controller's metrics endpoint. |
 | `PROMETHEUS_PORT` | `9090` | Port for the local Prometheus instance. |
-| `ARTIFACTS` | `test/scale/artifacts/` | Directory where test logs and reports are saved. |
+| `ARTIFACTS` | `test/scale/artifacts/` | Directory where test logs and reports are saved (populated by Prow for SpyGlass). |
 | `KUBECONFIG` | *Automatic* | Target kubeconfig path. Defaults to the managed KWOK cluster configuration. |
 | `SKIP_TEARDOWN` | `false` | If set to `true`, keeps the simulated nodes active, and the KWOK cluster/Prometheus instance running after the test finishes. |
+| `TAINT_TIMEOUT` | `15m` | Maximum wait duration for the controller to apply taints to all nodes. |
+| `UNTAINT_TIMEOUT` | `15m` | Maximum wait duration for the controller to remove taints from all nodes. |
 
 ---
 

@@ -21,24 +21,129 @@ package scale
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"text/template"
 
-	. "github.com/onsi/gomega" //nolint:staticcheck
+	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck
+	. "github.com/onsi/gomega"    //nolint:staticcheck
 	"sigs.k8s.io/node-readiness-controller/test/utils"
 )
 
+// getProjectDir is a convenience helper that wraps utils.GetProjectDir() and performs
+// an immediate Gomega assertion on errors, eliminating repeated error-checking boilerplate
+// across lifecycle helper functions.
+func getProjectDir() string {
+	dir, err := utils.GetProjectDir()
+	Expect(err).NotTo(HaveOccurred(), "Failed to retrieve project directory")
+	return dir
+}
+
+func getToolsBinDir() string {
+	return filepath.Join(getProjectDir(), "hack", "tools", "bin")
+}
+
+func getArtifactsDir() string {
+	return filepath.Join(getProjectDir(), "test", "scale", "artifacts")
+}
+
+func ensureKwokctl(version string) string {
+	targetDir := getToolsBinDir()
+	goOS := runtime.GOOS
+	goArch := runtime.GOARCH
+
+	binaryName := "kwokctl"
+	if goOS == "windows" {
+		binaryName += ".exe"
+	}
+	localBinaryPath := filepath.Join(targetDir, binaryName)
+
+	if _, err := os.Stat(localBinaryPath); err == nil {
+		return localBinaryPath
+	}
+
+	err := os.MkdirAll(targetDir, 0750)
+	Expect(err).NotTo(HaveOccurred(), "Failed to create tools directory structure")
+	downloadURL := fmt.Sprintf(
+		"https://github.com/kubernetes-sigs/kwok/releases/download/%s/kwokctl-%s-%s",
+		version, goOS, goArch,
+	)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, downloadURL, nil)
+	Expect(err).NotTo(HaveOccurred(), "Failed to create download request")
+	resp, err := http.DefaultClient.Do(req) // #nosec G107
+	Expect(err).NotTo(HaveOccurred(), "Failed to initiate kwokctl binary download")
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		Fail(fmt.Sprintf("Failed to download kwokctl from URL %s: Status %s", downloadURL, resp.Status))
+	}
+
+	out, err := os.OpenFile(localBinaryPath, os.O_CREATE|os.O_WRONLY, 0700) // #nosec G304 G302
+	Expect(err).NotTo(HaveOccurred(), "Failed to create local binary destination file")
+	defer func() { _ = out.Close() }()
+
+	_, err = io.Copy(out, resp.Body)
+	Expect(err).NotTo(HaveOccurred(), "Failed to write binary content to disk target")
+
+	return localBinaryPath
+}
+
 func readEnvConfig() {
+	cfg = defaultScaleConfig
+
+	if version := os.Getenv("KWOKCTL_VERSION"); version != "" {
+		cfg.KwokctlVersion = version
+	}
+
+	cfg.ArtifactsDir = os.Getenv("ARTIFACTS")
+	if cfg.ArtifactsDir == "" {
+		cfg.ArtifactsDir = filepath.Join(getProjectDir(), "test", "scale", "artifacts")
+	}
+
+	if countStr := os.Getenv("NODE_COUNT"); countStr != "" {
+		count, err := strconv.Atoi(countStr)
+		Expect(err).NotTo(HaveOccurred(), "Invalid NODE_COUNT: %s", countStr)
+		cfg.NodeCount = count
+	}
 	if port := os.Getenv("CONTROLLER_METRICS_PORT"); port != "" {
-		controllerMetricsPort = port
+		cfg.MetricsPort = port
 	}
 	if port := os.Getenv("PROMETHEUS_PORT"); port != "" {
-		prometheusPort = port
+		cfg.PrometheusPort = port
+	}
+	if qps := os.Getenv("KUBE_API_QPS"); qps != "" {
+		cfg.KubeAPIQPS = qps
+	}
+	if burst := os.Getenv("KUBE_API_BURST"); burst != "" {
+		cfg.KubeAPIBurst = burst
+	}
+	if nodeConc := os.Getenv("NODE_CONCURRENT_RECONCILES"); nodeConc != "" {
+		cfg.NodeConcurrentReconciles = nodeConc
+	}
+	if ruleConc := os.Getenv("RULE_CONCURRENT_RECONCILES"); ruleConc != "" {
+		cfg.RuleConcurrentReconciles = ruleConc
+	}
+	if leaseSecs := os.Getenv("NODE_LEASE_DURATION_SECONDS"); leaseSecs != "" {
+		cfg.NodeLeaseDurationSeconds = leaseSecs
+	}
+	if timeout := os.Getenv("TAINT_TIMEOUT"); timeout != "" {
+		cfg.TaintTimeout = timeout
+	}
+	if timeout := os.Getenv("UNTAINT_TIMEOUT"); timeout != "" {
+		cfg.UntaintTimeout = timeout
+	}
+	if os.Getenv("DISABLE_QPS_LIMITS") == "true" {
+		cfg.DisableQPSLimits = true
+	}
+	if os.Getenv("SKIP_TEARDOWN") == "true" {
+		cfg.SkipTeardown = true
 	}
 }
 
@@ -47,18 +152,18 @@ func cleanupStaleResources(kwokctlPath string) {
 	_ = exec.Command("pkill", "-f", "node-readiness-controller").Run()
 }
 
-func createKwokCluster(kwokctlPath string, promPort string) {
+func createKwokCluster(kwokctlPath string) {
 	createArgs := []string{
 		"create", "cluster",
 		"--runtime", "binary",
-		"--prometheus-port", promPort,
+		"--prometheus-port", cfg.PrometheusPort,
 		"--enable-crds", "Stage",
 	}
-	if os.Getenv("DISABLE_QPS_LIMITS") == "true" {
+	if cfg.DisableQPSLimits {
 		createArgs = append(createArgs, "--disable-qps-limits")
 	}
-	if leaseSecs := os.Getenv("NODE_LEASE_DURATION_SECONDS"); leaseSecs != "" {
-		createArgs = append(createArgs, "--node-lease-duration-seconds", leaseSecs)
+	if cfg.NodeLeaseDurationSeconds != "" {
+		createArgs = append(createArgs, "--node-lease-duration-seconds", cfg.NodeLeaseDurationSeconds)
 	}
 
 	createCmd := exec.Command(kwokctlPath, createArgs...) // #nosec G204
@@ -86,7 +191,7 @@ func buildController() string {
 	return binPath
 }
 
-func setupPrometheusScraper(metricsPort string, promPort string) {
+func setupPrometheusScraper() {
 	homeDir, err := os.UserHomeDir()
 	Expect(err).NotTo(HaveOccurred(), "Failed to retrieve user home directory")
 	prometheusConfigPath := filepath.Join(homeDir, ".kwok", "clusters", "kwok", "prometheus.yaml")
@@ -98,7 +203,7 @@ func setupPrometheusScraper(metricsPort string, promPort string) {
 	Expect(err).NotTo(HaveOccurred(), "Failed to parse Prometheus job template")
 
 	var jobConfig strings.Builder
-	err = tmpl.Execute(&jobConfig, map[string]string{"Port": metricsPort})
+	err = tmpl.Execute(&jobConfig, map[string]string{"Port": cfg.MetricsPort})
 	Expect(err).NotTo(HaveOccurred(), "Failed to execute Prometheus job template")
 
 	newConfig := string(prometheusConfigBytes) + jobConfig.String()
@@ -109,22 +214,15 @@ func setupPrometheusScraper(metricsPort string, promPort string) {
 	Expect(err).NotTo(HaveOccurred(), "Failed to restart Prometheus instance to load updated configuration")
 
 	Eventually(func(g Gomega) {
-		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%s/-/ready", promPort))
+		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%s/-/ready", cfg.PrometheusPort))
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
 	}, "30s", "1s").Should(Succeed(), "Prometheus is not ready")
 }
 
-func scaleKwokNodes(kwokctlPath string) int {
-	nodeCount := defaultNodeCount
-	if nodeCountStr := os.Getenv("NODE_COUNT"); nodeCountStr != "" {
-		var err error
-		nodeCount, err = strconv.Atoi(nodeCountStr)
-		Expect(err).NotTo(HaveOccurred(), "Invalid NODE_COUNT: %s", nodeCountStr)
-	}
-
+func scaleKwokNodes(kwokctlPath string) {
 	scaleCmd := exec.Command(kwokctlPath, "scale", "node", // #nosec G204
-		"--replicas", strconv.Itoa(nodeCount),
+		"--replicas", strconv.Itoa(cfg.NodeCount),
 		"--name", "kwok")
 	scaleOutput, err := utils.Run(scaleCmd)
 	Expect(err).NotTo(HaveOccurred(), "Failed to scale nodes: %s", scaleOutput)
@@ -133,44 +231,37 @@ func scaleKwokNodes(kwokctlPath string) int {
 		count, err := countKwokNodes(context.Background(), "type=kwok")
 		g.Expect(err).NotTo(HaveOccurred())
 		return count
-	}, "15m", "1s").Should(Equal(nodeCount), "Nodes failed to scale")
-
-	return nodeCount
+	}, "15m", "1s").Should(Equal(cfg.NodeCount), "Nodes failed to scale")
 }
 
-func setupArtifacts() (string, *os.File) {
-	dir := os.Getenv("ARTIFACTS")
-	if dir == "" {
-		dir = filepath.Join(getProjectDir(), "test", "scale", "artifacts")
-	}
-
-	err := os.MkdirAll(dir, 0750)
+func setupArtifacts() *os.File {
+	err := os.MkdirAll(cfg.ArtifactsDir, 0750)
 	Expect(err).NotTo(HaveOccurred(), "Failed to create the artifacts subdirectory")
 
-	logFile, err := os.Create(filepath.Join(dir, "controller.log")) // #nosec G304
+	logFile, err := os.Create(filepath.Join(cfg.ArtifactsDir, "controller.log")) // #nosec G304
 	Expect(err).NotTo(HaveOccurred(), "Failed to create controller.log")
 
-	return dir, logFile
+	return logFile
 }
 
-func startControllerDaemon(binPath string, metricsPort string, logFile *os.File) *exec.Cmd {
+func startControllerDaemon(binPath string, logFile *os.File) *exec.Cmd {
 	args := []string{
-		fmt.Sprintf("--metrics-bind-address=:%s", metricsPort),
+		fmt.Sprintf("--metrics-bind-address=:%s", cfg.MetricsPort),
 		"--metrics-secure=false",
 		"--leader-elect=false",
 		"--enable-webhook=false",
 	}
-	if qps := os.Getenv("KUBE_API_QPS"); qps != "" {
-		args = append(args, "--kube-api-qps="+qps)
+	if cfg.KubeAPIQPS != "" {
+		args = append(args, "--kube-api-qps="+cfg.KubeAPIQPS)
 	}
-	if burst := os.Getenv("KUBE_API_BURST"); burst != "" {
-		args = append(args, "--kube-api-burst="+burst)
+	if cfg.KubeAPIBurst != "" {
+		args = append(args, "--kube-api-burst="+cfg.KubeAPIBurst)
 	}
-	if nodeConc := os.Getenv("NODE_CONCURRENT_RECONCILES"); nodeConc != "" {
-		args = append(args, "--node-concurrent-reconciles="+nodeConc)
+	if cfg.NodeConcurrentReconciles != "" {
+		args = append(args, "--node-concurrent-reconciles="+cfg.NodeConcurrentReconciles)
 	}
-	if ruleConc := os.Getenv("RULE_CONCURRENT_RECONCILES"); ruleConc != "" {
-		args = append(args, "--rule-concurrent-reconciles="+ruleConc)
+	if cfg.RuleConcurrentReconciles != "" {
+		args = append(args, "--rule-concurrent-reconciles="+cfg.RuleConcurrentReconciles)
 	}
 
 	cmd := exec.Command(binPath, args...) // #nosec G204
@@ -181,10 +272,10 @@ func startControllerDaemon(binPath string, metricsPort string, logFile *os.File)
 	Expect(err).NotTo(HaveOccurred(), "Failed to start controller process")
 
 	Eventually(func(g Gomega) {
-		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%s/metrics", metricsPort))
+		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%s/metrics", cfg.MetricsPort))
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	}, "15s", "500ms").Should(Succeed(), fmt.Sprintf("Controller failed to start or bind to port %s", metricsPort))
+	}, "15s", "500ms").Should(Succeed(), fmt.Sprintf("Controller failed to start or bind to port %s", cfg.MetricsPort))
 
 	return cmd
 }
@@ -199,12 +290,12 @@ func generateScalabilityReport() {
 		Mode      string
 		Phases    []queryResult
 	}{
-		NodeCount: nodeCountUsed,
+		NodeCount: cfg.NodeCount,
 		Mode:      "continuous",
 		Phases:    queryResults,
 	}
 
-	reportPath := filepath.Join(artifactsDir, "scalability_report.md")
+	reportPath := filepath.Join(cfg.ArtifactsDir, "scalability_report.md")
 	reportFile, err := os.OpenFile(reportPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600) // #nosec G304
 	Expect(err).NotTo(HaveOccurred(), "Failed to open the file created for the scalability report")
 	defer func() { _ = reportFile.Close() }()
