@@ -35,6 +35,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/node-readiness-controller/test/utils"
 )
 
 type prometheusResponse struct {
@@ -60,7 +61,18 @@ var (
 	promHTTPClient = &http.Client{Timeout: 5 * time.Second}
 )
 
-func ensureKwokctl(version string, targetDir string) string {
+func getProjectDir() string {
+	dir, err := utils.GetProjectDir()
+	Expect(err).NotTo(HaveOccurred(), "Failed to retrieve project directory")
+	return dir
+}
+
+func getToolsBinDir() string {
+	return filepath.Join(getProjectDir(), "hack", "tools", "bin")
+}
+
+func ensureKwokctl(version string) string {
+	targetDir := getToolsBinDir()
 	goOS := runtime.GOOS
 	goArch := runtime.GOARCH
 
