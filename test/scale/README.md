@@ -29,8 +29,8 @@ All scale parameters are configurable via shell environment variables passed dir
 | `NODE_COUNT` | `1000` | The total number of simulated nodes to register. |
 | `NODE_CONCURRENT_RECONCILES` | `1` | Number of concurrent worker threads allocated to the Node controller. |
 | `RULE_CONCURRENT_RECONCILES` | `1` | Number of concurrent worker threads allocated to the NodeReadinessRule controller. |
-| `KUBE_API_QPS` | `5` | The QPS limit for the controller's Kubernetes API client (client-go default). |
-| `KUBE_API_BURST` | `10` | The Burst limit for the controller's Kubernetes API client (client-go default). |
+| `KUBE_API_QPS` | `-1` | The QPS limit for the controller's Kubernetes API client (disabled by default). |
+| `KUBE_API_BURST` | `-1` | The Burst limit for the controller's Kubernetes API client (disabled by default). |
 | `DISABLE_QPS_LIMITS` | `false` | Disable API Server write rate throttling inside the KWOK cluster. |
 | `NODE_LEASE_DURATION_SECONDS` | `40` | The duration of the node lease lease window configured in KWOK. |
 | `CONTROLLER_METRICS_PORT` | `8080` | Port for the controller's metrics endpoint. |
