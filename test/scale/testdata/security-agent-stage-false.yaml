@@ -9,6 +9,11 @@ spec:
   selector:
     matchLabels:
       type: kwok
+    matchExpressions:
+      - key: ".status.conditions[] | select(.type==\"security.node.x-k8s.io/SecurityAgentReady\") | .status"
+        operator: NotIn
+        values:
+          - "False"
   next:
     statusTemplate: |
       conditions:
@@ -18,6 +23,8 @@ spec:
         status: {{ .status | quote }}
         reason: {{ .reason | quote }}
         message: {{ .message | quote }}
+        lastHeartbeatTime: {{ .lastHeartbeatTime | quote }}
+        lastTransitionTime: {{ .lastTransitionTime | quote }}
       {{- end }}
       {{- end }}
       - type: security.node.x-k8s.io/SecurityAgentReady
