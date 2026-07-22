@@ -21,13 +21,9 @@ package scale
 import (
 	"context"
 	"fmt"
-	"os/exec"
-	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	"sigs.k8s.io/node-readiness-controller/test/utils"
 )
 
 type phaseStats struct {
@@ -46,40 +42,25 @@ var _ = Describe("Node Readiness Controller Scalability Test", func() {
 		queryResults = make([]queryResult, 0, 2)
 		ctx := context.Background()
 		nodeCount := cfg.NodeCount
-
 		var phases []phaseStats
 
 		// Tainting Phase
 
 		By("Applying Security Agent NodeReadinessRule resource")
 		taintStart := time.Now()
-
-		setupRuleCmd := exec.CommandContext(ctx, "kubectl", "apply", "-f", "-")
-		setupRuleCmd.Stdin = strings.NewReader(securityAgentRuleManifest)
-		setupRuleCmdOutput, err := utils.Run(setupRuleCmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to apply Security Agent NodeReadinessRule manifest:\n%s", setupRuleCmdOutput)
+		applyManifest(ctx, securityAgentRuleManifest)
 
 		By("Applying KWOK's Stage to simulate condition false")
-		applyFalseCmd := exec.CommandContext(ctx, "kubectl", "apply", "-f", "-")
-		applyFalseCmd.Stdin = strings.NewReader(securityAgentStageFalseManifest)
-		falseOutput, err := utils.Run(applyFalseCmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to apply false stage: %s", falseOutput)
+		applyManifest(ctx, securityAgentStageFalseManifest)
 
 		By("Waiting for the controller manager to reconcile and add taints to all nodes")
-		Eventually(func(g Gomega) int {
-			count, err := countTaintedNodes(ctx, "type=kwok", "readiness.k8s.io/SecurityAgentNotReady", "pending")
-			g.Expect(err).NotTo(HaveOccurred())
-			By(fmt.Sprintf("Progress: %d/%d nodes successfully tainted", count, nodeCount))
-			return count
-		}, cfg.TaintTimeout, "1s").Should(Equal(nodeCount), "Tainted nodes count did not reach target replicas")
+		waitForNodeTaints(ctx, nodeCount, cfg.TaintTimeout)
 
 		taintEnd := time.Now()
 		taintDuration := taintEnd.Sub(taintStart)
 
 		By("Deleting KWOK's Stage for condition false to avoid conflicting stages")
-		deleteFalseCmd := exec.CommandContext(ctx, "kubectl", "delete", "stage", "security-agent-stage-false", "--ignore-not-found") // #nosec G204
-		deleteCmdOutput, err := utils.Run(deleteFalseCmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to delete the false condition Stage:\n%s", deleteCmdOutput)
+		deleteStage(ctx, "security-agent-stage-false")
 
 		phases = append(phases, phaseStats{
 			title: fmt.Sprintf("%d Nodes - Tainting (Add) Phase [Duration: %s]", nodeCount, taintDuration.Round(time.Millisecond)),
@@ -94,19 +75,10 @@ var _ = Describe("Node Readiness Controller Scalability Test", func() {
 
 		By("Applying KWOK's Stage to simulate condition true (agent ready)")
 		untaintStart := time.Now()
-
-		applyTrueCmd := exec.CommandContext(ctx, "kubectl", "apply", "-f", "-")
-		applyTrueCmd.Stdin = strings.NewReader(securityAgentStageTrueManifest)
-		trueOutput, err := utils.Run(applyTrueCmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to apply true stage: %s", trueOutput)
+		applyManifest(ctx, securityAgentStageTrueManifest)
 
 		By("Waiting for the controller manager to reconcile and remove taints on all nodes")
-		Eventually(func(g Gomega) int {
-			tainted, err := countTaintedNodes(ctx, "type=kwok", "readiness.k8s.io/SecurityAgentNotReady", "pending")
-			g.Expect(err).NotTo(HaveOccurred())
-			By(fmt.Sprintf("Progress: %d/%d nodes remaining tainted", tainted, nodeCount))
-			return tainted
-		}, cfg.UntaintTimeout, "1s").Should(Equal(0), "Failed to complete untainting phase")
+		waitForNodeTaints(ctx, 0, cfg.UntaintTimeout)
 
 		untaintEnd := time.Now()
 		untaintDuration := untaintEnd.Sub(untaintStart)
@@ -120,10 +92,6 @@ var _ = Describe("Node Readiness Controller Scalability Test", func() {
 		By("Sleeping 10 seconds to settle metrics before gathering final report")
 		time.Sleep(10 * time.Second)
 
-		for _, phase := range phases {
-			metricsMap := collectMetricsForPhase(ctx, phase.start, phase.end)
-			reportStruct := buildReportForPhase(phase.title, phase.start, phase.end, metricsMap)
-			queryResults = append(queryResults, reportStruct)
-		}
+		collectAndRecordPhaseMetrics(ctx, phases)
 	})
 })

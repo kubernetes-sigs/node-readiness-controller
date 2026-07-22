@@ -25,13 +25,18 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
+	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck
+	. "github.com/onsi/gomega"    //nolint:staticcheck
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/node-readiness-controller/test/utils"
 )
 
 type prometheusResponse struct {
@@ -85,6 +90,19 @@ func getKubeClient() (*kubernetes.Clientset, error) {
 	return clientset, nil
 }
 
+func applyManifest(ctx context.Context, manifest string) {
+	cmd := exec.CommandContext(ctx, "kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(manifest)
+	output, err := utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred(), "Failed to apply manifest:\n%s", output)
+}
+
+func deleteStage(ctx context.Context, stageName string) {
+	cmd := exec.CommandContext(ctx, "kubectl", "delete", "stage", stageName, "--ignore-not-found")
+	output, err := utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred(), "Failed to delete stage %s:\n%s", stageName, output)
+}
+
 func countKwokNodes(ctx context.Context, labelSelector string) (int, error) {
 	client, err := getKubeClient()
 	if err != nil {
@@ -124,6 +142,15 @@ func countTaintedNodes(ctx context.Context, labelSelector string, taintKey strin
 		}
 	}
 	return count, nil
+}
+
+func waitForNodeTaints(ctx context.Context, targetTaintedCount int, timeout string) {
+	Eventually(func(g Gomega) int {
+		count, err := countTaintedNodes(ctx, "type=kwok", "readiness.k8s.io/SecurityAgentNotReady", "pending")
+		g.Expect(err).NotTo(HaveOccurred())
+		By(fmt.Sprintf("Progress: %d/%d nodes tainted", count, cfg.NodeCount))
+		return count
+	}, timeout, "1s").Should(Equal(targetTaintedCount), "Tainted node count did not reach expected target")
 }
 
 func queryPrometheusInstant(ctx context.Context, query string, ts float64) (string, error) {
@@ -260,5 +287,13 @@ func buildReportForPhase(phaseTitle string, phaseStart time.Time, phaseEnd time.
 		PhaseTitle:      phaseTitle,
 		DurationSeconds: phaseEnd.Sub(phaseStart).Seconds(),
 		Metrics:         formattedMetrics,
+	}
+}
+
+func collectAndRecordPhaseMetrics(ctx context.Context, phases []phaseStats) {
+	for _, phase := range phases {
+		metricsMap := collectMetricsForPhase(ctx, phase.start, phase.end)
+		reportStruct := buildReportForPhase(phase.title, phase.start, phase.end, metricsMap)
+		queryResults = append(queryResults, reportStruct)
 	}
 }
