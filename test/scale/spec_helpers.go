@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -223,6 +224,27 @@ func collectMetricsForPhase(ctx context.Context, phaseStart time.Time, phaseEnd 
 	return metricsMap
 }
 
+func formatMetricValue(val string, unit string) string {
+	if val == "N/A" || val == "" {
+		return val
+	}
+	if unit == "s" || unit == "cores" {
+		if floatVal, err := strconv.ParseFloat(val, 64); err == nil {
+			return fmt.Sprintf("%.3f %s", floatVal, unit)
+		}
+	}
+	if unit == "bytes" {
+		if floatVal, err := strconv.ParseFloat(val, 64); err == nil {
+			mb := floatVal / (1024 * 1024)
+			return fmt.Sprintf("%.2f MB", mb)
+		}
+	}
+	if unit != "" {
+		return fmt.Sprintf("%s %s", val, unit)
+	}
+	return val
+}
+
 func buildReportForPhase(phaseTitle string, phaseStart time.Time, phaseEnd time.Time, metricsMap map[string]string) queryResult {
 	formattedMetrics := make(map[string]string, len(metricsMap))
 	for _, q := range metricQueries {
@@ -231,11 +253,7 @@ func buildReportForPhase(phaseTitle string, phaseStart time.Time, phaseEnd time.
 			continue
 		}
 
-		if q.Unit != "" && metricValue != "N/A" {
-			formattedMetrics[q.Key] = metricValue + " " + q.Unit
-		} else {
-			formattedMetrics[q.Key] = metricValue
-		}
+		formattedMetrics[q.Key] = formatMetricValue(metricValue, q.Unit)
 	}
 
 	return queryResult{
