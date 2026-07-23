@@ -14,6 +14,7 @@
 - [CNI Installation](./examples/cni-readiness.md)
 <!-- - [Storage Drivers](./examples/storage-readiness.md) -->
 - [Security Agent](./examples/security-agent-readiness.md)
+- [Problem-Gate (Default-Allow)](./examples/problem-gate-readiness.md)
 <!-- - [Device Drivers](./examples/dra-readiness.md) -->
 - [Constrained Impersonation](./examples/constrained-impersonation.md)
 

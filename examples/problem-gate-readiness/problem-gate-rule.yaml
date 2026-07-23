@@ -1,0 +1,16 @@
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: problem-gate-rule
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/os: linux
+  conditions:
+    - type: MaintenanceRequired
+      requiredStatus: "False"
+      defaultStatus: "False"
+  taint:
+    key: readiness.k8s.io/problem-gate
+    effect: NoSchedule
+  enforcementMode: continuous
