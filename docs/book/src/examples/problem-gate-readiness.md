@@ -13,7 +13,7 @@ The Node Readiness Controller supports two primary architectural patterns for ma
 
 2. **Problem-Gating (Default-Allow)**:
    - Used for problem detectors (such as Node Problem Detector, GPU fault monitors, or custom hardware health checkers) that report unhealthy node conditions (e.g., `MaintenanceRequired=True` or `HardwareDegraded=True`).
-   - During initial node bootstrap, the problem detector pod or DaemonSet may take time to start up, meaning the problem condition is physically **absent** from the Node's status.
+   - Many problem detectors are designed to only publish a condition when an actual problem is detected; otherwise, the condition remains completely **absent** from the Node's status. Furthermore, during initial bootstrap, the detector DaemonSet itself may take time to start.
    - Using a **default-allow** configuration (`defaultStatus: "False"` with `requiredStatus: "False"`), NRC treats the missing condition as healthy (`False`), allowing the node to be untainted immediately.
    - If the problem detector later detects an issue and reports `MaintenanceRequired=True`, NRC's **continuous enforcement** re-applies the taint to isolate the node.
 
@@ -94,13 +94,4 @@ status:
 
 When a node joins, NRC immediately untaints it. If a monitoring tool later patches the node status to `MaintenanceRequired=True`, NRC will automatically re-taint the node to prevent scheduling.
 
----
 
-## Enforcement Mode Considerations
-
-> [!WARNING]
-> `defaultStatus` is **not supported** with `bootstrap-only` enforcement mode.
->
-> `bootstrap-only` rules wait for conditions to be explicitly reported before completing the bootstrap phase. Pairing `bootstrap-only` with a satisfying `defaultStatus` would cause NRC to immediately untaint the node and mark bootstrap as complete before the condition is ever verified, permanently bypassing evaluation.
->
-> The admission webhook will explicitly reject any `NodeReadinessRule` that uses `defaultStatus` with `enforcementMode: bootstrap-only`. Always use **`continuous`** enforcement mode for problem-gating rules.
