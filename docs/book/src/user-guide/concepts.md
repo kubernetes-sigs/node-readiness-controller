@@ -111,3 +111,18 @@ When `spec.dryRun: true` is set on a rule:
 *   The intended actions are reported in the `status.dryRunResults` field of the `NodeReadinessRule`.
 
 This allows you to preview exactly which nodes would be affected and identifying any potential misconfigurations (like a typo in a label selector) before they impact your cluster.
+
+## Selecting Rules
+
+`NodeReadinessRule` resources support Kubernetes field selectors for `spec.enforcementMode`, `spec.taint.key`, and `spec.dryRun`. Use them with `kubectl get nrr` to list only the rules relevant to an operational task.
+
+```sh
+# List bootstrap gates
+kubectl get nrr --field-selector spec.enforcementMode=bootstrap-only
+
+# Find the rule that manages a taint
+kubectl get nrr --field-selector spec.taint.key=readiness.k8s.io/network-not-ready
+
+# Review rules that only preview taint changes
+kubectl get nrr --field-selector spec.dryRun=true
+```
