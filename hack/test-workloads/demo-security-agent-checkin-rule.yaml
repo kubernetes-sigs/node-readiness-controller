@@ -1,0 +1,21 @@
+# Blocks node scheduling until the security agent reports healthy.
+#
+# Applies to nodes labeled nrc-demo=security-agent.
+#
+# Uses continuous enforcement since the security agent can become unhealthy at any time. 
+# One node briefly goes unhealthy during the demo before recovering.
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: security-agent-checkin-rule
+spec:
+  conditions:
+    - type: "security.k8s.io/AgentHealthy"
+      requiredStatus: "True"
+  taint:
+    key: "readiness.k8s.io/security-agent"
+    effect: "NoSchedule"
+  enforcementMode: "continuous"
+  nodeSelector:
+    matchLabels:
+      nrc-demo: security-agent
