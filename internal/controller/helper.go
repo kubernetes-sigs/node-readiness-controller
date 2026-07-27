@@ -21,8 +21,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-
-	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 )
 
 //nolint:godot
@@ -118,51 +116,5 @@ func labelsEqual(a, b map[string]string) bool {
 		}
 	}
 
-	return true
-}
-
-// conditionStatus returns the effective status of a named condition on the node.
-// If the condition is not present, defaultStatus is returned with found=false.
-func conditionStatus(node *corev1.Node, conditionType string, defaultStatus corev1.ConditionStatus) (corev1.ConditionStatus, bool) {
-	for _, condition := range node.Status.Conditions {
-		if string(condition.Type) == conditionType {
-			return condition.Status, true
-		}
-	}
-	return defaultStatus, false
-}
-
-// isConditionsSatisfied evaluates whether the node's live condition state meets the
-// policy defined in the spec.
-//
-//   - allOf: every ConditionRequirement's effective status must equal its RequiredStatus.
-//   - anyOf: at least one ConditionRequirement's effective status must equal its RequiredStatus.
-//
-// The effective status is the node's observed condition status, or the configured
-// DefaultStatus when the condition is absent — resolved via GetDefaultStatus().
-//
-// The decision is derived directly from spec and live node state so that any bug
-// in building observability structs (ConditionEvaluationResult) cannot propagate
-// into taint add/remove logic.
-func isConditionsSatisfied(spec readinessv1alpha1.NodeReadinessRuleSpec, node *corev1.Node) bool {
-	check := func(condReq readinessv1alpha1.ConditionRequirement) bool {
-		effective, _ := conditionStatus(node, condReq.Type, condReq.GetDefaultStatus())
-		return effective == condReq.RequiredStatus
-	}
-
-	if spec.GetConditionPolicy() == readinessv1alpha1.ConditionPolicyAnyOf {
-		for _, condReq := range spec.Conditions {
-			if check(condReq) {
-				return true
-			}
-		}
-		return false
-	}
-	// allOf (default)
-	for _, condReq := range spec.Conditions {
-		if !check(condReq) {
-			return false
-		}
-	}
 	return true
 }

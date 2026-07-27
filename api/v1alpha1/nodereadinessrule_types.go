@@ -298,7 +298,7 @@ type ConditionEvaluationResult struct {
 	//
 	// +optional
 	// +kubebuilder:validation:Enum=True;False;Unknown
-	DefaultStatus corev1.ConditionStatus `json:"defaultStatus,omitempty"` // Use GetDefaultStatus() for safe access; field may be empty even when Unknown applies.
+	DefaultStatus corev1.ConditionStatus `json:"defaultStatus,omitempty"`
 }
 
 // DryRunResults provides a summary of the actions the controller would perform if DryRun mode is enabled.
@@ -414,22 +414,6 @@ func (spec *NodeReadinessRuleSpec) GetConditionPolicy() ConditionPolicy {
 	}
 	return spec.ConditionPolicy
 }
-
-// GetDefaultStatus returns the effective default status for a condition evaluation
-// result whose condition was not found on the node. If the field is unset (empty
-// string), it falls back to corev1.ConditionUnknown.
-//
-// Always use this method instead of reading DefaultStatus directly. The field
-// is intentionally left without an OpenAPI schema default (kubebuilder:default
-// is forbidden by project policy) and the Spec is immutable, so defaulting
-// must happen at read time via this accessor.
-func (r *ConditionEvaluationResult) GetDefaultStatus() corev1.ConditionStatus {
-	if r.DefaultStatus == "" {
-		return corev1.ConditionUnknown
-	}
-	return r.DefaultStatus
-}
-
 
 func init() {
 	objectTypes = append(objectTypes, &NodeReadinessRule{}, &NodeReadinessRuleList{})

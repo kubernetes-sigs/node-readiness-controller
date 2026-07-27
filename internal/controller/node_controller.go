@@ -246,6 +246,20 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 	return errors.Join(errs...)
 }
 
+// getConditionStatus gets the status of a condition on a node.
+// If the condition is not present, defaultStatus is returned with found=false.
+func (r *RuleReadinessController) getConditionStatus(
+	node *corev1.Node,
+	conditionType string,
+	defaultStatus corev1.ConditionStatus,
+) (corev1.ConditionStatus, bool) {
+	for _, condition := range node.Status.Conditions {
+		if string(condition.Type) == conditionType {
+			return condition.Status, true
+		}
+	}
+	return defaultStatus, false
+}
 
 // hasTaintBySpec checks if a node has a specific taint.
 func (r *RuleReadinessController) hasTaintBySpec(node *corev1.Node, taintSpec corev1.Taint) bool {

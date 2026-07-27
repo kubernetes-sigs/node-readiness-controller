@@ -1043,22 +1043,24 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				},
 			}
 
+			r := &RuleReadinessController{}
+
 			// Test condition exists and matches
-			status, ok := conditionStatus(
+			status, ok := r.getConditionStatus(
 				node, "Ready", corev1.ConditionUnknown,
 			)
 			Expect(status).To(Equal(corev1.ConditionTrue))
 			Expect(ok).To(BeTrue())
 
 			// Test condition exists but doesn't match
-			status, ok = conditionStatus(
+			status, ok = r.getConditionStatus(
 				node, "NetworkReady", corev1.ConditionUnknown,
 			)
 			Expect(status).To(Equal(corev1.ConditionFalse))
 			Expect(ok).To(BeTrue())
 
 			// Test missing condition
-			status, ok = conditionStatus(
+			status, ok = r.getConditionStatus(
 				node, "StorageReady", corev1.ConditionUnknown,
 			)
 			Expect(status).To(Equal(corev1.ConditionUnknown))
@@ -1066,7 +1068,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			// Test missing condition with a non-Unknown default — condition is absent so
 			// conditionFound=false, but the returned status equals the supplied default.
-			status, ok = conditionStatus(
+			status, ok = r.getConditionStatus(
 				node, "NewCondition", corev1.ConditionTrue,
 			)
 			Expect(status).To(Equal(corev1.ConditionTrue))
