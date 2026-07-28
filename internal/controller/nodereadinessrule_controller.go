@@ -323,7 +323,8 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 	// Evaluate all conditions, accumulating the policy result alongside per-condition results.
 	conditionResults := make([]readinessv1alpha1.ConditionEvaluationResult, 0, len(rule.Spec.Conditions))
 	conditionPolicy := rule.Spec.GetConditionPolicy()
-	allSatisfied, anySatisfied := true, false
+	allSatisfied := true
+	anySatisfied := false
 
 	for _, condReq := range rule.Spec.Conditions {
 		effectiveStatus, conditionFound := r.getConditionStatus(
@@ -335,8 +336,7 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 
 		if !satisfied {
 			allSatisfied = false
-		}
-		if satisfied {
+		} else {
 			anySatisfied = true
 		}
 
@@ -617,7 +617,8 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 		// Simulate rule evaluation using the rule's conditionPolicy
 		conditionPolicy := rule.Spec.GetConditionPolicy()
 		missingConditions := 0
-		allSatisfied, anySatisfied := true, false
+		allSatisfied := true
+		anySatisfied := false
 
 		for _, condReq := range rule.Spec.Conditions {
 			effectiveStatus, found := r.getConditionStatus(&node, condReq.Type, condReq.GetDefaultStatus())
@@ -627,8 +628,7 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 			satisfied := effectiveStatus == condReq.RequiredStatus
 			if !satisfied {
 				allSatisfied = false
-			}
-			if satisfied {
+			} else {
 				anySatisfied = true
 			}
 		}

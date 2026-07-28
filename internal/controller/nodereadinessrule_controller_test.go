@@ -1043,24 +1043,22 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				},
 			}
 
-			r := &RuleReadinessController{}
-
 			// Test condition exists and matches
-			status, ok := r.getConditionStatus(
+			status, ok := readinessController.getConditionStatus(
 				node, "Ready", corev1.ConditionUnknown,
 			)
 			Expect(status).To(Equal(corev1.ConditionTrue))
 			Expect(ok).To(BeTrue())
 
 			// Test condition exists but doesn't match
-			status, ok = r.getConditionStatus(
+			status, ok = readinessController.getConditionStatus(
 				node, "NetworkReady", corev1.ConditionUnknown,
 			)
 			Expect(status).To(Equal(corev1.ConditionFalse))
 			Expect(ok).To(BeTrue())
 
 			// Test missing condition
-			status, ok = r.getConditionStatus(
+			status, ok = readinessController.getConditionStatus(
 				node, "StorageReady", corev1.ConditionUnknown,
 			)
 			Expect(status).To(Equal(corev1.ConditionUnknown))
@@ -1068,7 +1066,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			// Test missing condition with a non-Unknown default — condition is absent so
 			// conditionFound=false, but the returned status equals the supplied default.
-			status, ok = r.getConditionStatus(
+			status, ok = readinessController.getConditionStatus(
 				node, "NewCondition", corev1.ConditionTrue,
 			)
 			Expect(status).To(Equal(corev1.ConditionTrue))
@@ -2180,7 +2178,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(failedNames).To(ContainElement("fail-path-node"))
 		})
 
-		It("stale failedNodes entries are cleared after successful evaluation", func() {
+		It("should remove stale failedNodes entry when evaluation succeeds and include the node in appliedNodes", func() {
 			successNode := &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:   "stale-recovery-node",
