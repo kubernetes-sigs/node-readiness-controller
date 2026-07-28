@@ -71,6 +71,4 @@ env:
 
 When `IMPERSONATE_NODE` is not set, the reporter uses its ServiceAccount identity directly (the pre-v1.35 behavior).
 
-`IMPERSONATE_NODE` is one of several environment variables the reporter
-supports, see [Reporter Configuration](../reference/reporter-configuration.md)
-for the complete list.
+See [Reporter Configuration](../reference/reporter-configuration.md) for more configuration details.
