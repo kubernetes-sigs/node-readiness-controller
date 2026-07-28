@@ -297,7 +297,7 @@ func (r *RuleReadinessController) addTaintBySpec(ctx context.Context, node *core
 		}
 
 		message := fmt.Sprintf("Taint '%s:%s' added by rule '%s'", taintSpec.Key, taintSpec.Effect, ruleName)
-		r.EventRecorder.Event(latestNode, corev1.EventTypeNormal, "TaintAdded", message)
+		r.EventRecorder.Eventf(latestNode, nil, corev1.EventTypeNormal, "TaintAdded", "AddTaint", "%s", message)
 
 		// Update the original node reference with the latest state
 		*node = *latestNode
@@ -338,7 +338,7 @@ func (r *RuleReadinessController) removeTaintBySpec(ctx context.Context, node *c
 		}
 
 		message := fmt.Sprintf("Taint '%s:%s' removed by rule '%s'", taintSpec.Key, taintSpec.Effect, ruleName)
-		r.EventRecorder.Event(latestNode, corev1.EventTypeNormal, "TaintRemoved", message)
+		r.EventRecorder.Eventf(latestNode, nil, corev1.EventTypeNormal, "TaintRemoved", "RemoveTaint", "%s", message)
 
 		// Update the original node reference with the latest state
 		*node = *latestNode

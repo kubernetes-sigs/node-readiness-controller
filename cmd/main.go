@@ -46,8 +46,8 @@ import (
 )
 
 const (
-	defaultKubeAPIQPS               = 20.0
-	defaultKubeAPIBurst             = 30
+	defaultKubeAPIQPS               = -1
+	defaultKubeAPIBurst             = -1
 	defaultNodeConcurrentReconciles = 1
 	defaultRuleConcurrentReconciles = 1
 )

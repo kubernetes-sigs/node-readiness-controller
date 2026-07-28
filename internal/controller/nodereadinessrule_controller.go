@@ -30,7 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -53,7 +53,7 @@ type RuleReadinessController struct {
 	client.Client
 	Scheme                 *runtime.Scheme
 	clientset              kubernetes.Interface
-	EventRecorder          record.EventRecorder
+	EventRecorder          events.EventRecorder
 	EnableNodeStateMetrics bool
 
 	// Cache for efficient rule lookup
@@ -75,7 +75,7 @@ func NewRuleReadinessController(mgr ctrl.Manager, clientset kubernetes.Interface
 		Client:                 mgr.GetClient(),
 		Scheme:                 mgr.GetScheme(),
 		clientset:              clientset,
-		EventRecorder:          mgr.GetEventRecorderFor("node-readiness-controller"),
+		EventRecorder:          mgr.GetEventRecorder("node-readiness-controller"),
 		EnableNodeStateMetrics: enableNodeStateMetrics,
 		ruleCache:              make(map[string]*readinessv1alpha1.NodeReadinessRule),
 	}
@@ -95,6 +95,7 @@ func (r *RuleReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager)
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -455,7 +456,7 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 			log.Info("Adopting pre-existing taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
 
 			message := fmt.Sprintf("Taint '%s:%s' is now managed by rule '%s'", rule.Spec.Taint.Key, rule.Spec.Taint.Effect, rule.Name)
-			r.EventRecorder.Event(node, corev1.EventTypeNormal, "TaintAdopted", message)
+			r.EventRecorder.Eventf(node, nil, corev1.EventTypeNormal, "TaintAdopted", "AdoptTaint", "%s", message)
 		}
 
 	default:

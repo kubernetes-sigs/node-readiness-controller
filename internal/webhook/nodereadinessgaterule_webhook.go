@@ -22,11 +22,9 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
@@ -189,21 +187,15 @@ func (w *NodeReadinessRuleWebhook) generateNoExecuteWarnings(spec readinessv1alp
 // +kubebuilder:webhook:path=/validate-readiness-node-x-k8s-io-v1alpha1-nodereadinessrule,mutating=false,failurePolicy=fail,sideEffects=None,groups=readiness.node.x-k8s.io,resources=nodereadinessrules,verbs=create;update,versions=v1alpha1,name=vnodereadinessrule.readiness.node.x-k8s.io,admissionReviewVersions=v1
 // SetupWithManager sets up the webhook with the manager.
 func (w *NodeReadinessRuleWebhook) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&readinessv1alpha1.NodeReadinessRule{}).
+	return ctrl.NewWebhookManagedBy(mgr, &readinessv1alpha1.NodeReadinessRule{}).
 		WithValidator(w).
 		Complete()
 }
 
-// Implement the admission.CustomValidator interface.
-var _ webhook.CustomValidator = &NodeReadinessRuleWebhook{}
+// Implement the admission.Validator interface (typed, controller-runtime v0.24+).
+var _ admission.Validator[*readinessv1alpha1.NodeReadinessRule] = &NodeReadinessRuleWebhook{}
 
-func (w *NodeReadinessRuleWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	rule, ok := obj.(*readinessv1alpha1.NodeReadinessRule)
-	if !ok {
-		return nil, fmt.Errorf("expected NodeReadinessRule, got %T", obj)
-	}
-
+func (w *NodeReadinessRuleWebhook) ValidateCreate(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) (admission.Warnings, error) {
 	if allErrs := w.validateNodeReadinessRule(ctx, rule, false); len(allErrs) > 0 {
 		return nil, fmt.Errorf("validation failed: %v", allErrs)
 	}
@@ -213,14 +205,8 @@ func (w *NodeReadinessRuleWebhook) ValidateCreate(ctx context.Context, obj runti
 	return warnings, nil
 }
 
-func (w *NodeReadinessRuleWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+func (w *NodeReadinessRuleWebhook) ValidateUpdate(ctx context.Context, oldRule, newRule *readinessv1alpha1.NodeReadinessRule) (admission.Warnings, error) {
 	// Update validations are handled at the API level, so we can skip them here to avoid redundant checks.
-
-	newRule, ok := newObj.(*readinessv1alpha1.NodeReadinessRule)
-	if !ok {
-		return nil, fmt.Errorf("expected NodeReadinessRule, got %T", newObj)
-	}
-
 	if allErrs := w.validateNodeReadinessRule(ctx, newRule, true); len(allErrs) > 0 {
 		return nil, fmt.Errorf("validation failed: %v", allErrs)
 	}
@@ -228,7 +214,7 @@ func (w *NodeReadinessRuleWebhook) ValidateUpdate(ctx context.Context, oldObj, n
 	return nil, nil
 }
 
-func (w *NodeReadinessRuleWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (w *NodeReadinessRuleWebhook) ValidateDelete(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) (admission.Warnings, error) {
 	// No validation needed for delete operations
 	return nil, nil
 }

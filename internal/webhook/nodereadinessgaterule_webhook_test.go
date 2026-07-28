@@ -603,16 +603,8 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			Expect(warnings).To(BeNil())
 		})
 
-		It("should reject wrong object types", func() {
-			wrongObject := &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{Name: "not-a-rule"},
-			}
-
-			warnings, err := webhook.ValidateCreate(ctx, wrongObject)
-			Expect(err).To(HaveOccurred())
-			Expect(warnings).To(BeNil())
-			Expect(err.Error()).To(ContainSubstring("expected NodeReadinessRule"))
-		})
+		// Note: "wrong object type" rejection is now enforced at compile time by
+		// the typed admission.Validator[*NodeReadinessRule] interface.
 	})
 
 	Context("NoExecute Taint Warnings", func() {

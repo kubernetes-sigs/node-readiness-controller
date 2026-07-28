@@ -15,7 +15,7 @@
 .DEFAULT_GOAL:=help
 
 # Force using a specific toolchain version to avoid issues with local installations.
-export GOTOOLCHAIN := go1.25.8
+export GOTOOLCHAIN := go1.26.0
 
 #
 # Directories.
@@ -398,30 +398,6 @@ undeploy-full: undeploy ## Undeploy with all features.
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" go test $$(go list ./... | grep -v /e2e) -coverprofile $(ARTIFACTS)/cover.out
 
-# TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
-# The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
-# CertManager is installed by default; skip with:
-# - CERT_MANAGER_INSTALL_SKIP=true
-
-.PHONY: setup-test-e2e
-setup-test-e2e: $(KIND) ## Set up a Kind cluster for e2e tests if it does not exist
-	@case "$$($(KIND) get clusters)" in \
-		*"$(KIND_CLUSTER)"*) \
-			echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation." ;; \
-		*) \
-			echo "Creating Kind cluster '$(KIND_CLUSTER)'..."; \
-			$(KIND) create cluster --name $(KIND_CLUSTER) ;; \
-	esac
-
-.PHONY: test-e2e
-test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
-	$(MAKE) cleanup-test-e2e
-
-.PHONY: cleanup-test-e2e
-cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
-	@$(KIND) delete cluster --name $(KIND_CLUSTER)
-
 .PHONY: test-e2e-kind
 test-e2e-kind: $(KIND) manifests generate fmt vet ## Run e2e tests on a Kind cluster with artifact collection and log export.
 	E2E_KIND_VERSION=$(E2E_KIND_VERSION) KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) \
@@ -485,7 +461,7 @@ $(KIND): # Build kind from tools folder.
 ##@ docs
 
 MDBOOK_VERSION ?= 0.5.2
-GO_VERSION ?= 1.25.8
+GO_VERSION ?= 1.26.0
 MDBOOK_SCRIPT := $(ROOT_DIR)/docs/book/install-and-build-mdbook.sh
 
 

@@ -30,7 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -197,7 +197,7 @@ var _ = Describe("Node Controller", func() {
 				Scheme:        k8sClient.Scheme(),
 				clientset:     fakeClientset,
 				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
-				EventRecorder: record.NewFakeRecorder(10),
+				EventRecorder: events.NewFakeRecorder(10),
 			}
 
 			nodeReconciler = &NodeReconciler{
@@ -460,7 +460,7 @@ var _ = Describe("Node Controller", func() {
 				Scheme:        k8sClient.Scheme(),
 				clientset:     fakeClientset,
 				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
-				EventRecorder: record.NewFakeRecorder(10),
+				EventRecorder: events.NewFakeRecorder(10),
 			}
 
 			nodeReconciler = &NodeReconciler{
@@ -610,7 +610,7 @@ var _ = Describe("Node Controller", func() {
 				Scheme:        k8sClient.Scheme(),
 				clientset:     fakeClientset,
 				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
-				EventRecorder: record.NewFakeRecorder(10),
+				EventRecorder: events.NewFakeRecorder(10),
 			}
 
 			nodeReconciler = &NodeReconciler{
@@ -829,7 +829,7 @@ var _ = Describe("Node Controller", func() {
 				Scheme:        testScheme,
 				clientset:     fake.NewSimpleClientset(),
 				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
-				EventRecorder: record.NewFakeRecorder(10),
+				EventRecorder: events.NewFakeRecorder(10),
 			}
 
 			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, node)).To(Succeed())
@@ -897,7 +897,7 @@ var _ = Describe("Node Controller", func() {
 				Scheme:        testScheme,
 				clientset:     fake.NewSimpleClientset(),
 				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
-				EventRecorder: record.NewFakeRecorder(10),
+				EventRecorder: events.NewFakeRecorder(10),
 			}
 
 			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, node)).To(Succeed())
@@ -949,7 +949,7 @@ var _ = Describe("Node Controller", func() {
 				Scheme:        testScheme,
 				clientset:     fake.NewSimpleClientset(),
 				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
-				EventRecorder: record.NewFakeRecorder(10),
+				EventRecorder: events.NewFakeRecorder(10),
 			}
 
 			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, node)).To(Succeed())
@@ -996,7 +996,7 @@ var _ = Describe("Node Controller", func() {
 				Scheme:        testScheme,
 				clientset:     fake.NewSimpleClientset(),
 				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
-				EventRecorder: record.NewFakeRecorder(10),
+				EventRecorder: events.NewFakeRecorder(10),
 			}
 
 			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, node)).To(Succeed())
@@ -1062,7 +1062,7 @@ var _ = Describe("Node Controller", func() {
 				Scheme:        testScheme,
 				clientset:     fake.NewSimpleClientset(),
 				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
-				EventRecorder: record.NewFakeRecorder(10),
+				EventRecorder: events.NewFakeRecorder(10),
 			}
 			controller.updateRuleCache(ctx, rule)
 
