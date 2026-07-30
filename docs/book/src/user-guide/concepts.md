@@ -60,6 +60,19 @@ When a rule specifies multiple conditions, the conditionPolicy determines how th
 >
 > ootstrap-only mode exists to verify that specific components have finished initializing. Using nyOf with ootstrap-only could lead to the node bootstrapping prematurely if just one component is ready, completely ignoring the initialization status of the others. The admission webhook enforces this restriction.
 
+
+### Condition Evaluation Policy (conditionPolicy)
+
+When a rule specifies multiple conditions, the conditionPolicy determines how they are evaluated collectively to decide if the node should be tainted:
+
+- **llOf (Default)**: Every single condition listed in the rule must match its equiredStatus. If even one condition fails, the node is tainted. This is the standard behavior for ensuring all critical dependencies are healthy.
+- **nyOf**: At least ONE condition must match its equiredStatus. If no conditions match, the node is tainted. This is particularly useful for hardware that may be satisfied by multiple drivers, or systems with active/passive fallbacks.
+
+> [!IMPORTANT]
+> **nyOf is not supported with ootstrap-only rules.**
+>
+> ootstrap-only mode exists to verify that specific components have finished initializing. Using nyOf with ootstrap-only could lead to the node bootstrapping prematurely if just one component is ready, completely ignoring the initialization status of the others. The admission webhook enforces this restriction.
+
 ## Enforcement Modes
 
 The controller supports two distinct modes of enforcement, configured via `spec.enforcementMode`, to handle different operational needs.
@@ -139,4 +152,5 @@ kubectl get nrr --field-selector spec.taint.key=readiness.k8s.io/network-not-rea
 # Review rules that only preview taint changes
 kubectl get nrr --field-selector spec.dryRun=true
 ```
+
 

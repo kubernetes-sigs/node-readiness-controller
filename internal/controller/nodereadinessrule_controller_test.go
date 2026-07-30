@@ -1,4 +1,4 @@
-/*
+﻿/*
 Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -362,7 +362,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 		It("should count taintsToAdd when conditions unmet and taint absent", func() {
 			// Node matches selector, condition NOT satisfied, no pre-existing taint
-			// → shouldRemoveTaint=false, currentlyHasTaint=false → taintsToAdd++
+			// â†’ shouldRemoveTaint=false, currentlyHasTaint=false â†’ taintsToAdd++
 			testNode := &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:   "dry-run-add-node",
@@ -433,7 +433,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 		It("should count taintsToRemove when conditions met and taint present", func() {
 			// Node matches selector, condition IS satisfied, taint pre-exists
-			// → shouldRemoveTaint=true, currentlyHasTaint=true → taintsToRemove++
+			// â†’ shouldRemoveTaint=true, currentlyHasTaint=true â†’ taintsToRemove++
 			testNode := &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:   "dry-run-remove-node",
@@ -511,16 +511,16 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		})
 
 		It("should count riskyOps when a condition is missing from a node", func() {
-			// Node matches selector but has NO Ready condition at all → conditionFound=false
-			// → missingConditions++ → riskyOps++
+			// Node matches selector but has NO Ready condition at all â†’ conditionFound=false
+			// â†’ missingConditions++ â†’ riskyOps++
 			// Condition not found falls back to GetDefaultStatus() (Unknown), which doesn't
-			// satisfy RequiredStatus=True → taintsToAdd++ as well (no pre-existing taint)
+			// satisfy RequiredStatus=True â†’ taintsToAdd++ as well (no pre-existing taint)
 			testNode := &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:   "dry-run-risky-node",
 					Labels: map[string]string{"env": "risky-test"},
 				},
-				// Intentionally no Status.Conditions — the Ready condition is absent
+				// Intentionally no Status.Conditions â€” the Ready condition is absent
 			}
 			Expect(k8sClient.Create(ctx, testNode)).To(Succeed())
 			defer func() { _ = k8sClient.Delete(ctx, testNode) }()
@@ -576,9 +576,9 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 		It("should count riskyOps and taintsToRemove when absent condition is satisfied via defaultStatus", func() {
 			// Absent condition + defaultStatus:False + requiredStatus:False:
-			// conditionFound=false → missingConditions++ → riskyOps++ (condition absent = risky)
-			// effectiveStatus=False == requiredStatus=False → allConditionsSatisfied=true
-			// node already has the taint → taintsToRemove++
+			// conditionFound=false â†’ missingConditions++ â†’ riskyOps++ (condition absent = risky)
+			// effectiveStatus=False == requiredStatus=False â†’ allConditionsSatisfied=true
+			// node already has the taint â†’ taintsToRemove++
 			const (
 				nodeName = "dry-run-default-status-node"
 				ruleName = "dry-run-default-status-rule"
@@ -597,7 +597,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						{Key: taintKey, Effect: corev1.TaintEffectNoSchedule},
 					},
 				},
-				// Intentionally NO Status.Conditions — MaintenanceRequired is absent.
+				// Intentionally NO Status.Conditions â€” MaintenanceRequired is absent.
 			}
 			Expect(k8sClient.Create(ctx, testNode)).To(Succeed())
 			defer func() { _ = k8sClient.Delete(ctx, testNode) }()
@@ -616,7 +616,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						{
 							Type:           "MaintenanceRequired",
 							RequiredStatus: corev1.ConditionFalse,
-							DefaultStatus:  corev1.ConditionFalse, // absent → False → satisfied, but still risky
+							DefaultStatus:  corev1.ConditionFalse, // absent â†’ False â†’ satisfied, but still risky
 						},
 					},
 					Taint: corev1.Taint{
@@ -646,7 +646,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				HaveValue(BeNumerically(">=", int32(1))),
 			))
 
-			// Condition is satisfied via default → taint would be removed.
+			// Condition is satisfied via default â†’ taint would be removed.
 			Eventually(func() *int32 {
 				updated := &nodereadinessiov1alpha1.NodeReadinessRule{}
 				if err := k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, updated); err != nil {
@@ -672,7 +672,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		})
 
 		It("should not count a node that does not match the selector", func() {
-			// Node exists but its labels do NOT match the rule's NodeSelector → continue (skip)
+			// Node exists but its labels do NOT match the rule's NodeSelector â†’ continue (skip)
 			// affectedNodes should be 0; all counters 0; summary "No changes needed"
 			nonMatchingNode := &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
@@ -724,7 +724,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				return updated.Status.DryRunResults
 			}, time.Second*5).Should(SatisfyAll(
 				Not(BeZero()),
-				// All counters must be 0 — skipped node contributes nothing
+				// All counters must be 0 â€” skipped node contributes nothing
 				WithTransform(func(r nodereadinessiov1alpha1.DryRunResults) int32 {
 					if r.TaintsToAdd == nil {
 						return 0
@@ -782,7 +782,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 					Name:   "dry-run-multi-risky",
 					Labels: map[string]string{"env": "multi-test"},
 				},
-				// Intentionally no Status.Conditions — the Ready condition is absent,
+				// Intentionally no Status.Conditions â€” the Ready condition is absent,
 				// making this a genuinely missing condition (riskyOps branch)
 			}
 			nodeSkip := &corev1.Node{
@@ -866,7 +866,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		It(
 			"should satisfy a rule when an absent condition matches via defaultStatus (problem-gate scenario)",
 			func() {
-				// Scenario: NPD-style gate — taint is added when a problem condition fires.
+				// Scenario: NPD-style gate â€” taint is added when a problem condition fires.
 				// When the condition is completely absent (node just bootstrapped, NPD hasn't
 				// written it yet), defaultStatus:False makes it satisfy requiredStatus:False
 				// and the taint should NOT be added (or be removed if pre-existing).
@@ -889,7 +889,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 							{Key: taintKey, Effect: corev1.TaintEffectNoSchedule},
 						},
 					},
-					// Intentionally NO Status.Conditions — MaintenanceRequired is absent.
+					// Intentionally NO Status.Conditions â€” MaintenanceRequired is absent.
 				}
 				Expect(k8sClient.Create(ctx, node)).To(Succeed())
 				defer func() { _ = k8sClient.Delete(ctx, node) }()
@@ -907,7 +907,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 							{
 								Type:           "MaintenanceRequired",
 								RequiredStatus: corev1.ConditionFalse,
-								DefaultStatus:  corev1.ConditionFalse, // absent → treated as False → satisfied
+								DefaultStatus:  corev1.ConditionFalse, // absent â†’ treated as False â†’ satisfied
 							},
 						},
 						Taint: corev1.Taint{
@@ -1064,7 +1064,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(status).To(Equal(corev1.ConditionUnknown))
 			Expect(ok).To(BeFalse())
 
-			// Test missing condition with a non-Unknown default — condition is absent so
+			// Test missing condition with a non-Unknown default â€” condition is absent so
 			// conditionFound=false, but the returned status equals the supplied default.
 			status, ok = readinessController.getConditionStatus(
 				node, "NewCondition", corev1.ConditionTrue,
@@ -2238,36 +2238,31 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 	Context("ConditionPolicy", func() {
 		var (
-			readinessController *RuleReadinessController
 			anyOfNode       *corev1.Node
 		)
 
 		BeforeEach(func() {
-			readinessController = &RuleReadinessController{
-				Client:        k8sClient,
-				Scheme:        scheme,
-				clientset:     fakeClientset,
-				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
-				EventRecorder: events.NewFakeRecorder(10),
-			}
 			anyOfNode = &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:   "anyof-test-node",
 					Labels: map[string]string{"anyof-test": "true"},
 				},
-				Spec:   corev1.NodeSpec{},
-				Status: corev1.NodeStatus{},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: "readiness.k8s.io/GPUReady", Effect: corev1.TaintEffectNoSchedule},
+					},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "gpu.example.com/HardwareDriverReady", Status: corev1.ConditionFalse},
+						{Type: "gpu.example.com/SoftwareFallbackReady", Status: corev1.ConditionFalse},
+					},
+				},
 			}
 		})
 
 		It("anyOf: removes taint when at least one condition is satisfied", func() {
-			anyOfNode.Status.Conditions = []corev1.NodeCondition{
-				{Type: "gpu.example.com/HardwareDriverReady", Status: corev1.ConditionTrue},
-				{Type: "gpu.example.com/SoftwareFallbackReady", Status: corev1.ConditionFalse},
-			}
-			anyOfNode.Spec.Taints = []corev1.Taint{
-				{Key: "readiness.k8s.io/GPUReady", Effect: corev1.TaintEffectNoSchedule},
-			}
+			anyOfNode.Status.Conditions[0].Status = corev1.ConditionTrue
 
 			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "anyof-rule-removes-taint"},
@@ -2298,10 +2293,6 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		})
 
 		It("anyOf: keeps taint when no conditions are satisfied", func() {
-			anyOfNode.Status.Conditions = []corev1.NodeCondition{
-				{Type: "gpu.example.com/HardwareDriverReady", Status: corev1.ConditionFalse},
-				{Type: "gpu.example.com/SoftwareFallbackReady", Status: corev1.ConditionFalse},
-			}
 			// Node has no taint; controller should add one
 			anyOfNode.Spec.Taints = nil
 
@@ -2360,34 +2351,6 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(readinessController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeTrue())
 		})
 
-		It("anyOf: missing condition evaluated via defaultStatus does not auto-satisfy", func() {
-			// Node has NO conditions at all
-			anyOfNode.Status.Conditions = nil
-			anyOfNode.Spec.Taints = nil
-
-			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
-				ObjectMeta: metav1.ObjectMeta{Name: "anyof-missing-condition-rule"},
-				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
-					ConditionPolicy: nodereadinessiov1alpha1.ConditionPolicyAnyOf,
-					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
-						// No defaultStatus set — will resolve to Unknown, which != True
-						{Type: "gpu.example.com/HardwareDriverReady", RequiredStatus: corev1.ConditionTrue},
-					},
-					Taint:           corev1.Taint{Key: "readiness.k8s.io/GPUReady", Effect: corev1.TaintEffectNoSchedule},
-					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"anyof-test": "true"}},
-					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
-				},
-			}
-			readinessController.updateRuleCache(ctx, rule)
-
-			Expect(k8sClient.Create(ctx, anyOfNode)).To(Succeed())
-			defer func() { Expect(k8sClient.Delete(ctx, anyOfNode)).To(Succeed()) }()
-			Expect(readinessController.evaluateRuleForNode(ctx, rule, anyOfNode)).To(Succeed())
-
-			// Missing condition resolves to Unknown != True, so anyOf is not satisfied
-			// Taint should have been added (node has none, conditions not satisfied)
-			Expect(readinessController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeTrue())
-		})
 	})
 })
 

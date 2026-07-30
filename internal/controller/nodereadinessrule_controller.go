@@ -1,4 +1,4 @@
-/*
+﻿/*
 Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -737,3 +737,4 @@ func (r *RuleReadinessController) getPreviousNodeEvaluation(rule *readinessv1alp
 	}
 	return nil
 }
+
