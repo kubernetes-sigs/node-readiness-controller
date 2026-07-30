@@ -54,6 +54,7 @@ The `conditions` list defines the criteria. The controller watches the Node's st
 *   `type`: The exact string matching the NodeCondition type.
 *   `requiredStatus`: The status required (`True`, `False`, or `Unknown`).
 *   `defaultStatus`: (Optional) The status to assume if the condition is completely missing from the Node's status. (`True`, `False`, or `Unknown`, defaults to `Unknown` if not provided). Must not be set in `bootstrap-only` mode. (See [Concepts](./concepts.md#default-condition-status-defaultstatus) for usage implications).
+*   `conditionPolicy`: (Optional) Determines how conditions are evaluated. Set to `allOf` (default) to require every condition to match, or `anyOf` to require at least one condition to match. Must not be `anyOf` in `bootstrap-only` mode.
 
 ### 3. Choose an Enforcement Mode
 The `enforcementMode` determines how the controller manages the taint lifecycle.
@@ -160,18 +161,6 @@ kubectl get nodereadinessrule my-rule -o yaml
 
 Look for `dryRunResults` in the output to see which nodes would be tainted.
 
-## Selecting Rules
-
-Use field selectors to find rules by enforcement mode, taint key, or dry-run status:
-
-```sh
-kubectl get nrr --field-selector spec.enforcementMode=continuous
-kubectl get nrr --field-selector spec.taint.key=readiness.k8s.io/nfs-unhealthy
-kubectl get nrr --field-selector spec.dryRun=true
-```
-
-See [Concepts](./concepts.md#selecting-rules) for more details.
-
 ## Reporting Node Conditions
 
 The Node Readiness Controller only 'reacts' to observed conditions on the Node object. These conditions can be set by various tools:
@@ -181,5 +170,3 @@ The Node Readiness Controller only 'reacts' to observed conditions on the Node o
 3.  **External Controllers**: Any tool that can patch Node status can trigger these rules.
 
 For a full example of setting up a custom condition for a security agent, see the [Security Agent Readiness Example](../examples/security-agent-readiness.md).
-
-

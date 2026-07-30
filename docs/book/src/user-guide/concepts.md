@@ -47,31 +47,17 @@ The choice of `defaultStatus` has critical interaction with the rule's `enforcem
 >
  > Because these two features serve opposing purposes, using them together can lead to unintended behavior, such as completing the bootstrap phase before a condition is actually verified. To prevent  this, the admission webhook explicitly rejects this combination.
 
+### Condition Evaluation Policy (`conditionPolicy`)
 
-### Condition Evaluation Policy (conditionPolicy)
+When a rule specifies multiple conditions, the `conditionPolicy` determines how they are evaluated collectively to decide if the node should be tainted:
 
-When a rule specifies multiple conditions, the conditionPolicy determines how they are evaluated collectively to decide if the node should be tainted:
-
-- **llOf (Default)**: Every single condition listed in the rule must match its equiredStatus. If even one condition fails, the node is tainted. This is the standard behavior for ensuring all critical dependencies are healthy.
-- **nyOf**: At least ONE condition must match its equiredStatus. If no conditions match, the node is tainted. This is particularly useful for hardware that may be satisfied by multiple drivers, or systems with active/passive fallbacks.
-
-> [!IMPORTANT]
-> **nyOf is not supported with ootstrap-only rules.**
->
-> ootstrap-only mode exists to verify that specific components have finished initializing. Using nyOf with ootstrap-only could lead to the node bootstrapping prematurely if just one component is ready, completely ignoring the initialization status of the others. The admission webhook enforces this restriction.
-
-
-### Condition Evaluation Policy (conditionPolicy)
-
-When a rule specifies multiple conditions, the conditionPolicy determines how they are evaluated collectively to decide if the node should be tainted:
-
-- **llOf (Default)**: Every single condition listed in the rule must match its equiredStatus. If even one condition fails, the node is tainted. This is the standard behavior for ensuring all critical dependencies are healthy.
-- **nyOf**: At least ONE condition must match its equiredStatus. If no conditions match, the node is tainted. This is particularly useful for hardware that may be satisfied by multiple drivers, or systems with active/passive fallbacks.
+- **`allOf` (Default)**: Every single condition listed in the rule must match its `requiredStatus`. If even one condition fails, the node is tainted. This is the standard behavior for ensuring all critical dependencies are healthy.
+- **`anyOf`**: At least ONE condition must match its `requiredStatus`. If no conditions match, the node is tainted. This is particularly useful for hardware that may be satisfied by multiple drivers, or systems with active/passive fallbacks.
 
 > [!IMPORTANT]
-> **nyOf is not supported with ootstrap-only rules.**
+> **`anyOf` is not supported with `bootstrap-only` rules.**
 >
-> ootstrap-only mode exists to verify that specific components have finished initializing. Using nyOf with ootstrap-only could lead to the node bootstrapping prematurely if just one component is ready, completely ignoring the initialization status of the others. The admission webhook enforces this restriction.
+> `bootstrap-only` mode exists to verify that specific components have finished initializing. Using `anyOf` with `bootstrap-only` could lead to the node bootstrapping prematurely if just one component is ready, completely ignoring the initialization status of the others. The admission webhook enforces this restriction.
 
 ## Enforcement Modes
 
@@ -137,20 +123,3 @@ When `spec.dryRun: true` is set on a rule:
 *   The intended actions are reported in the `status.dryRunResults` field of the `NodeReadinessRule`.
 
 This allows you to preview exactly which nodes would be affected and identifying any potential misconfigurations (like a typo in a label selector) before they impact your cluster.
-
-## Selecting Rules
-
-`NodeReadinessRule` resources support Kubernetes field selectors for `spec.enforcementMode`, `spec.taint.key`, and `spec.dryRun`. Use them with `kubectl get nrr` to list only the rules relevant to an operational task.
-
-```sh
-# List bootstrap gates
-kubectl get nrr --field-selector spec.enforcementMode=bootstrap-only
-
-# Find the rule that manages a taint
-kubectl get nrr --field-selector spec.taint.key=readiness.k8s.io/network-not-ready
-
-# Review rules that only preview taint changes
-kubectl get nrr --field-selector spec.dryRun=true
-```
-
-

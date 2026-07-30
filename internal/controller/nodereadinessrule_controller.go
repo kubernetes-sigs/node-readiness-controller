@@ -337,6 +337,7 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 
 		if !satisfied {
 			allSatisfied = false
+			metrics.ConditionEvaluationFailures.WithLabelValues(rule.Name, condReq.Type).Inc()
 		} else {
 			anySatisfied = true
 		}
@@ -346,10 +347,6 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		observedStatus := effectiveStatus
 		if !conditionFound {
 			observedStatus = corev1.ConditionUnknown
-		}
-
-		if !satisfied {
-			metrics.ConditionEvaluationFailures.WithLabelValues(rule.Name, condReq.Type).Inc()
 		}
 
 		conditionResults = append(conditionResults, readinessv1alpha1.ConditionEvaluationResult{
@@ -737,4 +734,3 @@ func (r *RuleReadinessController) getPreviousNodeEvaluation(rule *readinessv1alp
 	}
 	return nil
 }
-
