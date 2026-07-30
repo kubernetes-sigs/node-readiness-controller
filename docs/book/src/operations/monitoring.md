@@ -37,14 +37,20 @@ Total number of taint operations performed by the controller.
 
 ### `node_readiness_evaluation_duration_seconds`
 
-Duration of rule evaluations.
+Duration of rule evaluations per rule.
 
 | Property | Value |
 | --- | --- |
 | Type | `histogram` |
-| Labels | none |
+| Labels | `rule` |
 | Buckets | Prometheus default histogram buckets |
 | Recorded when | The controller evaluates a rule against a node |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `rule` | `NodeReadinessRule` name | Any rule name |
 
 ### `node_readiness_failures_total`
 
