@@ -181,3 +181,4 @@ The Node Readiness Controller only 'reacts' to observed conditions on the Node o
 3.  **External Controllers**: Any tool that can patch Node status can trigger these rules.
 
 For a full example of setting up a custom condition for a security agent, see the [Security Agent Readiness Example](../examples/security-agent-readiness.md).
+

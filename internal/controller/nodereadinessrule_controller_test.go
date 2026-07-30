@@ -2238,12 +2238,12 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 	Context("ConditionPolicy", func() {
 		var (
-			anyOfController *RuleReadinessController
+			readinessController *RuleReadinessController
 			anyOfNode       *corev1.Node
 		)
 
 		BeforeEach(func() {
-			anyOfController = &RuleReadinessController{
+			readinessController = &RuleReadinessController{
 				Client:        k8sClient,
 				Scheme:        scheme,
 				clientset:     fakeClientset,
@@ -2282,17 +2282,17 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 				},
 			}
-			anyOfController.updateRuleCache(ctx, rule)
+			readinessController.updateRuleCache(ctx, rule)
 
 			Expect(k8sClient.Create(ctx, anyOfNode)).To(Succeed())
 			defer func() { Expect(k8sClient.Delete(ctx, anyOfNode)).To(Succeed()) }()
-			Expect(anyOfController.evaluateRuleForNode(ctx, rule, anyOfNode)).To(Succeed())
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, anyOfNode)).To(Succeed())
 
 			// Taint should have been removed because HardwareDriverReady=True satisfies anyOf
-			Expect(anyOfController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeFalse())
+			Expect(readinessController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeFalse())
 
 			// conditionResults in status should reflect actual observed values
-			eval := anyOfController.getPreviousNodeEvaluation(rule, anyOfNode.Name)
+			eval := readinessController.getPreviousNodeEvaluation(rule, anyOfNode.Name)
 			Expect(eval).NotTo(BeNil())
 			Expect(eval.ConditionResults).To(HaveLen(2))
 		})
@@ -2318,14 +2318,14 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 				},
 			}
-			anyOfController.updateRuleCache(ctx, rule)
+			readinessController.updateRuleCache(ctx, rule)
 
 			Expect(k8sClient.Create(ctx, anyOfNode)).To(Succeed())
 			defer func() { Expect(k8sClient.Delete(ctx, anyOfNode)).To(Succeed()) }()
-			Expect(anyOfController.evaluateRuleForNode(ctx, rule, anyOfNode)).To(Succeed())
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, anyOfNode)).To(Succeed())
 
 			// Taint should have been added because neither condition is satisfied
-			Expect(anyOfController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeTrue())
+			Expect(readinessController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeTrue())
 		})
 
 		It("allOf (explicit): keeps taint when only one of two conditions is satisfied", func() {
@@ -2350,14 +2350,14 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 				},
 			}
-			anyOfController.updateRuleCache(ctx, rule)
+			readinessController.updateRuleCache(ctx, rule)
 
 			Expect(k8sClient.Create(ctx, anyOfNode)).To(Succeed())
 			defer func() { Expect(k8sClient.Delete(ctx, anyOfNode)).To(Succeed()) }()
-			Expect(anyOfController.evaluateRuleForNode(ctx, rule, anyOfNode)).To(Succeed())
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, anyOfNode)).To(Succeed())
 
 			// Taint must remain because CondB is still False
-			Expect(anyOfController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeTrue())
+			Expect(readinessController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeTrue())
 		})
 
 		It("anyOf: missing condition evaluated via defaultStatus does not auto-satisfy", func() {
@@ -2378,16 +2378,17 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 				},
 			}
-			anyOfController.updateRuleCache(ctx, rule)
+			readinessController.updateRuleCache(ctx, rule)
 
 			Expect(k8sClient.Create(ctx, anyOfNode)).To(Succeed())
 			defer func() { Expect(k8sClient.Delete(ctx, anyOfNode)).To(Succeed()) }()
-			Expect(anyOfController.evaluateRuleForNode(ctx, rule, anyOfNode)).To(Succeed())
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, anyOfNode)).To(Succeed())
 
 			// Missing condition resolves to Unknown != True, so anyOf is not satisfied
 			// Taint should have been added (node has none, conditions not satisfied)
-			Expect(anyOfController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeTrue())
+			Expect(readinessController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeTrue())
 		})
 	})
 })
+
 
