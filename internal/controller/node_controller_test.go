@@ -1144,7 +1144,8 @@ var _ = Describe("Node Controller", func() {
 			_ = metrics.Failures.WithLabelValues(rule.Name, "EvaluationError").Write(beforeM)
 			before := beforeM.GetCounter().GetValue()
 
-			controller.processNodeAgainstAllRules(ctx, node)
+			err := controller.processNodeAgainstAllRules(ctx, node)
+			Expect(err).To(HaveOccurred())
 
 			afterM := &dto.Metric{}
 			_ = metrics.Failures.WithLabelValues(rule.Name, "EvaluationError").Write(afterM)
