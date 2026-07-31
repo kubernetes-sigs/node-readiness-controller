@@ -212,6 +212,7 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	metrics.RuleLastReconciliationTime.DeleteLabelValues(rule.Name)
 	metrics.BootstrapCompleted.DeleteLabelValues(rule.Name)
 	metrics.BootstrapDuration.DeleteLabelValues(rule.Name)
+	metrics.EvaluationDuration.DeleteLabelValues(rule.Name)
 
 	// For multi-label metrics, use DeletePartialMatch to wipe all combinations
 	metrics.NodesByState.DeletePartialMatch(ruleLabel)
