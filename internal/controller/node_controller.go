@@ -159,6 +159,8 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
 			errs = append(errs, err)
 			metrics.Failures.WithLabelValues(rule.Name, "EvaluationError").Inc()
+		} else {
+			r.clearNodeFailure(rule, node.Name)
 		}
 
 		// Persist the rule status
@@ -422,6 +424,17 @@ func (r *RuleReadinessController) recordNodeFailure(
 		LastEvaluationTime: metav1.Now(),
 	})
 
+	rule.Status.FailedNodes = failedNodes
+}
+
+// clearNodeFailure removes any failure record for a specific node from the rule status.
+func (r *RuleReadinessController) clearNodeFailure(rule *readinessv1alpha1.NodeReadinessRule, nodeName string) {
+	var failedNodes []readinessv1alpha1.NodeFailure
+	for _, failure := range rule.Status.FailedNodes {
+		if failure.NodeName != nodeName {
+			failedNodes = append(failedNodes, failure)
+		}
+	}
 	rule.Status.FailedNodes = failedNodes
 }
 
