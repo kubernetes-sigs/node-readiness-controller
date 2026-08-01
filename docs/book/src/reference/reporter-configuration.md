@@ -17,6 +17,7 @@ and [Security Agent](../examples/security-agent-readiness.md) for examples.
 | `CONDITION_TYPE` | The Node Readiness condition written by the reporter, e.g. `projectcalico.org/CalicoReady`. | (required) |
 | `CHECK_INTERVAL` | How often the reporter polls `CHECK_ENDPOINT`. | `30s` |
 | `HEARTBEAT_PERIOD` | The maximum time the reporter can go without writing to the Node's condition if component health hasn't changed. See [Optimizing node status writes](../user-guide/concepts.md#optimizing-node-status-writes). Accepts Go duration strings like `30s`, `2m`, `1h`. Invalid values are logged and fall back to the default. | `5m` |
+| `RUN_MODE` | Controls how the reporter runs after startup. `continuous` (default) keeps the reporter running forever, polling the health endpoint at `CHECK_INTERVAL`. `bootstrap-only` makes the reporter exit successfully as soon as the component becomes healthy, which is ideal for init containers that only need to verify a one-time bootstrap check (e.g., CNI installation). | `continuous` |
 | `IMPERSONATE_NODE` | When set to `"true"`, the reporter sends `Impersonate-User: system:node:<nodeName>` headers on every request, enabling the constrained impersonation authorization flow. Requires Kubernetes **v1.35+** for [Constrained Impersonation](https://kubernetes.io/docs/reference/access-authn-authz/user-impersonation/#constrained-impersonation) feature. See [Security](../operations/security.md#reporter-configuration) for details. | unset (uses the reporter's own ServiceAccount identity) |
 
 ## Example
@@ -35,4 +36,6 @@ env:
     value: "30s"
   - name: HEARTBEAT_PERIOD
     value: "5m"
+  - name: RUN_MODE
+    value: "continuous"
 ```

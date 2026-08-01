@@ -40,11 +40,19 @@ const (
 	envConditionType       = "CONDITION_TYPE"
 	envCheckEndpoint       = "CHECK_ENDPOINT"
 	envCheckInterval       = "CHECK_INTERVAL"
+	envRunMode             = "RUN_MODE"
 	envImpersonateNode     = "IMPERSONATE_NODE"
 	envHeartbeatPeriod     = "HEARTBEAT_PERIOD"
 	defaultCheckInterval   = 30 * time.Second
 	defaultHTTPTimeout     = 10 * time.Second
 	defaultHeartbeatPeriod = 5 * time.Minute
+
+	// Supported run modes for the reporter. These intentionally mirror the
+	// enforcementMode values of the NodeReadinessRule CRD so the reporter can
+	// be deployed as the per-node counterpart of a bootstrap-only/continuous rule.
+	runModeContinuous    = "continuous"
+	runModeBootstrapOnly = "bootstrap-only"
+	defaultRunMode       = runModeContinuous
 )
 
 // HealthResponse represents the health check response structure.
@@ -68,6 +76,16 @@ func main() {
 	conditionType := os.Getenv(envConditionType)
 	if conditionType == "" {
 		klog.ErrorS(nil, "Environment variable not set", "variable", envConditionType)
+		klog.Flush()
+		os.Exit(1)
+	}
+
+	runMode := os.Getenv(envRunMode)
+	if runMode == "" {
+		runMode = defaultRunMode
+	}
+	if err := validateRunMode(runMode); err != nil {
+		klog.ErrorS(err, "Invalid run mode configuration", "variable", envRunMode)
 		klog.Flush()
 		os.Exit(1)
 	}
@@ -137,26 +155,40 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
-	klog.InfoS("Starting readiness condition reporter", "node", nodeName, "condition", conditionType, "interval", interval)
+	klog.InfoS("Starting readiness condition reporter", "node", nodeName, "condition", conditionType, "interval", interval, "runMode", runMode)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// Run immediately on startup, then on each tick
-	runCheck(ctx, httpClient, clientset, checkEndpoint, nodeName, conditionType, heartbeatPeriod)
+	// Run immediately on startup, then on each tick. In bootstrap-only mode the
+	// reporter exits as soon as the component becomes healthy; in continuous mode
+	// it polls until SIGTERM/SIGINT.
 	for {
+		health := runCheck(ctx, httpClient, clientset, checkEndpoint, nodeName, conditionType, heartbeatPeriod)
+		if shouldExitBootstrap(runMode, health) {
+			klog.InfoS("Bootstrap-only mode: component became healthy, exiting", "node", nodeName, "condition", conditionType)
+			return
+		}
+
 		select {
 		case <-ctx.Done():
 			klog.InfoS("Shutting down readiness condition reporter", "reason", ctx.Err())
 			return
 		case <-ticker.C:
-			runCheck(ctx, httpClient, clientset, checkEndpoint, nodeName, conditionType, heartbeatPeriod)
 		}
 	}
 }
 
+// shouldExitBootstrap reports whether the reporter should exit after a health
+// check. It returns true only in bootstrap-only mode once the component has
+// become healthy (and its node condition updated for the final time). In
+// continuous mode it always returns false so the reporter keeps polling.
+func shouldExitBootstrap(runMode string, health *HealthResponse) bool {
+	return runMode == runModeBootstrapOnly && health != nil && health.Healthy
+}
+
 // runCheck performs a single health check and updates the node condition.
-func runCheck(ctx context.Context, httpClient *http.Client, clientset kubernetes.Interface, checkEndpoint, nodeName, conditionType string, heartbeatPeriod time.Duration) {
+func runCheck(ctx context.Context, httpClient *http.Client, clientset kubernetes.Interface, checkEndpoint, nodeName, conditionType string, heartbeatPeriod time.Duration) *HealthResponse {
 	health, err := checkHealth(ctx, httpClient, checkEndpoint)
 	if err != nil {
 		klog.ErrorS(err, "Health check failed", "endpoint", checkEndpoint)
@@ -170,6 +202,8 @@ func runCheck(ctx context.Context, httpClient *http.Client, clientset kubernetes
 	if err := updateNodeCondition(ctx, clientset, nodeName, conditionType, health, heartbeatPeriod); err != nil {
 		klog.ErrorS(err, "Failed to update node condition", "node", nodeName, "condition", conditionType)
 	}
+
+	return health
 }
 
 // validateCheckEndpoint ensures the health check endpoint is a well-formed HTTP(S) URL.
@@ -190,6 +224,16 @@ func validateCheckEndpoint(endpoint string) (string, error) {
 	}
 
 	return endpoint, nil
+}
+
+// validateRunMode validates the RUN_MODE environment variable.
+func validateRunMode(mode string) error {
+	switch mode {
+	case runModeContinuous, runModeBootstrapOnly:
+		return nil
+	default:
+		return fmt.Errorf("unsupported run mode %q: must be %q or %q", mode, runModeContinuous, runModeBootstrapOnly)
+	}
 }
 
 // checkHealth performs an HTTP request to check component health.

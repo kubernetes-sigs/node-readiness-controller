@@ -28,6 +28,88 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
+func TestValidateRunMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    string
+		wantErr bool
+	}{
+		{
+			name:    "Valid continuous mode",
+			mode:    "continuous",
+			wantErr: false,
+		},
+		{
+			name:    "Valid bootstrap-only mode",
+			mode:    "bootstrap-only",
+			wantErr: false,
+		},
+		{
+			name:    "Invalid mode",
+			mode:    "invalid",
+			wantErr: true,
+		},
+		{
+			name:    "Empty mode",
+			mode:    "",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateRunMode(tt.mode)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateRunMode(%q) error = %v, wantErr %v", tt.mode, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestShouldExitBootstrap(t *testing.T) {
+	healthy := &HealthResponse{Healthy: true}
+	unhealthy := &HealthResponse{Healthy: false}
+	tests := []struct {
+		name    string
+		runMode string
+		health  *HealthResponse
+		want    bool
+	}{
+		{
+			name:    "bootstrap-only with healthy component exits",
+			runMode: "bootstrap-only",
+			health:  healthy,
+			want:    true,
+		},
+		{
+			name:    "bootstrap-only with unhealthy component keeps polling",
+			runMode: "bootstrap-only",
+			health:  unhealthy,
+			want:    false,
+		},
+		{
+			name:    "continuous with healthy component does not exit",
+			runMode: "continuous",
+			health:  healthy,
+			want:    false,
+		},
+		{
+			name:    "bootstrap-only with nil health does not exit",
+			runMode: "bootstrap-only",
+			health:  nil,
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldExitBootstrap(tt.runMode, tt.health); got != tt.want {
+				t.Errorf("shouldExitBootstrap(%q, health=%v) = %v, want %v", tt.runMode, tt.health, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCheckHealth(t *testing.T) {
 	tests := []struct {
 		name         string
