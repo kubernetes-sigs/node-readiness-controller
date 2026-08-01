@@ -7,7 +7,7 @@ release:
   name: nrr-controller
 
 tests:
-  - it: renders full rule spec and defaults nodeSelector when omitted
+  - it: renders full rule spec with explicit all-nodes selector
     set:
       nodeReadinessRules:
         - name: kube-proxy-unhealthy-noschedule
@@ -20,6 +20,7 @@ tests:
             value: "true"
             effect: NoSchedule
           enforcementMode: continuous
+          nodeSelector: {}
     asserts:
       - equal:
           path: metadata.name
@@ -36,6 +37,21 @@ tests:
       - equal:
           path: spec.taint.key
           value: readiness.k8s.io/KubeProxyUnhealthy
+
+  - it: fails rendering when nodeSelector is omitted
+    set:
+      nodeReadinessRules:
+        - name: missing-selector
+          conditions:
+            - type: KubeProxyUnhealthy
+              requiredStatus: "False"
+          taint:
+            key: readiness.k8s.io/KubeProxyUnhealthy
+            effect: NoSchedule
+          enforcementMode: continuous
+    asserts:
+      - failedTemplate:
+          errorPattern: "spec.nodeSelector is required"
 
   - it: preserves provided nodeSelector
     set:
