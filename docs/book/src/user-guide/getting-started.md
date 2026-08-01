@@ -161,6 +161,18 @@ kubectl get nodereadinessrule my-rule -o yaml
 
 Look for `dryRunResults` in the output to see which nodes would be tainted.
 
+## Selecting Rules
+
+Use field selectors to find rules by enforcement mode, taint key, or dry-run status:
+
+```sh
+kubectl get nrr --field-selector spec.enforcementMode=continuous
+kubectl get nrr --field-selector spec.taint.key=readiness.k8s.io/nfs-unhealthy
+kubectl get nrr --field-selector spec.dryRun=true
+```
+
+See [Concepts](./concepts.md#selecting-rules) for more details.
+
 ## Reporting Node Conditions
 
 The Node Readiness Controller only 'reacts' to observed conditions on the Node object. These conditions can be set by various tools:

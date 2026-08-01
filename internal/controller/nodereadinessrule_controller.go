@@ -616,23 +616,26 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 		// Simulate rule evaluation using the rule's conditionPolicy
 		conditionPolicy := rule.Spec.GetConditionPolicy()
 		missingConditions := 0
-		allSatisfied := true
+		allConditionsSatisfied := true
 		anySatisfied := false
 
 		for _, condReq := range rule.Spec.Conditions {
-			effectiveStatus, found := r.getConditionStatus(&node, condReq.Type, condReq.GetDefaultStatus())
-			if !found {
+			currentStatus, conditionFound := r.getConditionStatus(
+				&node,
+				condReq.Type,
+				condReq.GetDefaultStatus(),
+			)
+			if !conditionFound {
 				missingConditions++
 			}
-			satisfied := effectiveStatus == condReq.RequiredStatus
-			if !satisfied {
-				allSatisfied = false
+			if currentStatus != condReq.RequiredStatus {
+				allConditionsSatisfied = false
 			} else {
 				anySatisfied = true
 			}
 		}
 
-		shouldRemoveTaint := allSatisfied
+		shouldRemoveTaint := allConditionsSatisfied
 		if conditionPolicy == readinessv1alpha1.ConditionPolicyAnyOf {
 			shouldRemoveTaint = anySatisfied
 		}
