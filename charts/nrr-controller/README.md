@@ -5,9 +5,12 @@
 ## TL;DR:
 
 ```shell
-helm repo add node-readiness-controller https://kubernetes-sigs.github.io/node-readiness-controller/
-helm install my-release --namespace kube-system node-readiness-controller/nrr-controller
+git clone https://github.com/kubernetes-sigs/node-readiness-controller.git
+cd node-readiness-controller
+helm install my-release --namespace nrr-system --create-namespace ./charts/nrr-controller
 ```
+
+> Published chart releases via `registry.k8s.io` OCI are WIP.
 
 ## Introduction
 
@@ -22,7 +25,7 @@ This chart bootstraps a [node-readiness-controller](https://github.com/kubernete
 To install the chart with the release name `my-release`:
 
 ```shell
-helm install --namespace kube-system my-release node-readiness-controller/nrr-controller
+helm install --namespace nrr-system --create-namespace my-release ./charts/nrr-controller
 ```
 
 The command deploys the _node-readiness-controller_ on the Kubernetes cluster in the default configuration. The [configuration](#configuration) section lists the parameters that can be configured during installation.
@@ -102,6 +105,6 @@ The following table lists the configurable parameters of the _node-readiness-con
 | `validatingWebhook.path`                 | The path for the webhook                                                                                                       | `/validate-readiness-node-x-k8s-io-v1alpha1-nodereadinessrule`   |
 | `validatingWebhook.admissionReviewVersions` | Admission review versions supported by the webhook                                                                          | `["v1"]`                                                          |
 | `nodeSelector`                           | Node selectors to run the controller on specific nodes                                                                          | `nil`                                                             |
-| `tolerations`                            | Tolerations to run the controller on specific nodes                                                                             | `nil`                                                             |
+| `tolerations`                            | Tolerations for the controller pods (defaults tolerate all `NoSchedule`/`NoExecute` taints so the controller can run on gated nodes) | _see values.yaml_                                                 |
 | `affinity`                               | Node affinity to run the controller on specific nodes                                                                           | `nil`                                                             |
 | `nodeReadinessRules`                     | Custom NodeReadinessRule resources to create. When validating webhooks are enabled, apply rules after the webhook is ready.    | `[]`                                                              |

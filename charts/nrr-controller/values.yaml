@@ -66,7 +66,7 @@ serviceAccount:
 leaderElection:
   enabled: true
 
-# Enable the webhook server
+# The bind address for the health probe endpoints (/healthz, /readyz)
 healthProbeBindAddress: ":8081"
 
 # Liveness probe configuration

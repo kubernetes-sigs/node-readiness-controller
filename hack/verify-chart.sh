@@ -14,4 +14,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-${CONTAINER_ENGINE:-docker} run -it --rm --network host --workdir=/data --volume ~/.kube/config:/root/.kube/config:ro --volume $(pwd):/data quay.io/helmpack/chart-testing:v3.7.0 /bin/bash -c "git config --global --add safe.directory /data; ct install --config=.github/ci/ct.yaml --helm-extra-set-args=\"--set=kind=Deployment\""
+# Match the chart-testing version used by .github/workflows/helm.yaml.
+${CONTAINER_ENGINE:-docker} run -i --rm --network host --workdir=/data --volume ~/.kube/config:/root/.kube/config:ro --volume $(pwd):/data quay.io/helmpack/chart-testing:v3.11.0 /bin/bash -c "git config --global --add safe.directory /data; ct install --config=.github/ci/ct.yaml"
