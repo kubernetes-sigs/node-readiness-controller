@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -56,6 +57,7 @@ type HealthResponse struct {
 
 func main() {
 	klog.InitFlags(nil)
+	flag.Parse()
 
 	// Get configuration from environment
 	nodeName := os.Getenv(envNodeName)
