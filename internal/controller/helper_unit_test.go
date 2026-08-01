@@ -17,11 +17,17 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"testing"
 
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 )
+
 
 func TestBootstrapAnnotationKey(t *testing.T) {
 	g := NewWithT(t)
@@ -52,3 +58,47 @@ func TestLegacyBootstrapAnnotationKey(t *testing.T) {
 	key := legacyBootstrapAnnotationKey("my-rule")
 	g.Expect(key).To(Equal("readiness.k8s.io/bootstrap-completed-my-rule"))
 }
+
+func TestGetApplicableRulesForNode_DeepCopy(t *testing.T) {
+	g := NewWithT(t)
+
+	c := &RuleReadinessController{
+		ruleCache: make(map[string]*readinessv1alpha1.NodeReadinessRule),
+	}
+
+	rule := &readinessv1alpha1.NodeReadinessRule{
+		ObjectMeta: metav1.ObjectMeta{Name: "rule-1"},
+		Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+			NodeSelector: metav1.LabelSelector{
+				MatchLabels: map[string]string{"env": "prod"},
+			},
+		},
+		Status: readinessv1alpha1.NodeReadinessRuleStatus{
+			AppliedNodes: []string{"node-1"},
+		},
+	}
+
+	ctx := context.Background()
+	c.updateRuleCache(ctx, rule)
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "node-1",
+			Labels: map[string]string{"env": "prod"},
+		},
+	}
+
+	rules := c.getApplicableRulesForNode(ctx, node)
+	g.Expect(rules).To(HaveLen(1))
+
+	// Mutate the returned rule's status
+	rules[0].Status.AppliedNodes = append(rules[0].Status.AppliedNodes, "node-2")
+
+	// Ensure the cached rule was isolated and not mutated
+	c.ruleCacheMutex.RLock()
+	cachedRule := c.ruleCache["rule-1"]
+	c.ruleCacheMutex.RUnlock()
+
+	g.Expect(cachedRule.Status.AppliedNodes).To(Equal([]string{"node-1"}))
+}
+

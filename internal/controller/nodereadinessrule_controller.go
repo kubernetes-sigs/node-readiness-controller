@@ -511,7 +511,7 @@ func (r *RuleReadinessController) getApplicableRulesForNode(ctx context.Context,
 
 	for _, rule := range r.ruleCache {
 		if r.ruleAppliesTo(ctx, rule, node) {
-			applicableRules = append(applicableRules, rule)
+			applicableRules = append(applicableRules, rule.DeepCopy())
 		}
 	}
 
