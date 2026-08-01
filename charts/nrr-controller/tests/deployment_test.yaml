@@ -23,15 +23,26 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --leader-elect
 
+  - it: disables metrics by default
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --metrics-bind-address=0
+
   - it: adds metrics secure args when enabled
     set:
       metrics:
+        enabled: true
         secure: true
     template: templates/deployment.yaml
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --metrics-secure
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --metrics-bind-address=:8443
 
   - it: exposes webhook port when webhook enabled
     set:

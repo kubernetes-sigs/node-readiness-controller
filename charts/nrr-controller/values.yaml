@@ -81,8 +81,14 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
 
-# Metrics server configuration
+# Metrics endpoint configuration.
+# Disabled by default, matching the controller's own default
+# (--metrics-bind-address=0) and the kustomize deployment. When enabled,
+# the /metrics endpoint is served and the metrics Service is created.
+# Set secure=true to serve HTTPS with token authn/authz (recommended;
+# requires certificates, e.g. via certManager.enabled).
 metrics:
+  enabled: false
   secure: false
   bindAddress: ":8443"
   service:

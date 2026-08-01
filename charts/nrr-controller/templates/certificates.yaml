@@ -1,4 +1,4 @@
-{{- if .Values.certManager.enabled }}
+{{- if and .Values.certManager.enabled .Values.certManager.metricsCertificate.create .Values.metrics.enabled .Values.metrics.secure }}
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -19,8 +19,8 @@ spec:
   issuerRef:
     kind: Issuer
     name: {{ include "nrr-controller.fullname" . }}-{{ .Values.certManager.issuer.name }}
-
-{{- if and .Values.webhook.enabled .Values.certManager.webhookCertificate.create }}
+{{- end }}
+{{- if and .Values.certManager.enabled .Values.webhook.enabled .Values.certManager.webhookCertificate.create }}
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -41,5 +41,4 @@ spec:
   issuerRef:
     kind: Issuer
     name: {{ include "nrr-controller.fullname" . }}-{{ .Values.certManager.issuer.name }}
-{{- end }}
 {{- end }}

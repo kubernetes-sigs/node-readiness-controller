@@ -12,6 +12,7 @@ set:
   validatingWebhook:
     enabled: true
   metrics:
+    enabled: true
     secure: true
 
 tests:

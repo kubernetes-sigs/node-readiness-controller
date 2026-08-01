@@ -1,3 +1,4 @@
+{{- if .Values.metrics.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -7,9 +8,10 @@ metadata:
     {{- include "nrr-controller.labels" . | nindent 4 }}
 spec:
   ports:
-    - name: https
+    - name: {{ ternary "https" "http" .Values.metrics.secure }}
       port: {{ .Values.metrics.service.port }}
       protocol: TCP
       targetPort: {{ .Values.metrics.service.targetPort }}
   selector:
     {{- include "nrr-controller.selectorLabels" . | nindent 4 }}
+{{- end }}
