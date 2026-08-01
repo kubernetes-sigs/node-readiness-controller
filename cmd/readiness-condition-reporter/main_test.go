@@ -136,7 +136,9 @@ func TestUpdateNodeCondition(t *testing.T) {
 			wantUpdateCalled: true,
 		},
 		{
-			name: "State change triggers immediate write",
+			// A state change bypasses the heartbeat gate, so the update is written
+			// immediately rather than waiting for the next heartbeat.
+			name: "update condition on state change",
 			existingNode: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
 				Status: corev1.NodeStatus{
@@ -218,14 +220,13 @@ func TestUpdateNodeCondition(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := fake.NewSimpleClientset(tt.existingNode)
 
-			countUpdates := func() int {
-				n := 0
+			updateCalled := func() bool {
 				for _, a := range client.Actions() {
 					if a.GetVerb() == "update" && a.GetSubresource() == "status" && a.GetResource().Resource == "nodes" {
-						n++
+						return true
 					}
 				}
-				return n
+				return false
 			}
 
 			err := updateNodeCondition(context.Background(), client, nodeName, conditionType, tt.health, tt.heartbeatPeriod)
@@ -233,12 +234,9 @@ func TestUpdateNodeCondition(t *testing.T) {
 				t.Errorf("updateNodeCondition() error = %v", err)
 			}
 
-			// Assert API call frequency
-			updateCount := countUpdates()
-			if tt.wantUpdateCalled && updateCount == 0 {
-				t.Errorf("Expected UpdateStatus to be called, but it was skipped")
-			} else if !tt.wantUpdateCalled && updateCount > 0 {
-				t.Errorf("Expected UpdateStatus to be skipped, but it was called %d times", updateCount)
+			// Assert whether the status write reached the API server
+			if got := updateCalled(); got != tt.wantUpdateCalled {
+				t.Errorf("UpdateStatus called = %v, want %v", got, tt.wantUpdateCalled)
 			}
 
 			updatedNode, err := client.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
