@@ -103,8 +103,8 @@ To help you integrate custom checks where NPD might not be suitable, the project
 
 #### Optimizing node status writes
 
-On every check interval, the reporter compares the observed component health
-against the condition already stored on the Node (`Status`,
+On every `CHECK_INTERVAL`, the reporter compares the health result it just
+observed against the condition already stored on the Node (`Status`,
 `Reason`, and `Message`). If the condition matches these and differs only in
 `lastHeartbeatTime`, the reporter skips updating the readiness condition.
 
