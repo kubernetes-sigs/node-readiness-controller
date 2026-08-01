@@ -24,6 +24,7 @@ Typical taint keys look like:
 
 The segment after `readiness.k8s.io/` should describe the dependency or subsystem whose readiness is being guarded (for example, a CNI plugin, storage backend, or security agent). Treat this domain as reserved for the controller and closely related components, and avoid reusing it for unrelated taints.
 
+
 ### Default Condition Status (`defaultStatus`)
 
 When defining readiness conditions, you can configure an optional `defaultStatus` field (one of `True`, `False`, or `Unknown`) under `spec.conditions[]`. This field determines how a condition is evaluated when it is completely absent from the Node's status.
@@ -59,6 +60,7 @@ When a rule specifies multiple conditions, the `conditionPolicy` determines how 
 >
 > `bootstrap-only` mode exists to verify that specific components have finished initializing. Using `anyOf` with `bootstrap-only` could lead to the node bootstrapping prematurely if just one component is ready, completely ignoring the initialization status of the others. The admission webhook enforces this restriction.
 
+
 ## Enforcement Modes
 
 The controller supports two distinct modes of enforcement, configured via `spec.enforcementMode`, to handle different operational needs.
@@ -84,6 +86,29 @@ In this mode, the controller enforces readiness only during the initial node sta
     *   **After completion**: The controller ignores this rule for the node, even if the conditions fail later.
 *   **Use Case**: One-time initialization steps.
     *   *Example*: Pre-pulling heavy container images, initializing a local cache, or performing hardware provisioning that only needs to happen once per boot.
+
+### Default Condition Status (`defaultStatus`)
+
+When defining readiness conditions, you can configure an optional `defaultStatus` field (one of `True`, `False`, or `Unknown`) under `spec.conditions[]`. This field determines how a condition is evaluated when it is completely absent from the Node's status.
+
+If `defaultStatus` is omitted, the controller assumes a fallback status of `Unknown`.
+
+#### Use Case: Problem Gating (Default-Allow)
+By default, the controller operates in a "default-deny" fashion. If a guarded condition is missing from a new node, it resolves to `Unknown`, which typically does not satisfy `requiredStatus: True` or `requiredStatus: False`, causing the node to be tainted.
+
+However, for problem-detection conditions (like those reported by Node Problem Detector), you want a "default-allow" behavior: the node should start as healthy, and only be tainted if the problem condition explicitly triggers (e.g., `MaintenanceRequired=True`). 
+
+By setting `requiredStatus: False` and `defaultStatus: False`, an absent `MaintenanceRequired` condition evaluates to `False`. It matches the required status, allowing the node to bootstrap without being blocked by race conditions or initialization delays.
+
+#### Important Implication: Enforcement Modes
+The choice of `defaultStatus` has critical interaction with the rule's `enforcementMode`:
+
+> [!IMPORTANT]
+> **`defaultStatus` is not supported with `bootstrap-only` rules.**
+>
+> `defaultStatus` is useful when a condition may never appear on a node in its healthy state, effectively treating its absence as a known-good signal. However, `bootstrap-only` mode exists precisely to *wait* for conditions to be explicitly reported before completing the bootstrap gate.
+>
+ > Because these two features serve opposing purposes, using them together can lead to unintended behavior, such as completing the bootstrap phase before a condition is actually verified. To prevent  this, the admission webhook explicitly rejects this combination.
 
 ## Readiness Condition Reporting
 
@@ -112,6 +137,28 @@ To help you integrate custom checks where NPD might not be suitable, the project
 **When to choose the Reporter?**
 *   **Simplicity**: Good for simple "is this HTTP endpoint up?" checks without configuring external scripts.
 *   **Direct Coupling**: Useful when you want the readiness reporting lifecycle of the component to strictly match the pod's lifecycle.
+
+#### Optimizing node status writes
+
+On every `CHECK_INTERVAL`, the reporter compares the health result it just
+observed against the condition already stored on the Node (`Status`,
+`Reason`, and `Message`). If the condition matches these and differs only in
+`lastHeartbeatTime`, the reporter skips updating the readiness condition.
+
+This is preferred in large scale clusters. Skipping no-op writes helps
+scale by reducing the condition update load for the API server.
+
+To ensure reliability, the reporter forces a refresh of the condition every
+`HEARTBEAT_PERIOD`, which is default to 5 minutes.
+
+> [!NOTE]
+> This only reduces *writes*. The reporter still reads the Node object on
+> every check interval to compare state, so this does not reduce the
+> number of read requests sent to the API server, only the number of updates
+> persisted to `etcd`.
+
+See [Reporter Configuration](../reference/reporter-configuration.md) for
+all supported configuration.
 
 ## Dry Run Mode
 

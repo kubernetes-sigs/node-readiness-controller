@@ -1,0 +1,21 @@
+# Blocks node scheduling until the GPU driver is ready.
+#
+# This rule intentionally matches no nodes to simulate a common
+# configuration mistake, such as an incorrect or missing node label.
+#
+# Used to populate the Zero-Match Rules panel.
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: gpu-driver-readiness-rule
+spec:
+  conditions:
+    - type: "gpu.nvidia.com/DriverReady"
+      requiredStatus: "True"
+  taint:
+    key: "readiness.k8s.io/gpu-driver"
+    effect: "NoSchedule"
+  enforcementMode: "bootstrap-only"
+  nodeSelector:
+    matchLabels:
+      node-pool: gpu-workloads

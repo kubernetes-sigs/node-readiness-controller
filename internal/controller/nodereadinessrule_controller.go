@@ -212,6 +212,7 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	metrics.RuleLastReconciliationTime.DeleteLabelValues(rule.Name)
 	metrics.BootstrapCompleted.DeleteLabelValues(rule.Name)
 	metrics.BootstrapDuration.DeleteLabelValues(rule.Name)
+	metrics.EvaluationDuration.DeleteLabelValues(rule.Name)
 
 	// For multi-label metrics, use DeletePartialMatch to wipe all combinations
 	metrics.NodesByState.DeletePartialMatch(ruleLabel)
@@ -317,7 +318,7 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 
 // evaluateRuleForNode evaluates a single rule against a single node.
 func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, node *corev1.Node) error {
-	timer := prometheus.NewTimer(metrics.EvaluationDuration)
+	timer := prometheus.NewTimer(metrics.EvaluationDuration.WithLabelValues(rule.Name))
 	defer timer.ObserveDuration()
 	log := ctrl.LoggerFrom(ctx)
 
@@ -517,7 +518,7 @@ func (r *RuleReadinessController) getApplicableRulesForNode(ctx context.Context,
 
 	for _, rule := range r.ruleCache {
 		if r.ruleAppliesTo(ctx, rule, node) {
-			applicableRules = append(applicableRules, rule)
+			applicableRules = append(applicableRules, rule.DeepCopy())
 		}
 	}
 

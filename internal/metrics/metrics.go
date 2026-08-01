@@ -40,12 +40,13 @@ var (
 	)
 
 	// EvaluationDuration tracks the duration of rule evaluations.
-	EvaluationDuration = prometheus.NewHistogram(
+	EvaluationDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "node_readiness_evaluation_duration_seconds",
-			Help:    "Duration of rule evaluations",
+			Help:    "Duration of rule evaluations per rule",
 			Buckets: prometheus.DefBuckets,
 		},
+		[]string{"rule"},
 	)
 
 	// Failures tracks the number of operational failures.

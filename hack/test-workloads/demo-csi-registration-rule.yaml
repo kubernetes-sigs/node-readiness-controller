@@ -1,0 +1,21 @@
+# Blocks node scheduling until the CSI driver has registered with kubelet.
+#
+# Applies to nodes labeled nrc-demo=csi-registration.
+# Run demo-stagger-conditions.sh to reproduce the demo behavior.
+#
+# Most nodes become ready after different delays. kwok-stuck-4 and kwok-stuck-5 intentionally remain blocked to simulate a failed bootstrap.
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: csi-registration-rule
+spec:
+  conditions:
+    - type: "storage.k8s.io/CSIRegistered"
+      requiredStatus: "True"
+  taint:
+    key: "readiness.k8s.io/csi-registration"
+    effect: "NoSchedule"
+  enforcementMode: "bootstrap-only"
+  nodeSelector:
+    matchLabels:
+      nrc-demo: csi-registration

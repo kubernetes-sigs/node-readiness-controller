@@ -14,12 +14,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -o errexit
-set -o nounset
-set -o pipefail
-
-# Run all verification scripts
-hack/verify-boilerplate.sh
-hack/verify-chart-drift.sh
-hack/verify-links.sh
-hack/verify-govulncheck.sh
+# Match the chart-testing version used by .github/workflows/helm.yaml.
+${CONTAINER_ENGINE:-docker} run -i --rm --network host --workdir=/data --volume ~/.kube/config:/root/.kube/config:ro --volume $(pwd):/data quay.io/helmpack/chart-testing:v3.11.0 /bin/bash -c "git config --global --add safe.directory /data; ct install --config=.github/ci/ct.yaml"

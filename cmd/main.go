@@ -64,6 +64,7 @@ var (
 	metricsCertDir           string
 	leaderElectionNamespace  string
 	enableNodeStateMetrics   bool
+	pprofAddr                string
 	kubeAPIQPS               float64
 	kubeAPIBurst             int
 	nodeConcurrentReconciles int
@@ -87,6 +88,7 @@ func main() {
 	flag.StringVar(&metricsCertDir, "metrics-cert-dir", "",
 		"The directory where the certificates for metrics are located.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.StringVar(&pprofAddr, "pprof-bind-address", "", "The address the pprof endpoint binds to. Leave empty to disable.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -136,6 +138,7 @@ func main() {
 		Scheme:                  scheme,
 		Metrics:                 metricsServerOptions,
 		HealthProbeBindAddress:  probeAddr,
+		PprofBindAddress:        pprofAddr,
 		LeaderElection:          enableLeaderElection,
 		LeaderElectionID:        "ba65f13e.readiness.node.x-k8s.io",
 		LeaderElectionNamespace: leaderElectionNamespace,

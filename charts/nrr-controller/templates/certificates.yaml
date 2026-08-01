@@ -1,0 +1,44 @@
+{{- if and .Values.certManager.enabled .Values.certManager.metricsCertificate.create .Values.metrics.enabled .Values.metrics.secure }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "nrr-controller.fullname" . }}-{{ .Values.certManager.metricsCertificate.name }}
+  namespace: {{ include "nrr-controller.namespace" . }}
+  labels:
+    {{- include "nrr-controller.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.metrics.certSecretName }}
+  {{- with .Values.certManager.certificateSubject }}
+  subject:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  dnsNames:
+    - {{ include "nrr-controller.fullname" . }}-metrics-service.{{ include "nrr-controller.namespace" . }}.svc
+    - {{ include "nrr-controller.fullname" . }}-metrics-service.{{ include "nrr-controller.namespace" . }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ include "nrr-controller.fullname" . }}-{{ .Values.certManager.issuer.name }}
+{{- end }}
+{{- if and .Values.certManager.enabled .Values.webhook.enabled .Values.certManager.webhookCertificate.create }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "nrr-controller.fullname" . }}-{{ .Values.certManager.webhookCertificate.name }}
+  namespace: {{ include "nrr-controller.namespace" . }}
+  labels:
+    {{- include "nrr-controller.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.webhook.certSecretName }}
+  {{- with .Values.certManager.certificateSubject }}
+  subject:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  dnsNames:
+    - {{ include "nrr-controller.fullname" . }}-webhook-service.{{ include "nrr-controller.namespace" . }}.svc
+    - {{ include "nrr-controller.fullname" . }}-webhook-service.{{ include "nrr-controller.namespace" . }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ include "nrr-controller.fullname" . }}-{{ .Values.certManager.issuer.name }}
+{{- end }}
