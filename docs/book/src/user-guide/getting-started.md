@@ -55,8 +55,8 @@ The `conditions` list defines the criteria. The controller watches the Node's st
 *   `requiredStatus`: The status required (`True`, `False`, or `Unknown`).
 *   `defaultStatus`: (Optional) The status to assume if the condition is completely missing from the Node's status. (`True`, `False`, or `Unknown`, defaults to `Unknown` if not provided). Must not be set in `bootstrap-only` mode. (See [Concepts](./concepts.md#default-condition-status-defaultstatus) for usage implications).
 
-### 3. Choose a Condition Policy
-The `conditionPolicy` (Optional) determines how the list of conditions is evaluated.
+### 3. Choose a Condition Policy (Optional)
+The `conditionPolicy` determines how the list of conditions is evaluated.
 *   **`allOf` (Default)**: Require every condition to match its required status.
 *   **`anyOf`**: Require at least one condition to match its required status. Must not be used in `bootstrap-only` mode.
 
