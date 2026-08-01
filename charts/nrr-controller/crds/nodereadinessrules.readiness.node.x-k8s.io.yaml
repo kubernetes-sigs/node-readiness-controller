@@ -453,6 +453,10 @@ spec:
         required:
         - spec
         type: object
+    selectableFields:
+    - jsonPath: .spec.enforcementMode
+    - jsonPath: .spec.taint.key
+    - jsonPath: .spec.dryRun
     served: true
     storage: true
     subresources:
