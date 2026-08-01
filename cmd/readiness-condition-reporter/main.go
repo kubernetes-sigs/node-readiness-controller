@@ -164,8 +164,8 @@ func main() {
 	// reporter exits as soon as the component becomes healthy; in continuous mode
 	// it polls until SIGTERM/SIGINT.
 	for {
-		health := runCheck(ctx, httpClient, clientset, checkEndpoint, nodeName, conditionType, heartbeatPeriod)
-		if shouldExitBootstrap(runMode, health) {
+		health, conditionUpdated := runCheck(ctx, httpClient, clientset, checkEndpoint, nodeName, conditionType, heartbeatPeriod)
+		if shouldExitBootstrap(runMode, health, conditionUpdated) {
 			klog.InfoS("Bootstrap-only mode: component became healthy, exiting", "node", nodeName, "condition", conditionType)
 			return
 		}
@@ -183,12 +183,12 @@ func main() {
 // check. It returns true only in bootstrap-only mode once the component has
 // become healthy (and its node condition updated for the final time). In
 // continuous mode it always returns false so the reporter keeps polling.
-func shouldExitBootstrap(runMode string, health *HealthResponse) bool {
-	return runMode == runModeBootstrapOnly && health != nil && health.Healthy
+func shouldExitBootstrap(runMode string, health *HealthResponse, conditionUpdated bool) bool {
+	return runMode == runModeBootstrapOnly && health != nil && health.Healthy && conditionUpdated
 }
 
 // runCheck performs a single health check and updates the node condition.
-func runCheck(ctx context.Context, httpClient *http.Client, clientset kubernetes.Interface, checkEndpoint, nodeName, conditionType string, heartbeatPeriod time.Duration) *HealthResponse {
+func runCheck(ctx context.Context, httpClient *http.Client, clientset kubernetes.Interface, checkEndpoint, nodeName, conditionType string, heartbeatPeriod time.Duration) (*HealthResponse, bool) {
 	health, err := checkHealth(ctx, httpClient, checkEndpoint)
 	if err != nil {
 		klog.ErrorS(err, "Health check failed", "endpoint", checkEndpoint)
@@ -201,9 +201,10 @@ func runCheck(ctx context.Context, httpClient *http.Client, clientset kubernetes
 
 	if err := updateNodeCondition(ctx, clientset, nodeName, conditionType, health, heartbeatPeriod); err != nil {
 		klog.ErrorS(err, "Failed to update node condition", "node", nodeName, "condition", conditionType)
+		return health, false
 	}
 
-	return health
+	return health, true
 }
 
 // validateCheckEndpoint ensures the health check endpoint is a well-formed HTTP(S) URL.

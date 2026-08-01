@@ -70,41 +70,53 @@ func TestShouldExitBootstrap(t *testing.T) {
 	healthy := &HealthResponse{Healthy: true}
 	unhealthy := &HealthResponse{Healthy: false}
 	tests := []struct {
-		name    string
-		runMode string
-		health  *HealthResponse
-		want    bool
+		name             string
+		runMode          string
+		health           *HealthResponse
+		conditionUpdated bool
+		want             bool
 	}{
 		{
-			name:    "bootstrap-only with healthy component exits",
-			runMode: "bootstrap-only",
-			health:  healthy,
-			want:    true,
+			name:             "bootstrap-only with healthy component exits after successful condition update",
+			runMode:          "bootstrap-only",
+			health:           healthy,
+			conditionUpdated: true,
+			want:             true,
 		},
 		{
-			name:    "bootstrap-only with unhealthy component keeps polling",
-			runMode: "bootstrap-only",
-			health:  unhealthy,
-			want:    false,
+			name:             "bootstrap-only with healthy component keeps polling when condition update fails",
+			runMode:          "bootstrap-only",
+			health:           healthy,
+			conditionUpdated: false,
+			want:             false,
 		},
 		{
-			name:    "continuous with healthy component does not exit",
-			runMode: "continuous",
-			health:  healthy,
-			want:    false,
+			name:             "bootstrap-only with unhealthy component keeps polling",
+			runMode:          "bootstrap-only",
+			health:           unhealthy,
+			conditionUpdated: true,
+			want:             false,
 		},
 		{
-			name:    "bootstrap-only with nil health does not exit",
-			runMode: "bootstrap-only",
-			health:  nil,
-			want:    false,
+			name:             "continuous with healthy component does not exit",
+			runMode:          "continuous",
+			health:           healthy,
+			conditionUpdated: true,
+			want:             false,
+		},
+		{
+			name:             "bootstrap-only with nil health does not exit",
+			runMode:          "bootstrap-only",
+			health:           nil,
+			conditionUpdated: true,
+			want:             false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := shouldExitBootstrap(tt.runMode, tt.health); got != tt.want {
-				t.Errorf("shouldExitBootstrap(%q, health=%v) = %v, want %v", tt.runMode, tt.health, got, tt.want)
+			if got := shouldExitBootstrap(tt.runMode, tt.health, tt.conditionUpdated); got != tt.want {
+				t.Errorf("shouldExitBootstrap(%q, health=%v, conditionUpdated=%v) = %v, want %v", tt.runMode, tt.health, tt.conditionUpdated, got, tt.want)
 			}
 		})
 	}
@@ -186,6 +198,50 @@ func TestCheckHealthCancelledContext(t *testing.T) {
 	if health.Reason != "EndpointConnectionError" {
 		t.Errorf("checkHealth() reason = %v, want EndpointConnectionError", health.Reason)
 	}
+}
+
+func TestRunCheckBootstrapExitDependencyOnConditionUpdate(t *testing.T) {
+	const (
+		nodeName      = "test-node"
+		conditionType = "TestCondition"
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	httpClient := &http.Client{Timeout: 1 * time.Second}
+
+	t.Run("Healthy endpoint and successful node update", func(t *testing.T) {
+		client := fake.NewSimpleClientset(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}})
+
+		health, conditionUpdated := runCheck(context.Background(), httpClient, client, server.URL, nodeName, conditionType, defaultHeartbeatPeriod)
+		if !health.Healthy {
+			t.Fatalf("runCheck() healthy = %v, want true", health.Healthy)
+		}
+		if !conditionUpdated {
+			t.Fatal("runCheck() conditionUpdated = false, want true")
+		}
+		if !shouldExitBootstrap(runModeBootstrapOnly, health, conditionUpdated) {
+			t.Fatal("shouldExitBootstrap() = false, want true")
+		}
+	})
+
+	t.Run("Healthy endpoint and failed node update", func(t *testing.T) {
+		client := fake.NewSimpleClientset()
+
+		health, conditionUpdated := runCheck(context.Background(), httpClient, client, server.URL, nodeName, conditionType, defaultHeartbeatPeriod)
+		if !health.Healthy {
+			t.Fatalf("runCheck() healthy = %v, want true", health.Healthy)
+		}
+		if conditionUpdated {
+			t.Fatal("runCheck() conditionUpdated = true, want false")
+		}
+		if shouldExitBootstrap(runModeBootstrapOnly, health, conditionUpdated) {
+			t.Fatal("shouldExitBootstrap() = true, want false")
+		}
+	})
 }
 
 func TestUpdateNodeCondition(t *testing.T) {
