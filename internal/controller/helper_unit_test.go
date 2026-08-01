@@ -17,7 +17,6 @@ limitations under the License.
 package controller
 
 import (
-	"context"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -27,7 +26,6 @@ import (
 
 	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 )
-
 
 func TestBootstrapAnnotationKey(t *testing.T) {
 	g := NewWithT(t)
@@ -78,7 +76,7 @@ func TestGetApplicableRulesForNode_DeepCopy(t *testing.T) {
 		},
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	c.updateRuleCache(ctx, rule)
 
 	node := &corev1.Node{
@@ -101,4 +99,3 @@ func TestGetApplicableRulesForNode_DeepCopy(t *testing.T) {
 
 	g.Expect(cachedRule.Status.AppliedNodes).To(Equal([]string{"node-1"}))
 }
-
