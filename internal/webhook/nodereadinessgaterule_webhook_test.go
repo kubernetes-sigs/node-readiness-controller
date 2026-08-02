@@ -173,6 +173,36 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			})
 		})
 
+		Context("conditionPolicy with bootstrap-only", func() {
+			var spec readinessv1alpha1.NodeReadinessRuleSpec
+
+			BeforeEach(func() {
+				spec = readinessv1alpha1.NodeReadinessRuleSpec{
+					NodeSelector: metav1.LabelSelector{MatchLabels: map[string]string{"foo": "bar"}},
+					ConditionPolicy: readinessv1alpha1.ConditionPolicyAnyOf,
+					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
+				}
+			})
+
+			It("should forbid anyOf conditionPolicy with bootstrap-only enforcement", func() {
+				allErrs := webhook.validateSpec(spec, false)
+				Expect(allErrs).To(HaveLen(1))
+				Expect(allErrs[0].Field).To(Equal("spec.conditionPolicy"))
+				Expect(allErrs[0].Type).To(Equal(field.ErrorTypeForbidden))
+			})
+
+			It("should skip conditionPolicy check on update (early return)", func() {
+				allErrs := webhook.validateSpec(spec, true)
+				Expect(allErrs).To(BeEmpty())
+			})
+
+			It("should allow anyOf conditionPolicy for continuous enforcement", func() {
+				spec.EnforcementMode = readinessv1alpha1.EnforcementModeContinuous
+				allErrs := webhook.validateSpec(spec, false)
+				Expect(allErrs).To(BeEmpty())
+			})
+		})
+
 		It("should accumulate errors across nodeSelector and multiple defaultStatus violations", func() {
 			spec := readinessv1alpha1.NodeReadinessRuleSpec{
 				NodeSelector: metav1.LabelSelector{}, // empty → ErrorTypeRequired
@@ -587,6 +617,41 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 
 			newRule := oldRule.DeepCopy()
 			newRule.Spec.DryRun = true
+
+			warnings, err := webhook.ValidateUpdate(ctx, oldRule, newRule)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(BeNil())
+		})
+
+		It("should reject updates that change conditionPolicy to anyOf", func() {
+			oldRule := &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "policy-update-test"},
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					// implicitly allOf
+					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			newRule := oldRule.DeepCopy()
+			newRule.Spec.ConditionPolicy = readinessv1alpha1.ConditionPolicyAnyOf
+
+			warnings, err := webhook.ValidateUpdate(ctx, oldRule, newRule)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("conditionPolicy is immutable"))
+			Expect(warnings).To(BeNil())
+		})
+
+		It("should allow updates that explicitly set conditionPolicy to allOf when it was previously absent", func() {
+			oldRule := &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "policy-update-test-2"},
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					ConditionPolicy: "", // implicitly allOf
+					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			newRule := oldRule.DeepCopy()
+			newRule.Spec.ConditionPolicy = readinessv1alpha1.ConditionPolicyAllOf // explicitly allOf
 
 			warnings, err := webhook.ValidateUpdate(ctx, oldRule, newRule)
 			Expect(err).NotTo(HaveOccurred())

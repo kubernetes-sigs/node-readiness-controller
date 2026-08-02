@@ -68,14 +68,11 @@ spec:
                   "allOf" (default) requires every condition to match its requiredStatus before the taint is removed.
                   "anyOf" requires at least one condition to match its requiredStatus.
 
-                  Cannot be used with enforcementMode: bootstrap-only.
+                  anyOf cannot be used with enforcementMode: bootstrap-only.
                 enum:
                 - allOf
                 - anyOf
                 type: string
-                x-kubernetes-validations:
-                - message: conditionPolicy is immutable
-                  rule: self == oldSelf
               conditions:
                 description: |-
                   conditions contains a list of the Node conditions that defines the specific

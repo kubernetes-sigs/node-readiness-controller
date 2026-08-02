@@ -115,10 +115,9 @@ type NodeReadinessRuleSpec struct {
 	// "allOf" (default) requires every condition to match its requiredStatus before the taint is removed.
 	// "anyOf" requires at least one condition to match its requiredStatus.
 	//
-	// Cannot be used with enforcementMode: bootstrap-only.
+	// anyOf cannot be used with enforcementMode: bootstrap-only.
 	//
 	// +optional
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="conditionPolicy is immutable"
 	ConditionPolicy ConditionPolicy `json:"conditionPolicy,omitempty"` // Use GetConditionPolicy() for safe access; field may be empty even when allOf applies.
 
 	// dryRun when set to true, The controller will evaluate Node conditions and log intended taint modifications
