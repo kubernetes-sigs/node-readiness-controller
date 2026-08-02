@@ -22,6 +22,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 )
 
 //nolint:godot
@@ -108,4 +110,72 @@ func taintsEqual(a, b []corev1.Taint) bool {
 // labelsEqual checks if two label maps hold the same keys with the same values.
 func labelsEqual(a, b map[string]string) bool {
 	return maps.Equal(a, b)
+}
+
+// removeString removes all occurrences of str from slice.
+func removeString(slice []string, str string) []string {
+	var result []string
+	for _, item := range slice {
+		if item != str {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+// addStringUnique appends str to slice if not already present.
+func addStringUnique(slice []string, str string) []string {
+	for _, item := range slice {
+		if item == str {
+			return slice
+		}
+	}
+	return append(slice, str)
+}
+
+func isNodeInEvaluations(evals []readinessv1alpha1.NodeEvaluation, nodeName string) bool {
+	for _, e := range evals {
+		if e.NodeName == nodeName {
+			return true
+		}
+	}
+	return false
+}
+
+func removeNodeEvaluation(evals []readinessv1alpha1.NodeEvaluation, nodeName string) []readinessv1alpha1.NodeEvaluation {
+	var res []readinessv1alpha1.NodeEvaluation
+	for _, e := range evals {
+		if e.NodeName != nodeName {
+			res = append(res, e)
+		}
+	}
+	return res
+}
+
+func isNodeInApplied(applied []string, nodeName string) bool {
+	for _, n := range applied {
+		if n == nodeName {
+			return true
+		}
+	}
+	return false
+}
+
+func isNodeInFailed(failures []readinessv1alpha1.NodeFailure, nodeName string) bool {
+	for _, f := range failures {
+		if f.NodeName == nodeName {
+			return true
+		}
+	}
+	return false
+}
+
+func removeNodeFailure(failures []readinessv1alpha1.NodeFailure, nodeName string) []readinessv1alpha1.NodeFailure {
+	var res []readinessv1alpha1.NodeFailure
+	for _, f := range failures {
+		if f.NodeName != nodeName {
+			res = append(res, f)
+		}
+	}
+	return res
 }
