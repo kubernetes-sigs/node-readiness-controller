@@ -1,0 +1,21 @@
+# KubeLinter configuration for node-readiness-controller
+# See: https://docs.kubelinter.io/#/configuring-kubelinter
+
+checks:
+  # Skip checks that are intentional design decisions or false positives
+  # that apply repo-wide. Exceptions scoped to a single workload (NPD's
+  # privileged mode, prepare-kubeconfig's root requirement) are handled
+  # via ignore-check.kube-linter.io/<check> annotations on those specific
+  # objects instead, so this list stays effective for everything else.
+  exclude:
+    # hostNetwork is required for node-level DaemonSets to access host network stack
+    - host-network
+    # Dangling services are created conditionally via kustomize overlays;
+    # KubeLinter cannot resolve cross-file references in kustomize builds
+    - dangling-service
+    # ServiceAccount is defined in a separate file (config/rbac/service_account.yaml);
+    # KubeLinter lints each file independently so it cannot find the referenced resource
+    - non-existent-service-account
+    # platform_patch.yaml is a kustomize strategic merge patch without spec.selector;
+    # it inherits the selector from the base Deployment
+    - mismatching-selector

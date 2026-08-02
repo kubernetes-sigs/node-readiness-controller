@@ -2350,6 +2350,24 @@ spec:
               fieldPath: status.hostIP
         image: registry.k8s.io/kwok/kwok:v0.7.0
         imagePullPolicy: IfNotPresent
+        name: kwok-controller
+        ports:
+        - containerPort: 10247
+          name: http
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - "ALL"
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
         livenessProbe:
           failureThreshold: 10
           httpGet:
@@ -2359,7 +2377,6 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 60
           timeoutSeconds: 10
-        name: kwok-controller
         readinessProbe:
           failureThreshold: 5
           httpGet:

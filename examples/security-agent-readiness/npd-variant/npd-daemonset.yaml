@@ -3,6 +3,12 @@ kind: DaemonSet
 metadata:
   name: node-problem-detector-falco
   namespace: falco
+  # NPD requires privileged mode to monitor node health; run-as-non-root is
+  # inherent to privileged mode.
+  annotations:
+    ignore-check.kube-linter.io/privileged-container: "NPD requires privileged mode to monitor node health"
+    ignore-check.kube-linter.io/privilege-escalation-container: "inherent to privileged mode"
+    ignore-check.kube-linter.io/run-as-non-root: "NPD must run as root for node monitoring"
   labels:
     app: node-problem-detector
     component: falco-monitor
@@ -33,6 +39,7 @@ spec:
         - --config.custom-plugin-monitor=/config/falco-plugin.json
         securityContext:
           privileged: true
+          readOnlyRootFilesystem: true
         env:
         - name: NODE_NAME
           valueFrom:
