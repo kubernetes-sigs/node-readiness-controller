@@ -178,7 +178,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 
 			BeforeEach(func() {
 				spec = readinessv1alpha1.NodeReadinessRuleSpec{
-					NodeSelector: metav1.LabelSelector{MatchLabels: map[string]string{"foo": "bar"}},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"foo": "bar"}},
 					ConditionPolicy: readinessv1alpha1.ConditionPolicyAnyOf,
 					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
 				}
