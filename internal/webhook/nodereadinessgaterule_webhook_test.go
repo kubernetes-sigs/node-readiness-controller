@@ -629,6 +629,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					// implicitly allOf
 					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"foo": "bar"}},
 				},
 			}
 
@@ -647,6 +648,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					ConditionPolicy: "", // implicitly allOf
 					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"foo": "bar"}},
 				},
 			}
 
