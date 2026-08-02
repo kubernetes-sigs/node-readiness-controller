@@ -76,10 +76,12 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
-        image: controller:latest
+        image: controller:v0.4.1
         imagePullPolicy: IfNotPresent
         name: manager
-        ports: []
+        ports:
+        - containerPort: 8081
+          name: http
         securityContext:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false

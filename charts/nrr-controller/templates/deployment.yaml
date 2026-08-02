@@ -52,12 +52,15 @@ spec:
             {{- else }}
             - --metrics-bind-address=0
             {{- end }}
-          {{- if .Values.webhook.enabled }}
           ports:
-            - name: webhook-server
-              containerPort: {{ .Values.webhook.port }}
-              protocol: TCP
-          {{- end }}
+                      - name: http
+                        containerPort: 8081
+                        protocol: TCP
+                      {{- if .Values.webhook.enabled }}
+                      - name: webhook-server
+                        containerPort: {{ .Values.webhook.port }}
+                        protocol: TCP
+                      {{- end }}
           livenessProbe:
             httpGet:
               path: {{ .Values.livenessProbe.path }}

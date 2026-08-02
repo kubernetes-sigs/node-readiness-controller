@@ -28,6 +28,13 @@ spec:
       - name: cni-status-patcher
         image: registry.k8s.io/node-readiness-controller/node-readiness-reporter:v0.1.1
         imagePullPolicy: IfNotPresent
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - "ALL"
         env:
           - name: NODE_NAME
             valueFrom:

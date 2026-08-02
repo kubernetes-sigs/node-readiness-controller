@@ -6,12 +6,30 @@ metadata:
   labels:
     component: node-readiness-controller
     tier: control-plane
-spec:
+    # prepare-kubeconfig must run as root: /etc/kubernetes/admin.conf is
+    # typically mode 600 root:root on kubeadm clusters, so a non-root UID
+    # cannot read it to copy it into the shared emptyDir.
+    annotations:
+      ignore-check.kube-linter.io/run-as-non-root: "prepare-kubeconfig needs root to read host-owned /etc/kubernetes/admin.conf (mode 600)"
+  spec:
   # Init container to prepare a readable kubeconfig for the non-root manager.
   initContainers:
   - name: prepare-kubeconfig
-    image: busybox:latest
+    image: busybox:1.36-uclibc
     imagePullPolicy: IfNotPresent
+    securityContext:
+      allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+        drop:
+          - "ALL"
+    resources:
+      limits:
+        cpu: 100m
+        memory: 64Mi
+      requests:
+        cpu: 50m
+        memory: 32Mi
     command:
     - sh
     - -c
@@ -26,7 +44,7 @@ spec:
       mountPath: /tmp/kubeconfig
   containers:
   - name: manager
-    image: controller:latest
+    image: controller:v0.4.1
     imagePullPolicy: IfNotPresent
     command:
     - /manager
@@ -39,6 +57,18 @@ spec:
     - --zap-log-level=info
     securityContext:
       runAsUser: 65532
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - "ALL"
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
     volumeMounts:
     - name: nrc-kubeconfig
       mountPath: /etc/kubernetes/nrc
