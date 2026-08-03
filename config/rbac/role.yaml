@@ -31,6 +31,27 @@ rules:
 - apiGroups:
   - readiness.node.x-k8s.io
   resources:
+  - nodereadinessevaluations
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - readiness.node.x-k8s.io
+  resources:
+  - nodereadinessevaluations/status
+  - nodereadinessrules/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - readiness.node.x-k8s.io
+  resources:
   - nodereadinessrules
   verbs:
   - get
@@ -43,12 +64,4 @@ rules:
   resources:
   - nodereadinessrules/finalizers
   verbs:
-  - update
-- apiGroups:
-  - readiness.node.x-k8s.io
-  resources:
-  - nodereadinessrules/status
-  verbs:
-  - get
-  - patch
   - update

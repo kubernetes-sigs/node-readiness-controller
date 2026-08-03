@@ -1,0 +1,336 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: nodereadinessevaluations.readiness.node.x-k8s.io
+spec:
+  group: readiness.node.x-k8s.io
+  names:
+    kind: NodeReadinessEvaluation
+    listKind: NodeReadinessEvaluationList
+    plural: nodereadinessevaluations
+    shortNames:
+    - nre
+    singular: nodereadinessevaluation
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - description: The name of the target Node.
+      jsonPath: .spec.nodeName
+      name: Node
+      type: string
+    - description: The overall readiness evaluation state of the node.
+      jsonPath: .status.state
+      name: State
+      type: string
+    - description: The age of this resource.
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          NodeReadinessEvaluation is the Schema for the NodeReadinessEvaluations API.
+          Each instance maps 1:1 to a Node and folds the outcomes of all applicable
+          NodeReadinessRules for that node into a single object.
+          An ownerReference to the corresponding Node is set for automatic garbage
+          collection when the node is deleted.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of NodeReadinessEvaluation.
+            properties:
+              nodeName:
+                description: |-
+                  nodeName specifies the exact name of the target Kubernetes Node.
+                  This object establishes a strict 1:1 relationship with the specified node,
+                  acting as the single source of truth for all rules and statuses applied to it.
+                  Because it binds this resource to a specific physical or virtual machine, it cannot be changed once set.
+
+                  The validation constraints enforce standard Kubernetes resource naming
+                  (RFC 1123 DNS Subdomain format), as defined in upstream apimachinery:
+                  https://github.com/kubernetes/apimachinery/blob/master/pkg/util/validation/validation.go#L198
+                maxLength: 253
+                minLength: 1
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                type: string
+                x-kubernetes-validations:
+                - message: nodeName is immutable and cannot be changed once set
+                  rule: self == oldSelf
+            required:
+            - nodeName
+            type: object
+          status:
+            description: status defines the observed state of NodeReadinessEvaluation.
+            minProperties: 1
+            properties:
+              conditions:
+                description: |-
+                  conditions represent the latest available observations of the node's readiness evaluation state.
+                  Known condition types are:
+                  - "Evaluated": indicates whether the controller successfully evaluated all rules without errors.
+                  - "Available": indicates whether the node has satisfied all rules, has zero taints applied, and is available for scheduling.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              rules:
+                description: |-
+                  rules contains the evaluation outcomes for all rules applicable to this node.
+                  Each entry is keyed by ruleName, allowing independent per-rule updates by
+                  parallel rule-workers without last-write-wins conflicts (listType=map).
+                items:
+                  description: RuleEvaluation defines the outcome of evaluating a
+                    single NodeReadinessRule against this Node.
+                  properties:
+                    firstEvaluatedAt:
+                      description: firstEvaluatedAt is the time the rule was first
+                        assessed against this node.
+                      format: date-time
+                      type: string
+                    lastEvaluationTime:
+                      description: lastEvaluationTime records the exact moment the
+                        controller most recently assessed this rule.
+                      format: date-time
+                      type: string
+                    message:
+                      description: message is a comprehensive, human-readable explanation
+                        providing further context.
+                      maxLength: 10240
+                      minLength: 1
+                      type: string
+                    readinessConditions:
+                      description: |-
+                        readinessConditions provides a detailed breakdown of each condition evaluation
+                        for this Node. This allows for granular debugging of which specific criteria passed/failed.
+                      items:
+                        description: |-
+                          ConditionEvaluationResult provides a detailed report of the comparison between
+                          the Node's observed condition and the rule's requirement.
+                        properties:
+                          currentStatus:
+                            description: currentStatus is the actual status value
+                              observed on the Node, one of True, False, Unknown.
+                            enum:
+                            - "True"
+                            - "False"
+                            - Unknown
+                            type: string
+                          defaultStatus:
+                            description: |-
+                              defaultStatus is the status a condition is evaluated to if the condition
+                              is not found in a node. Reflects the defaultStatus configured in the rule
+                              spec.
+                            enum:
+                            - "True"
+                            - "False"
+                            - Unknown
+                            type: string
+                          requiredStatus:
+                            description: requiredStatus is the status value defined
+                              in the rule that must be matched, one of True, False,
+                              Unknown.
+                            enum:
+                            - "True"
+                            - "False"
+                            - Unknown
+                            type: string
+                          type:
+                            description: type corresponds to the Node condition type
+                              being evaluated.
+                            maxLength: 316
+                            minLength: 1
+                            type: string
+                        required:
+                        - currentStatus
+                        - requiredStatus
+                        - type
+                        type: object
+                      maxItems: 32
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - type
+                      x-kubernetes-list-type: map
+                    reason:
+                      description: reason contains a concise, machine-readable string
+                        detailing the primary outcome.
+                      maxLength: 256
+                      minLength: 1
+                      type: string
+                    ruleName:
+                      description: |-
+                        ruleName is the name of the NodeReadinessRule.
+                        This field is the map key for status.rules (listType=map) and must always be present.
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                    ruleStatus:
+                      description: ruleStatus indicates the overall outcome of the
+                        rule's criteria against the Node.
+                      enum:
+                      - Satisfied
+                      - Unsatisfied
+                      type: string
+                    ruleUID:
+                      description: |-
+                        ruleUID is the UID of the NodeReadinessRule.
+                        If the rule is deleted and recreated with the same name, the UID will differ,
+                        allowing the controller to detect and replace stale evaluation entries.
+                      type: string
+                    taintAddedAt:
+                      description: |-
+                        taintAddedAt is the time NRC itself first applied the taint to the node in the
+                        current taint lifecycle (i.e., since the last removal). This field is nil when
+                        the taint was pre-existing and NRC adopted it rather than creating it.
+                        The value is set once on the Absent→Present transition and carried forward on
+                        subsequent reconciles; it is not the timestamp of the most recent reconcile.
+                        Use taintObservedAt for "how long has the node been blocked"; use this field
+                        to measure NRC's own apply latency (taintAddedAt - firstEvaluatedAt).
+                      format: date-time
+                      type: string
+                    taintEffect:
+                      description: |-
+                        taintEffect is the effect of the taint managed by this rule, stamped at
+                        evaluation time so this entry is self-contained without requiring a lookup
+                        of the rule. Matches rule.spec.taint.effect.
+                      enum:
+                      - NoSchedule
+                      - PreferNoSchedule
+                      - NoExecute
+                      type: string
+                    taintKey:
+                      description: |-
+                        taintKey is the key of the taint managed by this rule, stamped at evaluation
+                        time so this entry is self-contained without requiring a lookup of the rule.
+                        Matches rule.spec.taint.key.
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                    taintObservedAt:
+                      description: |-
+                        taintObservedAt is the time NRC first observed the taint present on the node,
+                        regardless of whether NRC applied it or it was pre-existing (e.g. via --register-with-taints).
+                        This marks the beginning of the node being blocked by this rule and is the correct
+                        start time for computing time-to-unblock SLIs.
+                      format: date-time
+                      type: string
+                    taintRemovedAt:
+                      description: |-
+                        taintRemovedAt is the time the controller successfully removed the taint
+                        after the node satisfied all conditions.
+                      format: date-time
+                      type: string
+                    taintStatus:
+                      description: taintStatus reflects the observed state of the
+                        rule's specified taint on the Node (Present/Absent).
+                      enum:
+                      - Present
+                      - Absent
+                      type: string
+                  required:
+                  - lastEvaluationTime
+                  - ruleName
+                  - ruleStatus
+                  - ruleUID
+                  - taintEffect
+                  - taintKey
+                  - taintStatus
+                  type: object
+                maxItems: 100
+                type: array
+                x-kubernetes-list-map-keys:
+                - ruleName
+                x-kubernetes-list-type: map
+              state:
+                description: |-
+                  state indicates the overall readiness state of the node based on all applicable rules.
+                  It acts as a top-level health indicator for this node's readiness evaluation.
+                enum:
+                - Available
+                - NotAvailable
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    selectableFields:
+    - jsonPath: .spec.nodeName
+    - jsonPath: .status.state
+    served: true
+    storage: true
+    subresources:
+      status: {}

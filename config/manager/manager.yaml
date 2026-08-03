@@ -1,4 +1,4 @@
-apiVersion: v1
+config/manager/manager.yaml apiVersion: v1
 kind: Namespace
 metadata:
   labels:
@@ -76,6 +76,7 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
+          - --enable-node-readiness-evaluation=true
         image: controller:latest
         imagePullPolicy: IfNotPresent
         name: manager
