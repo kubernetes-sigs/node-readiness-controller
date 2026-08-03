@@ -169,16 +169,16 @@ func (r *RuleReadinessController) handleNodeDeletion(ctx context.Context, nodeNa
 	return errors.Join(errs...)
 }
 
-// processNodeAgainstAllRules processes a single node against all cached rules.
+// processNodeAgainstAllRules processes a single node against all applicable rules.
 func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context, node *corev1.Node) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Get all known (cached) rules
-	cachedRules := r.getAllCachedRules()
+	// Get all known (cached) applicable rules for this node
+	applicableRules := r.getApplicableRulesForNode(ctx, node)
 	var errs []error
-	log.Info("Processing node against rules", "node", node.Name, "ruleCount", len(cachedRules))
+	log.Info("Processing node against rules", "node", node.Name, "ruleCount", len(applicableRules))
 
-	for _, rule := range cachedRules {
+	for _, rule := range applicableRules {
 		log.V(4).Info("Processing rule from cache",
 			"node", node.Name,
 			"rule", rule.Name,
@@ -189,58 +189,6 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			log.V(4).Info("Skipping rule being deleted",
 				"node", node.Name,
 				"rule", rule.Name)
-			continue
-		}
-
-		applies := r.ruleAppliesTo(ctx, rule, node)
-		hasTaint := r.hasTaintBySpec(node, rule.Spec.Taint)
-		hasEval := isNodeInEvaluations(rule.Status.NodeEvaluations, node.Name)
-		isApplied := isNodeInApplied(rule.Status.AppliedNodes, node.Name)
-		isFailed := isNodeInFailed(rule.Status.FailedNodes, node.Name)
-
-		if !applies {
-			// If rule does not apply to this node anymore, but node holds managed taint or has status entries, clean up!
-			if hasTaint || hasEval || isApplied || isFailed {
-				if hasTaint {
-					log.Info("Removing orphaned taint due to label selector unmatch",
-						"node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
-					if err := r.removeTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name); err != nil {
-						log.Error(err, "Failed to remove orphaned taint", "node", node.Name, "rule", rule.Name)
-						errs = append(errs, err)
-					}
-				}
-
-				// Clean up rule status for unmatching node
-				err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-					latestRule := &readinessv1alpha1.NodeReadinessRule{}
-					if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, latestRule); err != nil {
-						return client.IgnoreNotFound(err)
-					}
-
-					if !isNodeInEvaluations(latestRule.Status.NodeEvaluations, node.Name) &&
-						!isNodeInApplied(latestRule.Status.AppliedNodes, node.Name) &&
-						!isNodeInFailed(latestRule.Status.FailedNodes, node.Name) {
-						return nil
-					}
-
-					patch := client.MergeFrom(latestRule.DeepCopy())
-					latestRule.Status.NodeEvaluations = removeNodeEvaluation(latestRule.Status.NodeEvaluations, node.Name)
-					latestRule.Status.AppliedNodes = removeString(latestRule.Status.AppliedNodes, node.Name)
-					latestRule.Status.FailedNodes = removeNodeFailure(latestRule.Status.FailedNodes, node.Name)
-
-					if err := r.Status().Patch(ctx, latestRule, patch); err != nil {
-						return err
-					}
-					if r.EnableNodeStateMetrics {
-						r.SyncNodeStateMetrics(ctx, latestRule)
-					}
-					return nil
-				})
-				if err != nil {
-					log.Error(err, "Failed to clean up rule status for unmatching node", "node", node.Name, "rule", rule.Name)
-					errs = append(errs, err)
-				}
-			}
 			continue
 		}
 
@@ -319,13 +267,6 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 				if failure.NodeName == node.Name {
 					latestRule.Status.FailedNodes = append(latestRule.Status.FailedNodes, failure)
 				}
-			}
-
-			// handle status.AppliedNodes for this node
-			if evalErr == nil {
-				latestRule.Status.AppliedNodes = addStringUnique(latestRule.Status.AppliedNodes, node.Name)
-			} else {
-				latestRule.Status.AppliedNodes = removeString(latestRule.Status.AppliedNodes, node.Name)
 			}
 
 			if err := r.Status().Patch(ctx, latestRule, patch); err != nil {

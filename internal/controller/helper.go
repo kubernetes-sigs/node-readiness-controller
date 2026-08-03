@@ -123,16 +123,6 @@ func removeString(slice []string, str string) []string {
 	return result
 }
 
-// addStringUnique appends str to slice if not already present.
-func addStringUnique(slice []string, str string) []string {
-	for _, item := range slice {
-		if item == str {
-			return slice
-		}
-	}
-	return append(slice, str)
-}
-
 func isNodeInEvaluations(evals []readinessv1alpha1.NodeEvaluation, nodeName string) bool {
 	for _, e := range evals {
 		if e.NodeName == nodeName {
