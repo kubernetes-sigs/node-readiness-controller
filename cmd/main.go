@@ -56,19 +56,20 @@ var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
 
-	metricsAddr              string
-	enableLeaderElection     bool
-	probeAddr                string
-	enableWebhook            bool
-	metricsSecure            bool
-	metricsCertDir           string
-	leaderElectionNamespace  string
-	enableNodeStateMetrics   bool
-	pprofAddr                string
-	kubeAPIQPS               float64
-	kubeAPIBurst             int
-	nodeConcurrentReconciles int
-	ruleConcurrentReconciles int
+	metricsAddr                   string
+	enableLeaderElection          bool
+	probeAddr                     string
+	enableWebhook                 bool
+	metricsSecure                 bool
+	metricsCertDir                string
+	leaderElectionNamespace       string
+	enableNodeStateMetrics        bool
+	enableNodeReadinessEvaluation bool
+	pprofAddr                     string
+	kubeAPIQPS                    float64
+	kubeAPIBurst                  int
+	nodeConcurrentReconciles      int
+	ruleConcurrentReconciles      int
 )
 
 func init() {
@@ -96,7 +97,10 @@ func main() {
 		"Enable validation webhook. Requires TLS certificates to be configured.")
 	flag.StringVar(&leaderElectionNamespace, "leader-election-namespace", "", "The namespace where the leader election resource will be created.")
 	flag.BoolVar(&enableNodeStateMetrics, "enable-node-state-metrics", false,
-		"Enable aggregate node state metrics on node updates)")
+		"Enable aggregate node state metrics on node updates.")
+	flag.BoolVar(&enableNodeReadinessEvaluation, "enable-node-readiness-evaluation", false,
+		"Enable the NodeReadinessEvaluation controller. When set, one NRE object is created "+
+			"per node and kept up to date with the evaluated state of all applicable rules.")
 	flag.Float64Var(&kubeAPIQPS, "kube-api-qps", defaultKubeAPIQPS,
 		"Maximum queries per second to the API server from this client. "+
 			"Raise together with --kube-api-burst on large clusters.")
@@ -182,6 +186,19 @@ func main() {
 	if err := nodeReconciler.SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Node")
 		os.Exit(1)
+	}
+
+	if enableNodeReadinessEvaluation {
+		nreReconciler := &controller.NodeReadinessEvaluationReconciler{
+			Client:     mgr.GetClient(),
+			Scheme:     mgr.GetScheme(),
+			Controller: readinessController,
+		}
+		if err := nreReconciler.SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "NodeReadinessEvaluation")
+			os.Exit(1)
+		}
+		setupLog.Info("NodeReadinessEvaluation controller enabled")
 	}
 
 	// Setup webhook (conditional based on flag)
