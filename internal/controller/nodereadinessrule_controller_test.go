@@ -1617,6 +1617,89 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				return err != nil && client.IgnoreNotFound(err) == nil
 			}, time.Second*10).Should(BeTrue(), "Rule should be fully deleted")
 		})
+
+		It("should remove taints from nodes that no longer match the selector", func() {
+			// Establish the node as managed by the rule so it is recorded in the
+			// rule status, which is what deletion cleanup uses to find nodes that
+			// have drifted out of the selector.
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cleanup-rule"}})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func() []nodereadinessiov1alpha1.NodeEvaluation {
+				managedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: "cleanup-rule"}, managedRule)
+				return managedRule.Status.NodeEvaluations
+			}, time.Second*10).Should(ContainElement(HaveField("NodeName", "cleanup-test-node")),
+				"Rule status should record the node it manages")
+
+			// The node is relabelled and stops matching spec.nodeSelector.
+			relabelled := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cleanup-test-node"}, relabelled)).To(Succeed())
+			relabelled.Labels["kubernetes.io/hostname"] = "some-other-hostname"
+			Expect(k8sClient.Update(ctx, relabelled)).To(Succeed())
+
+			// The taint applied by the rule is still on the node at this point.
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cleanup-test-node"}, relabelled)).To(Succeed())
+			Expect(relabelled.Spec.Taints).To(ContainElement(HaveField("Key", "readiness.k8s.io/cleanup-taint")),
+				"Node should still carry the rule taint before deletion")
+
+			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
+
+			_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cleanup-rule"}})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Once the finalizer is gone the rule cannot be reconciled again, so
+			// any taint still present at this point is stranded permanently.
+			Eventually(func() bool {
+				deletedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: "cleanup-rule"}, deletedRule)
+				return err != nil && client.IgnoreNotFound(err) == nil
+			}, time.Second*10).Should(BeTrue(), "Rule should be fully deleted")
+
+			Eventually(func() []corev1.Taint {
+				orphanCheck := &corev1.Node{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "cleanup-test-node"}, orphanCheck); err != nil {
+					return nil
+				}
+				return orphanCheck.Spec.Taints
+			}, time.Second*10).ShouldNot(ContainElement(HaveField("Key", "readiness.k8s.io/cleanup-taint")),
+				"Rule deletion should not leave an orphaned taint on a node that stopped matching the selector")
+		})
+
+		It("should not remove a taint from a node the rule never managed", func() {
+			// A node outside the rule selector that carries the same taint key and
+			// effect, as a rule with a disjoint selector legitimately could. Rule
+			// deletion must leave it alone.
+			siblingNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "cleanup-sibling-node",
+					Labels: map[string]string{"kubernetes.io/hostname": "cleanup-sibling-node"},
+				},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: "readiness.k8s.io/cleanup-taint", Effect: corev1.TaintEffectNoSchedule, Value: "pending"},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, siblingNode)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, siblingNode) }()
+
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cleanup-rule"}})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
+			_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cleanup-rule"}})
+			Expect(err).NotTo(HaveOccurred())
+
+			Consistently(func() []corev1.Taint {
+				untouched := &corev1.Node{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "cleanup-sibling-node"}, untouched); err != nil {
+					return nil
+				}
+				return untouched.Spec.Taints
+			}, time.Second*2).Should(ContainElement(HaveField("Key", "readiness.k8s.io/cleanup-taint")),
+				"A node the rule never managed should keep its taint")
+		})
 	})
 
 	Context("when a node is deleted", func() {

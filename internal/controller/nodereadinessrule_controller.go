@@ -667,12 +667,34 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 }
 
 // cleanupTaintsForRule removes taints managed by this rule from all applicable nodes.
+//
+// Nodes the rule previously managed are cleaned up as well, even if they no longer
+// match spec.nodeSelector. This runs on the terminal deletion path: once the
+// finalizer is removed the rule object is gone, so a taint left behind here can
+// never be reconciled away again and would strand the node.
+//
+// The previously managed set is taken from the rule's own status. That is sound
+// here precisely because this is a one shot cleanup of a rule that is going away,
+// unlike steady state reconciliation where status is not a trustworthy signal for
+// deciding the next action. It also keeps the cleanup correctly scoped: the
+// validating webhook only rejects rules sharing a taint key and effect when their
+// selectors overlap, so two rules may legitimately share a taint with disjoint
+// selectors. A node managed solely by such a sibling rule never appears in this
+// rule's status and is therefore left untouched.
 func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) error {
 	log := ctrl.LoggerFrom(ctx)
 
+	managedNodes := make(map[string]bool, len(rule.Status.NodeEvaluations)+len(rule.Status.AppliedNodes))
+	for _, evaluation := range rule.Status.NodeEvaluations {
+		managedNodes[evaluation.NodeName] = true
+	}
+	for _, nodeName := range rule.Status.AppliedNodes {
+		managedNodes[nodeName] = true
+	}
+
 	var errors []string
 	for _, node := range nodeList.Items {
-		if !r.ruleAppliesTo(ctx, rule, &node) {
+		if !r.ruleAppliesTo(ctx, rule, &node) && !managedNodes[node.Name] {
 			continue
 		}
 
