@@ -290,7 +290,7 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 			if err := r.evaluateRuleForNode(ctx, rule, &node); err != nil {
 				log.Error(err, "Failed to evaluate node for rule", "rule", rule.Name, "node", node.Name)
 				r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
-				metrics.Failures.WithLabelValues(rule.Name, "EvaluationError").Inc()
+				metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonEvaluationError)).Inc()
 			} else {
 				appliedNodes = append(appliedNodes, node.Name)
 				var updatedFailedNodes []readinessv1alpha1.NodeFailure
@@ -402,13 +402,13 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		log.Info("Removing taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
 
 		if err = r.removeTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name); err != nil {
-			metrics.Failures.WithLabelValues(rule.Name, "RemoveTaintError").Inc()
+			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonRemoveTaintError)).Inc()
 			return fmt.Errorf("failed to remove taint: %w", err)
 		}
 
 		// Record taint removal latency and taint operation counter.
-		metrics.TaintOperations.WithLabelValues(rule.Name, "remove").Inc()
-		recordLatency("remove_taint")
+		metrics.TaintOperations.WithLabelValues(rule.Name, string(metrics.TaintOperationRemove)).Inc()
+		recordLatency(string(metrics.ReconciliationOperationRemoveTaint))
 
 		// Mark bootstrap completed if bootstrap-only mode
 		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
@@ -434,13 +434,13 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		log.Info("Adding taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
 
 		if err = r.addTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name); err != nil {
-			metrics.Failures.WithLabelValues(rule.Name, "AddTaintError").Inc()
+			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonAddTaintError)).Inc()
 			return fmt.Errorf("failed to add taint: %w", err)
 		}
 
 		// Record add taint latency and taint operation counter
-		metrics.TaintOperations.WithLabelValues(rule.Name, "add").Inc()
-		recordLatency("add_taint")
+		metrics.TaintOperations.WithLabelValues(rule.Name, string(metrics.TaintOperationAdd)).Inc()
+		recordLatency(string(metrics.ReconciliationOperationAddTaint))
 
 	case !shouldRemoveTaint && currentlyHasTaint:
 		if isFirstEvaluation {

@@ -1141,14 +1141,14 @@ var _ = Describe("Node Controller", func() {
 
 			// Read the failure counter before the call.
 			beforeM := &dto.Metric{}
-			_ = metrics.Failures.WithLabelValues(rule.Name, "EvaluationError").Write(beforeM)
+			_ = metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonEvaluationError)).Write(beforeM)
 			before := beforeM.GetCounter().GetValue()
 
 			err := controller.processNodeAgainstAllRules(ctx, node)
 			Expect(err).To(HaveOccurred())
 
 			afterM := &dto.Metric{}
-			_ = metrics.Failures.WithLabelValues(rule.Name, "EvaluationError").Write(afterM)
+			_ = metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonEvaluationError)).Write(afterM)
 			after := afterM.GetCounter().GetValue()
 
 			Expect(after).To(BeNumerically(">", before),

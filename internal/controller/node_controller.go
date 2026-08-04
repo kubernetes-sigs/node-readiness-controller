@@ -158,7 +158,7 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			// Continue with other rules even if one fails
 			r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
 			errs = append(errs, err)
-			metrics.Failures.WithLabelValues(rule.Name, "EvaluationError").Inc()
+			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonEvaluationError)).Inc()
 		}
 
 		// Persist the rule status
@@ -443,7 +443,7 @@ func (r *RuleReadinessController) SyncNodeStateMetrics(ctx context.Context, rule
 		}
 	}
 
-	metrics.NodesByState.WithLabelValues(rule.Name, "ready").Set(ready)
-	metrics.NodesByState.WithLabelValues(rule.Name, "not_ready").Set(notReady)
-	metrics.NodesByState.WithLabelValues(rule.Name, "bootstrapping").Set(bootstrapping)
+	metrics.NodesByState.WithLabelValues(rule.Name, string(metrics.NodeStateReady)).Set(ready)
+	metrics.NodesByState.WithLabelValues(rule.Name, string(metrics.NodeStateNotReady)).Set(notReady)
+	metrics.NodesByState.WithLabelValues(rule.Name, string(metrics.NodeStateBootstrapping)).Set(bootstrapping)
 }

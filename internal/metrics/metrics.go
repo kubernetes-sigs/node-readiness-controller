@@ -21,6 +21,40 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
+// FailureReason represents the reason for a failed operation.
+type FailureReason string
+
+const (
+	FailureReasonEvaluationError  FailureReason = "EvaluationError"
+	FailureReasonAddTaintError    FailureReason = "AddTaintError"
+	FailureReasonRemoveTaintError FailureReason = "RemoveTaintError"
+)
+
+// TaintOperation represents a taint operation.
+type TaintOperation string
+
+const (
+	TaintOperationRemove TaintOperation = "remove"
+	TaintOperationAdd    TaintOperation = "add"
+)
+
+// ReconciliationOperation represents a reconciliation operation.
+type ReconciliationOperation string
+
+const (
+	ReconciliationOperationRemoveTaint ReconciliationOperation = "remove_taint"
+	ReconciliationOperationAddTaint    ReconciliationOperation = "add_taint"
+)
+
+// NodeState defines node states.
+type NodeState string
+
+const (
+	NodeStateReady         NodeState = "ready"
+	NodeStateNotReady      NodeState = "not_ready"
+	NodeStateBootstrapping NodeState = "bootstrapping"
+)
+
 var (
 	// RulesTotal tracks the number of NodeReadinessRules .
 	RulesTotal = prometheus.NewGauge(
