@@ -104,6 +104,11 @@ type NodeReadinessRuleSpec struct {
 	//
 	// +optional
 	DryRun bool `json:"dryRun,omitempty"` //nolint:kubeapilinter
+
+	// suspend tells the controller to suspend operations for this NodeReadinessRule.
+	//
+	// +optional
+	Suspend bool `json:"suspend,omitempty"`
 }
 
 // ConditionRequirement defines a specific Node condition and the status value
@@ -327,6 +332,7 @@ type DryRunResults struct {
 // +kubebuilder:printcolumn:name="Effect",type=string,JSONPath=`.spec.taint.effect`,description="The taint effect: NoSchedule, PreferNoSchedule or NoExecute."
 // +kubebuilder:printcolumn:name="DryRun",type=boolean,JSONPath=`.spec.dryRun`,description="Whether the rule is in dry-run mode and only previews taint changes."
 // +kubebuilder:selectablefield:JSONPath=`.spec.dryRun`
+// +kubebuilder:printcolumn:name="Suspend",type=boolean,JSONPath=`.spec.suspend`,description="Whether operations for this rule are suspended."
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`,description="The age of this resource"
 
 // NodeReadinessRule is the Schema for the NodeReadinessRules API.

@@ -115,6 +115,11 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	log = log.WithValues("ruleName", rule.Name)
 	ctx = ctrl.LoggerInto(ctx, log)
 
+	if rule.Spec.Suspend {
+		log.Info("NodeReadinessRule is suspended, skipping reconciliation")
+		return ctrl.Result{}, nil
+	}
+
 	// Add finalizer first if not set to avoid the race condition between init and delete.
 	if finalizerAdded, err := r.ensureFinalizer(ctx, rule, finalizerName); err != nil {
 		return ctrl.Result{}, err
