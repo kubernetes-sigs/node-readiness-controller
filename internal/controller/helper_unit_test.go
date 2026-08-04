@@ -83,9 +83,8 @@ func TestLabelsEqual(t *testing.T) {
 			expected: false,
 		},
 		{
-			// A missing key reads back as the zero value "", so an empty valued
-			// label that is swapped for a different empty valued one must still
-			// be reported as a change.
+			// Role labels conventionally carry an empty value, so a swap between
+			// two of them differs only by key.
 			name:     "empty valued role label swapped for another",
 			a:        map[string]string{"node-role.kubernetes.io/worker": ""},
 			b:        map[string]string{"node-role.kubernetes.io/infra": ""},

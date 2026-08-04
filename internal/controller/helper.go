@@ -105,13 +105,7 @@ func taintsEqual(a, b []corev1.Taint) bool {
 	return true
 }
 
-// labelsEqual checks if two label maps are equal.
-//
-// maps.Equal compares both keys and values in both directions. A hand-rolled
-// length check plus a one-directional `b[k] != v` comparison is not sufficient:
-// a missing key yields the zero value "", so removing an empty valued label and
-// adding a different empty valued one in the same update would compare equal and
-// the Node event would be dropped by the update predicate.
+// labelsEqual checks if two label maps hold the same keys with the same values.
 func labelsEqual(a, b map[string]string) bool {
 	return maps.Equal(a, b)
 }
