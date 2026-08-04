@@ -255,56 +255,49 @@ func updateNodeCondition(ctx context.Context, client kubernetes.Interface, nodeN
 			status = corev1.ConditionTrue
 		}
 
-		// Find the existing condition of this type: it drives both the write
-		// skip below and the transition time carried over onto the new condition.
-		var existingCondition *corev1.NodeCondition
-		for _, condition := range node.Status.Conditions {
+		// Find the condition we report on, carrying its transition time over for
+		// as long as the status is unchanged.
+		var transitionTime metav1.Time
+		idx := -1
+		for i, condition := range node.Status.Conditions {
 			if string(condition.Type) == conditionType {
-				condCopy := condition
-				existingCondition = &condCopy
+				idx = i
+				if condition.Status == status {
+					transitionTime = condition.LastTransitionTime
+
+					// Nothing has changed about the condition, so skip the update
+					// to avoid unnecessary etcd write amplification.
+					// Write still forced once LastHeartbeatTime is stale,
+					// this is to signal that the reporter is alive
+					if condition.Reason == health.Reason &&
+						condition.Message == health.Message &&
+						time.Since(condition.LastHeartbeatTime.Time) < heartbeatPeriod {
+						klog.V(4).InfoS("Condition state unchanged, skipping node status update", "node", nodeName, "condition", conditionType)
+						return nil
+					}
+				}
 				break
 			}
 		}
 
-		// If the semantic state is completely unchanged, bypass the API write
-		// to prevent etcd write amplification and control plane flooding.
-		// Skipping the write also stops refreshing LastHeartbeatTime, which is the
-		// only signal that the reporter is still alive, so a write is still forced
-		// once the condition has gone untouched for heartbeatPeriod.
-		if existingCondition != nil &&
-			existingCondition.Status == status &&
-			existingCondition.Reason == health.Reason &&
-			existingCondition.Message == health.Message &&
-			time.Since(existingCondition.LastHeartbeatTime.Time) < heartbeatPeriod {
-			klog.V(4).InfoS("Condition state unchanged, skipping node status update", "node", nodeName, "condition", conditionType)
-			return nil
+		if transitionTime.IsZero() {
+			transitionTime = now
 		}
 
-		// Create condition, preserving the transition time if the status itself
-		// hasn't changed; a status flip starts a new transition.
+		// Create condition
 		condition := corev1.NodeCondition{
 			Type:               corev1.NodeConditionType(conditionType),
 			Status:             status,
 			LastHeartbeatTime:  now,
-			LastTransitionTime: now,
+			LastTransitionTime: transitionTime,
 			Reason:             health.Reason,
 			Message:            health.Message,
 		}
-		if existingCondition != nil && existingCondition.Status == status && !existingCondition.LastTransitionTime.IsZero() {
-			condition.LastTransitionTime = existingCondition.LastTransitionTime
-		}
 
 		// Update node status
-		found := false
-		for i, c := range node.Status.Conditions {
-			if string(c.Type) == conditionType {
-				node.Status.Conditions[i] = condition
-				found = true
-				break
-			}
-		}
-
-		if !found {
+		if idx >= 0 {
+			node.Status.Conditions[idx] = condition
+		} else {
 			node.Status.Conditions = append(node.Status.Conditions, condition)
 		}
 
