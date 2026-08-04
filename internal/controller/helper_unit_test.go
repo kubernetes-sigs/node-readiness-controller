@@ -57,6 +57,76 @@ func TestLegacyBootstrapAnnotationKey(t *testing.T) {
 	g.Expect(key).To(Equal("readiness.k8s.io/bootstrap-completed-my-rule"))
 }
 
+func TestLabelsEqual(t *testing.T) {
+	tests := []struct {
+		name     string
+		a        map[string]string
+		b        map[string]string
+		expected bool
+	}{
+		{
+			name:     "identical labels",
+			a:        map[string]string{"env": "prod"},
+			b:        map[string]string{"env": "prod"},
+			expected: true,
+		},
+		{
+			name:     "different value for the same key",
+			a:        map[string]string{"env": "prod"},
+			b:        map[string]string{"env": "staging"},
+			expected: false,
+		},
+		{
+			name:     "extra key",
+			a:        map[string]string{"env": "prod"},
+			b:        map[string]string{"env": "prod", "tier": "frontend"},
+			expected: false,
+		},
+		{
+			// A missing key reads back as the zero value "", so an empty valued
+			// label that is swapped for a different empty valued one must still
+			// be reported as a change.
+			name:     "empty valued role label swapped for another",
+			a:        map[string]string{"node-role.kubernetes.io/worker": ""},
+			b:        map[string]string{"node-role.kubernetes.io/infra": ""},
+			expected: false,
+		},
+		{
+			name:     "disjoint empty valued keys alongside a shared label",
+			a:        map[string]string{"a": "", "shared": "x"},
+			b:        map[string]string{"b": "", "shared": "x"},
+			expected: false,
+		},
+		{
+			name:     "empty valued label kept unchanged",
+			a:        map[string]string{"node-role.kubernetes.io/worker": ""},
+			b:        map[string]string{"node-role.kubernetes.io/worker": ""},
+			expected: true,
+		},
+		{
+			name:     "both nil",
+			a:        nil,
+			b:        nil,
+			expected: true,
+		},
+		{
+			name:     "nil compared to empty valued label",
+			a:        nil,
+			b:        map[string]string{"node-role.kubernetes.io/worker": ""},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			g.Expect(labelsEqual(tt.a, tt.b)).To(Equal(tt.expected))
+			// The comparison must be symmetric.
+			g.Expect(labelsEqual(tt.b, tt.a)).To(Equal(tt.expected))
+		})
+	}
+}
+
 func TestGetApplicableRulesForNode_DeepCopy(t *testing.T) {
 	g := NewWithT(t)
 

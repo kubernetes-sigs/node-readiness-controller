@@ -18,6 +18,7 @@ package controller
 
 import (
 	"encoding/json"
+	"maps"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -105,16 +106,12 @@ func taintsEqual(a, b []corev1.Taint) bool {
 }
 
 // labelsEqual checks if two label maps are equal.
+//
+// maps.Equal compares both keys and values in both directions. A hand-rolled
+// length check plus a one-directional `b[k] != v` comparison is not sufficient:
+// a missing key yields the zero value "", so removing an empty valued label and
+// adding a different empty valued one in the same update would compare equal and
+// the Node event would be dropped by the update predicate.
 func labelsEqual(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-
-	for k, v := range a {
-		if b[k] != v {
-			return false
-		}
-	}
-
-	return true
+	return maps.Equal(a, b)
 }
