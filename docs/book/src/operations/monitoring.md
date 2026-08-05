@@ -67,7 +67,7 @@ Total number of failure events recorded by the controller.
 | Label | Description | Values |
 | --- | --- | --- |
 | `rule` | `NodeReadinessRule` name | Any rule name |
-| `reason` | Failure label recorded by the controller | `EvaluationError`, `AddTaintError`, `RemoveTaintError` |
+| `reason` | Failure label recorded by the controller | `EvaluationError`, `AddTaintError`, `RemoveTaintError`, `AddTaintConflictExhausted`, `RemoveTaintConflictExhausted`, `StatusPatchError`, `StatusPatchConflictExhausted` |
 
 ### `node_readiness_bootstrap_completed_total`
 
