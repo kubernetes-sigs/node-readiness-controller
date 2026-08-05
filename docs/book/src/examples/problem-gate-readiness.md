@@ -31,9 +31,6 @@ By setting `defaultStatus: "False"` alongside `requiredStatus: "False"`, you tel
 
 ## Step-by-Step Guide
 
-> [!NOTE]
-> You can find the example manifest in [`examples/problem-gate-readiness`](https://github.com/kubernetes-sigs/node-readiness-controller/tree/main/examples/problem-gate-readiness).
-
 ### 1. Bootstrap Nodes with a Startup Taint
 
 Configure your nodes to join the cluster with a startup taint. For example:
@@ -92,6 +89,6 @@ status:
           defaultStatus: "False"      # Default status applied during evaluation
 ```
 
-When a node joins, NRC immediately untaints it. If a monitoring tool later patches the node status to `MaintenanceRequired=True`, NRC will automatically re-taint the node to prevent scheduling.
+When a node joins, NRC immediately untaints it. If a maintenance controller later patches the node status to `MaintenanceRequired=True`, NRC will automatically re-taint the node to prevent scheduling.
 
 
