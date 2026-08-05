@@ -1,6 +1,6 @@
 [build]
   base = "docs/book"
-  command = "GO_VERSION=1.25.8 MDBOOK_VERSION=0.5.2 ./install-and-build-mdbook.sh"
+  command = "GO_VERSION=1.26.0 MDBOOK_VERSION=0.5.2 ./install-and-build-mdbook.sh"
   publish = "book"
 
 # Disables Pretty URLs feature so it doesn't break mdBook's heading navigation logic
@@ -8,7 +8,7 @@
   pretty_urls = false
 
 [context.deploy-preview]
-  command = "GO_VERSION=1.25.8 MDBOOK_VERSION=0.5.2 ./install-and-build-mdbook.sh"
+  command = "GO_VERSION=1.26.0 MDBOOK_VERSION=0.5.2 ./install-and-build-mdbook.sh"
 
 [[redirects]]
   from = "/*"
