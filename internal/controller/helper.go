@@ -19,9 +19,12 @@ package controller
 import (
 	"encoding/json"
 	"maps"
+	"sort"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 )
 
 //nolint:godot
@@ -108,4 +111,57 @@ func taintsEqual(a, b []corev1.Taint) bool {
 // labelsEqual checks if two label maps hold the same keys with the same values.
 func labelsEqual(a, b map[string]string) bool {
 	return maps.Equal(a, b)
+}
+
+// nodeStatusDelta captures the per-node NodeEvaluation/NodeFailure changes a single
+// processAllNodesForRule sweep actually produced, keyed by node name. It intentionally does not
+// carry AppliedNodes/ObservedGeneration/DryRunResults: those fields only ever have one writer
+// (RuleReconciler), so a plain overwrite of them is safe.
+//
+// A nil value in failures means "clear any failure recorded for this node" (the node evaluated
+// successfully). evaluations only ever holds entries for nodes that were freshly (re-)evaluated
+// this sweep; a failed evaluation leaves the node's prior NodeEvaluation untouched.
+type nodeStatusDelta struct {
+	evaluations map[string]readinessv1alpha1.NodeEvaluation
+	failures    map[string]*readinessv1alpha1.NodeFailure
+}
+
+// applyNodeStatusDelta merges delta into rule's NodeEvaluations/FailedNodes, replacing only the
+// entries for nodes present in delta and leaving every other node's entry untouched.
+//
+// This is the crux of fixing the lost-update bug described in #341: a naive full-slice
+// replacement of NodeEvaluations/FailedNodes (computed from a nodeList snapshot taken at the
+// start of a RuleReconciler sweep) would silently discard any per-node status update written
+// concurrently by NodeReconciler for a node this particular sweep didn't touch. Merging by node
+// name instead means each writer only ever overwrites the entries it just recomputed.
+func applyNodeStatusDelta(rule *readinessv1alpha1.NodeReadinessRule, delta nodeStatusDelta) {
+	if len(delta.evaluations) > 0 {
+		merged := make([]readinessv1alpha1.NodeEvaluation, 0, len(rule.Status.NodeEvaluations)+len(delta.evaluations))
+		for _, eval := range rule.Status.NodeEvaluations {
+			if _, changed := delta.evaluations[eval.NodeName]; !changed {
+				merged = append(merged, eval)
+			}
+		}
+		for _, eval := range delta.evaluations {
+			merged = append(merged, eval)
+		}
+		sort.Slice(merged, func(i, j int) bool { return merged[i].NodeName < merged[j].NodeName })
+		rule.Status.NodeEvaluations = merged
+	}
+
+	if len(delta.failures) > 0 {
+		merged := make([]readinessv1alpha1.NodeFailure, 0, len(rule.Status.FailedNodes)+len(delta.failures))
+		for _, failure := range rule.Status.FailedNodes {
+			if _, changed := delta.failures[failure.NodeName]; !changed {
+				merged = append(merged, failure)
+			}
+		}
+		for _, failure := range delta.failures {
+			if failure != nil {
+				merged = append(merged, *failure)
+			}
+		}
+		sort.Slice(merged, func(i, j int) bool { return merged[i].NodeName < merged[j].NodeName })
+		rule.Status.FailedNodes = merged
+	}
 }
