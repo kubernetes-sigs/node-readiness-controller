@@ -262,6 +262,10 @@ spec:
             - nodeSelector
             - taint
             type: object
+            x-kubernetes-validations:
+            - message: conditionPolicy is immutable
+              rule: '(!has(oldSelf.conditionPolicy) ? ''allOf'' : oldSelf.conditionPolicy)
+                == (!has(self.conditionPolicy) ? ''allOf'' : self.conditionPolicy)'
           status:
             description: status defines the observed state of NodeReadinessRule
             minProperties: 1

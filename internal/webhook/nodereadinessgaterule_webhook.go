@@ -72,8 +72,7 @@ func (w *NodeReadinessRuleWebhook) validateSpec(
 	}
 
 	// skip below checks for update because `enforcementMode`, `conditions`,
-	// and `conditionPolicy` are immutable as constrained by CEL XValidation
-	// rules or the ValidateUpdate webhook.
+	// and `conditionPolicy` are immutable as constrained by CEL XValidation rules.
 	if isUpdate {
 		return allErrs
 	}
@@ -210,13 +209,6 @@ func (w *NodeReadinessRuleWebhook) ValidateUpdate(ctx context.Context, oldRule, 
 	// Update validations are handled at the API level, so we can skip them here to avoid redundant checks.
 	if allErrs := w.validateNodeReadinessRule(ctx, newRule, true); len(allErrs) > 0 {
 		return nil, fmt.Errorf("validation failed: %v", allErrs)
-	}
-
-	// Validate conditionPolicy immutability.
-	// CEL validation is insufficient because conditionPolicy has an implicit default (allOf) when omitted,
-	// and transitioning from omitted to 'anyOf' bypasses a simple `self == oldSelf` check.
-	if oldRule.Spec.GetConditionPolicy() != newRule.Spec.GetConditionPolicy() {
-		return nil, fmt.Errorf("validation failed: %v", field.Forbidden(field.NewPath("spec", "conditionPolicy"), "conditionPolicy is immutable"))
 	}
 
 	return nil, nil
