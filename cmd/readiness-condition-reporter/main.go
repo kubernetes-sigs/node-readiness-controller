@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
@@ -303,51 +304,46 @@ func updateNodeCondition(ctx context.Context, client kubernetes.Interface, nodeN
 			status = corev1.ConditionTrue
 		}
 
-		// Find the condition we report on, carrying its transition time over for
-		// as long as the status is unchanged.
-		var transitionTime metav1.Time
-		idx := -1
-		for i, condition := range node.Status.Conditions {
-			if string(condition.Type) == conditionType {
-				idx = i
-				if condition.Status == status {
-					transitionTime = condition.LastTransitionTime
+		// Find the condition we report on, if it already exists.
+		idx := slices.IndexFunc(node.Status.Conditions, func(c corev1.NodeCondition) bool {
+			return string(c.Type) == conditionType
+		})
 
-					// Nothing has changed about the condition, so skip the update
-					// to avoid unnecessary etcd write amplification.
-					// Write still forced once LastHeartbeatTime is stale,
-					// this is to signal that the reporter is alive
-					if condition.Reason == health.Reason &&
-						condition.Message == health.Message &&
-						time.Since(condition.LastHeartbeatTime.Time) < heartbeatPeriod {
-						klog.V(4).InfoS("Condition state unchanged, skipping node status update", "node", nodeName, "condition", conditionType)
-						reporterConditionWritesTotal.WithLabelValues("skipped").Inc()
-						return nil
-					}
-				}
-				break
-			}
-		}
-
-		if transitionTime.IsZero() {
-			transitionTime = now
-		}
-
-		// Create condition
-		condition := corev1.NodeCondition{
+		// Create a new condition
+		newCondition := corev1.NodeCondition{
 			Type:               corev1.NodeConditionType(conditionType),
 			Status:             status,
 			LastHeartbeatTime:  now,
-			LastTransitionTime: transitionTime,
+			LastTransitionTime: now,
 			Reason:             health.Reason,
 			Message:            health.Message,
 		}
 
 		// Update node status
 		if idx >= 0 {
-			node.Status.Conditions[idx] = condition
+			existingCondition := node.Status.Conditions[idx]
+
+			// Nothing has changed about the condition and heartbeat is fresh
+			// skip write to avoid unnecessary etcd churn, force write if heartbeat is stale
+			if existingCondition.Status == status &&
+				existingCondition.Reason == health.Reason &&
+				existingCondition.Message == health.Message &&
+				time.Since(existingCondition.LastHeartbeatTime.Time) < heartbeatPeriod {
+				klog.V(4).InfoS("Condition state unchanged, skipping node status update", "node", nodeName, "condition", conditionType)
+				reporterConditionWritesTotal.WithLabelValues("skipped").Inc()
+				return nil
+			}
+
+			// Status is unchanged (even though something else, like Message, updated) —
+			// preserve the original transition time.
+			// A zero value means no transition was recorded, fallback to now
+			if existingCondition.Status == status && !existingCondition.LastTransitionTime.IsZero() {
+				newCondition.LastTransitionTime = existingCondition.LastTransitionTime
+			}
+
+			node.Status.Conditions[idx] = newCondition
 		} else {
-			node.Status.Conditions = append(node.Status.Conditions, condition)
+			node.Status.Conditions = append(node.Status.Conditions, newCondition)
 		}
 
 		_, err = client.CoreV1().Nodes().UpdateStatus(ctx, node, metav1.UpdateOptions{})
