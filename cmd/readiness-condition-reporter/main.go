@@ -261,7 +261,6 @@ func updateNodeCondition(ctx context.Context, client kubernetes.Interface, nodeN
 			return string(c.Type) == conditionType
 		})
 
-		// Create a new condition
 		newCondition := corev1.NodeCondition{
 			Type:               corev1.NodeConditionType(conditionType),
 			Status:             status,
@@ -271,7 +270,6 @@ func updateNodeCondition(ctx context.Context, client kubernetes.Interface, nodeN
 			Message:            health.Message,
 		}
 
-		// Update node status
 		if idx >= 0 {
 			existingCondition := node.Status.Conditions[idx]
 
@@ -287,8 +285,7 @@ func updateNodeCondition(ctx context.Context, client kubernetes.Interface, nodeN
 
 			// Status is unchanged (even though something else, like Message, updated) —
 			// preserve the original transition time.
-			// A zero value means no transition was recorded, fallback to now
-			if existingCondition.Status == status && !existingCondition.LastTransitionTime.IsZero() {
+			if existingCondition.Status == status {
 				newCondition.LastTransitionTime = existingCondition.LastTransitionTime
 			}
 
