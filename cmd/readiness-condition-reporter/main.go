@@ -120,6 +120,7 @@ func main() {
 	if os.Getenv(envImpersonateNode) == "true" {
 		config.Impersonate = rest.ImpersonationConfig{
 			UserName: "system:node:" + nodeName,
+			Groups:   []string{"system:nodes"},
 		}
 		klog.InfoS("Node impersonation enabled", "impersonating", config.Impersonate.UserName)
 	}
