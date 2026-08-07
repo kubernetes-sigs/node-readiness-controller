@@ -37,7 +37,7 @@ metadata:
   labels:
     {{- include "nrr-controller.labels" . | nindent 4 }}
 rules:
-  - apiGroups: [""]
+  - apiGroups: ["", "events.k8s.io"]
     resources: ["events"]
     verbs: ["create", "patch"]
   - apiGroups: [""]
