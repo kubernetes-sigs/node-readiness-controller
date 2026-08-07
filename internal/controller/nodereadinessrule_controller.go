@@ -467,7 +467,7 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		taintStatus = readinessv1alpha1.TaintStatusAbsent
 	}
 
-	// Update evaluation status
+	// Update evaluation status.
 	r.updateNodeEvaluationStatus(rule, node.Name, conditionResults, taintStatus)
 
 	return nil
