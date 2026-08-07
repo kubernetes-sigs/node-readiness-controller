@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-problem-detector
+  namespace: kube-system
+  labels:
+    app: node-problem-detector
+spec:
+  selector:
+    matchLabels:
+      app: node-problem-detector
+  template:
+    metadata:
+      labels:
+        app: node-problem-detector
+    spec:
+      serviceAccountName: node-problem-detector
+      tolerations:
+        - key: "readiness.k8s.io/KubeletServingCertNotReady"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: node-problem-detector
+          image: registry.k8s.io/node-problem-detector/node-problem-detector:v0.8.20
+          command:
+            - /node-problem-detector
+            - --logtostderr
+            - --config.custom-plugin-monitor=/config/plugin-monitor/kubelet-serving-cert-monitor.json
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: plugin-monitor-config
+              mountPath: /config/plugin-monitor
+            - name: plugin-script
+              mountPath: /config/plugin
+            - name: kubelet-pki
+              mountPath: /var/lib/kubelet/pki
+              readOnly: true
+      volumes:
+        - name: plugin-monitor-config
+          configMap:
+            name: npd-kubelet-cert-config
+            items:
+              - key: kubelet-serving-cert-monitor.json
+                path: kubelet-serving-cert-monitor.json
+        - name: plugin-script
+          configMap:
+            name: npd-kubelet-cert-config
+            defaultMode: 0755
+            items:
+              - key: check-kubelet-serving-cert.sh
+                path: check-kubelet-serving-cert.sh
+        - name: kubelet-pki
+          hostPath:
+            path: /var/lib/kubelet/pki
