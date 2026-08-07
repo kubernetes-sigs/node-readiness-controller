@@ -267,3 +267,48 @@ func TestUpdateNodeCondition(t *testing.T) {
 		})
 	}
 }
+
+func TestParseDurationWithDefault(t *testing.T) {
+	defaultVal := 30 * time.Second
+
+	tests := []struct {
+		name     string
+		input    string
+		expected time.Duration
+	}{
+		{
+			name:     "valid positive duration",
+			input:    "60s",
+			expected: 60 * time.Second,
+		},
+		{
+			name:     "zero duration",
+			input:    "0s",
+			expected: defaultVal,
+		},
+		{
+			name:     "negative duration",
+			input:    "-30s",
+			expected: defaultVal,
+		},
+		{
+			name:     "unparseable duration",
+			input:    "abc",
+			expected: defaultVal,
+		},
+		{
+			name:     "empty duration",
+			input:    "",
+			expected: defaultVal,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseDurationWithDefault(tt.input, defaultVal, "test duration")
+			if result != tt.expected {
+				t.Errorf("parseDurationWithDefault(%q) = %v, expected %v", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
