@@ -71,8 +71,8 @@ func (w *NodeReadinessRuleWebhook) validateSpec(
 		allErrs = append(allErrs, field.Required(field.NewPath("spec", "nodeSelector"), "nodeSelector must not be empty"))
 	}
 
-	// skip below checks for update because both `enforcementMode` and `conditions`
-	// are immutable as constrained by CEL XValidation rules
+	// skip below checks for update because `enforcementMode`, `conditions`,
+	// and `conditionPolicy` are immutable as constrained by CEL XValidation rules.
 	if isUpdate {
 		return allErrs
 	}
@@ -88,6 +88,16 @@ func (w *NodeReadinessRuleWebhook) validateSpec(
 			}
 		}
 	}
+
+	// validate anyOf conditionPolicy is not combined with bootstrap-only mode.
+	if spec.ConditionPolicy == readinessv1alpha1.ConditionPolicyAnyOf &&
+		spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
+		allErrs = append(allErrs, field.Forbidden(
+			field.NewPath("spec", "conditionPolicy"),
+			"anyOf conditionPolicy is not supported with bootstrap-only enforcementMode",
+		))
+	}
+
 	return allErrs
 }
 

@@ -62,6 +62,17 @@ spec:
           spec:
             description: spec defines the desired state of NodeReadinessRule
             properties:
+              conditionPolicy:
+                description: |-
+                  conditionPolicy controls how the conditions list is evaluated.
+                  "allOf" (default) requires every condition to match its requiredStatus before the taint is removed.
+                  "anyOf" requires at least one condition to match its requiredStatus.
+
+                  anyOf cannot be used with enforcementMode: bootstrap-only.
+                enum:
+                - allOf
+                - anyOf
+                type: string
               conditions:
                 description: |-
                   conditions contains a list of the Node conditions that defines the specific
@@ -251,6 +262,10 @@ spec:
             - nodeSelector
             - taint
             type: object
+            x-kubernetes-validations:
+            - message: conditionPolicy is immutable
+              rule: '(!has(oldSelf.conditionPolicy) ? ''allOf'' : oldSelf.conditionPolicy)
+                == (!has(self.conditionPolicy) ? ''allOf'' : self.conditionPolicy)'
           status:
             description: status defines the observed state of NodeReadinessRule
             minProperties: 1

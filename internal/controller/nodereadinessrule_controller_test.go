@@ -2235,4 +2235,110 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(failedNames).NotTo(ContainElement("stale-recovery-node"))
 		})
 	})
+
+	Context("ConditionPolicy", func() {
+		var (
+			anyOfNode *corev1.Node
+			rule      *nodereadinessiov1alpha1.NodeReadinessRule
+		)
+
+		BeforeEach(func() {
+			anyOfNode = &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "anyof-test-node",
+					Labels: map[string]string{"anyof-test": "true"},
+				},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: "readiness.k8s.io/condition-policy", Effect: corev1.TaintEffectNoSchedule},
+					},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "gpu.example.com/HardwareDriverReady", Status: corev1.ConditionTrue},
+						{Type: "gpu.example.com/SoftwareFallbackReady", Status: corev1.ConditionFalse},
+					},
+				},
+			}
+
+			rule = &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "anyof-rule-removes-taint"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					ConditionPolicy: nodereadinessiov1alpha1.ConditionPolicyAnyOf,
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "gpu.example.com/HardwareDriverReady", RequiredStatus: corev1.ConditionTrue},
+						{Type: "gpu.example.com/SoftwareFallbackReady", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/condition-policy", Effect: corev1.TaintEffectNoSchedule},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"anyof-test": "true"}},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+		})
+
+		It("anyOf: removes taint when at least one condition is satisfied", func() {
+			readinessController.updateRuleCache(ctx, rule)
+
+			Expect(k8sClient.Create(ctx, anyOfNode)).To(Succeed())
+			defer func() { Expect(k8sClient.Delete(ctx, anyOfNode)).To(Succeed()) }()
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, anyOfNode)).To(Succeed())
+
+			// Taint should have been removed because HardwareDriverReady=True satisfies anyOf
+			Expect(readinessController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeFalse())
+
+			// conditionResults in status should reflect actual observed values
+			eval := readinessController.getPreviousNodeEvaluation(rule, anyOfNode.Name)
+			Expect(eval).NotTo(BeNil())
+			Expect(eval.ConditionResults).To(HaveLen(2))
+		})
+
+		It("anyOf: adds taint when no conditions are satisfied", func() {
+			rule.Name = "anyof-rule-adds-taint"
+			// Node has no taint; controller should add one
+			anyOfNode.Spec.Taints = nil
+			anyOfNode.Status.Conditions[0].Status = corev1.ConditionFalse
+
+			readinessController.updateRuleCache(ctx, rule)
+
+			Expect(k8sClient.Create(ctx, anyOfNode)).To(Succeed())
+			defer func() { Expect(k8sClient.Delete(ctx, anyOfNode)).To(Succeed()) }()
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, anyOfNode)).To(Succeed())
+
+			// Taint should have been added because neither condition is satisfied
+			Expect(readinessController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeTrue())
+		})
+
+		It("allOf (explicit): adds taint when not all conditions are satisfied", func() {
+			rule.Name = "allof-explicit-rule"
+			rule.Spec.ConditionPolicy = nodereadinessiov1alpha1.ConditionPolicyAllOf
+
+			// Node has no taint; controller should add one
+			anyOfNode.Spec.Taints = nil
+
+			readinessController.updateRuleCache(ctx, rule)
+
+			Expect(k8sClient.Create(ctx, anyOfNode)).To(Succeed())
+			defer func() { Expect(k8sClient.Delete(ctx, anyOfNode)).To(Succeed()) }()
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, anyOfNode)).To(Succeed())
+
+			// Taint should have been added because SoftwareFallbackReady is still False
+			Expect(readinessController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeTrue())
+		})
+		It("allOf (explicit): removes taint when all conditions are satisfied", func() {
+			rule.Name = "allof-explicit-removes-taint"
+			rule.Spec.ConditionPolicy = nodereadinessiov1alpha1.ConditionPolicyAllOf
+
+			// Set both conditions to True to satisfy allOf
+			anyOfNode.Status.Conditions[1].Status = corev1.ConditionTrue
+
+			readinessController.updateRuleCache(ctx, rule)
+
+			Expect(k8sClient.Create(ctx, anyOfNode)).To(Succeed())
+			defer func() { Expect(k8sClient.Delete(ctx, anyOfNode)).To(Succeed()) }()
+			Expect(readinessController.evaluateRuleForNode(ctx, rule, anyOfNode)).To(Succeed())
+
+			// Taint should be removed because all conditions are satisfied
+			Expect(readinessController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeFalse())
+		})
+	})
 })

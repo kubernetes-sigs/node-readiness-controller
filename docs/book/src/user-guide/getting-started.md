@@ -55,7 +55,14 @@ The `conditions` list defines the criteria. The controller watches the Node's st
 *   `requiredStatus`: The status required (`True`, `False`, or `Unknown`).
 *   `defaultStatus`: (Optional) The status to assume if the condition is completely missing from the Node's status. (`True`, `False`, or `Unknown`, defaults to `Unknown` if not provided). Must not be set in `bootstrap-only` mode. (See [Concepts](./concepts.md#default-condition-status-defaultstatus) for usage implications).
 
-### 3. Choose an Enforcement Mode
+### 3. Choose a Condition Policy (Optional)
+The `conditionPolicy` determines how the list of conditions is evaluated.
+*   **`allOf` (Default)**: Require every condition to match its required status.
+*   **`anyOf`**: Require at least one condition to match its required status. Must not be used in `bootstrap-only` mode.
+
+> For more details on `conditionPolicy`, see [Concepts](./concepts.md#condition-evaluation-policy-conditionpolicy).
+
+### 4. Choose an Enforcement Mode
 The `enforcementMode` determines how the controller manages the taint lifecycle.
 
 *   **`bootstrap-only`**: Use this for one-time initialization tasks (e.g., installing a kernel module or driver). Once the conditions are met once, the taint is removed and never reapplied.
@@ -63,7 +70,7 @@ The `enforcementMode` determines how the controller manages the taint lifecycle.
 
 > For more details on these modes, see [Concepts](./concepts.md#enforcement-modes).
 
-### 4. Configure the Taint
+### 5. Configure the Taint
 Define the taint that will block scheduling.
 *   **Key**: Must start with `readiness.k8s.io/` prefix.
 *   **Effect**:

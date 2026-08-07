@@ -24,6 +24,19 @@ Typical taint keys look like:
 
 The segment after `readiness.k8s.io/` should describe the dependency or subsystem whose readiness is being guarded (for example, a CNI plugin, storage backend, or security agent). Treat this domain as reserved for the controller and closely related components, and avoid reusing it for unrelated taints.
 
+### Condition Evaluation Policy (`conditionPolicy`)
+
+When a rule specifies multiple conditions, the `conditionPolicy` determines how they are evaluated collectively to decide if the node should be tainted:
+
+- **`allOf` (Default)**: Every single condition listed in the rule must match its `requiredStatus`. If even one condition fails, the node is tainted. This is the standard behavior for ensuring all critical dependencies are healthy.
+- **`anyOf`**: At least ONE condition must match its `requiredStatus`. If no conditions match, the node is tainted. This is particularly useful for hardware that may be satisfied by multiple drivers, or systems with active/passive fallbacks.
+
+> [!IMPORTANT]
+> **`anyOf` is not supported with `bootstrap-only` rules.**
+>
+> `bootstrap-only` mode exists to verify that specific components have finished initializing. Using `anyOf` with `bootstrap-only` could lead to the node bootstrapping prematurely if just one component is ready, completely ignoring the initialization status of the others. The admission webhook enforces this restriction.
+
+
 ## Enforcement Modes
 
 The controller supports two distinct modes of enforcement, configured via `spec.enforcementMode`, to handle different operational needs.

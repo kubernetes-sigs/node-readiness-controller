@@ -173,9 +173,40 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			})
 		})
 
-		It("should accumulate errors across nodeSelector and multiple defaultStatus violations", func() {
+		Context("conditionPolicy with bootstrap-only", func() {
+			var spec readinessv1alpha1.NodeReadinessRuleSpec
+
+			BeforeEach(func() {
+				spec = readinessv1alpha1.NodeReadinessRuleSpec{
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"foo": "bar"}},
+					ConditionPolicy: readinessv1alpha1.ConditionPolicyAnyOf,
+					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
+				}
+			})
+
+			It("should skip conditionPolicy check on update (early return)", func() {
+				allErrs := webhook.validateSpec(spec, true)
+				Expect(allErrs).To(BeEmpty())
+			})
+
+			It("should allow anyOf conditionPolicy for continuous enforcement", func() {
+				spec.EnforcementMode = readinessv1alpha1.EnforcementModeContinuous
+				allErrs := webhook.validateSpec(spec, false)
+				Expect(allErrs).To(BeEmpty())
+			})
+
+			It("should forbid anyOf conditionPolicy with bootstrap-only enforcement", func() {
+				allErrs := webhook.validateSpec(spec, false)
+				Expect(allErrs).To(HaveLen(1))
+				Expect(allErrs[0].Field).To(Equal("spec.conditionPolicy"))
+				Expect(allErrs[0].Type).To(Equal(field.ErrorTypeForbidden))
+			})
+		})
+
+		It("should accumulate errors across nodeSelector, defaultStatus, and conditionPolicy violations", func() {
 			spec := readinessv1alpha1.NodeReadinessRuleSpec{
-				NodeSelector: metav1.LabelSelector{}, // empty → ErrorTypeRequired
+				NodeSelector:    metav1.LabelSelector{},                 // empty → ErrorTypeRequired
+				ConditionPolicy: readinessv1alpha1.ConditionPolicyAnyOf, // anyOf + bootstrap-only → ErrorTypeForbidden
 				Conditions: []readinessv1alpha1.ConditionRequirement{
 					{
 						Type:           "Ready",
@@ -191,10 +222,11 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			}
 
 			allErrs := webhook.validateSpec(spec, false)
-			Expect(allErrs).To(HaveLen(3))
+			Expect(allErrs).To(HaveLen(4))
 			Expect(allErrs[0].Field).To(Equal("spec.nodeSelector"))
 			Expect(allErrs[1].Field).To(Equal("spec.conditions[0].defaultStatus"))
 			Expect(allErrs[2].Field).To(Equal("spec.conditions[1].defaultStatus"))
+			Expect(allErrs[3].Field).To(Equal("spec.conditionPolicy"))
 		})
 
 		It("should pass validation for valid spec", func() {
@@ -888,6 +920,32 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			allErrs = webhook.validateNodeReadinessRule(ctx, bootstrapDefaultStatusRule, false)
 			Expect(allErrs).To(HaveLen(1))
 			Expect(allErrs[0].Field).To(Equal("spec.conditions[0].defaultStatus"))
+			Expect(allErrs[0].Type).To(Equal(field.ErrorTypeForbidden))
+
+			// Test anyOf conditionPolicy used with bootstrap-only enforcement
+			bootstrapAnyOfPolicyRule := &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "bootstrap-anyof-comprehensive"},
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					ConditionPolicy: readinessv1alpha1.ConditionPolicyAnyOf,
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/test-key-2",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+
+			allErrs = webhook.validateNodeReadinessRule(ctx, bootstrapAnyOfPolicyRule, false)
+			Expect(allErrs).To(HaveLen(1))
+			Expect(allErrs[0].Field).To(Equal("spec.conditionPolicy"))
 			Expect(allErrs[0].Type).To(Equal(field.ErrorTypeForbidden))
 		})
 	})

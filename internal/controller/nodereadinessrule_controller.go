@@ -322,9 +322,11 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 	defer timer.ObserveDuration()
 	log := ctrl.LoggerFrom(ctx)
 
-	// Evaluate all conditions (ALL logic)
-	allConditionsSatisfied := true
+	// Evaluate all conditions, accumulating the policy result alongside per-condition results.
 	conditionResults := make([]readinessv1alpha1.ConditionEvaluationResult, 0, len(rule.Spec.Conditions))
+	conditionPolicy := rule.Spec.GetConditionPolicy()
+	allSatisfied := true
+	anySatisfied := false
 
 	for _, condReq := range rule.Spec.Conditions {
 		effectiveStatus, conditionFound := r.getConditionStatus(
@@ -334,16 +336,18 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		)
 		satisfied := effectiveStatus == condReq.RequiredStatus
 
+		if !satisfied {
+			allSatisfied = false
+			metrics.ConditionEvaluationFailures.WithLabelValues(rule.Name, condReq.Type).Inc()
+		} else {
+			anySatisfied = true
+		}
+
 		// observedStatus is the condition status of a node without applying the default
 		// fallback in case the condition is not found.
 		observedStatus := effectiveStatus
 		if !conditionFound {
 			observedStatus = corev1.ConditionUnknown
-		}
-
-		if !satisfied {
-			allConditionsSatisfied = false
-			metrics.ConditionEvaluationFailures.WithLabelValues(rule.Name, condReq.Type).Inc()
 		}
 
 		conditionResults = append(conditionResults, readinessv1alpha1.ConditionEvaluationResult{
@@ -359,12 +363,15 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 			"satisfied", satisfied)
 	}
 
-	// Determine taint action
-	shouldRemoveTaint := allConditionsSatisfied
+	// Determine taint action: allOf requires every condition satisfied; anyOf requires at least one.
+	shouldRemoveTaint := allSatisfied
+	if conditionPolicy == readinessv1alpha1.ConditionPolicyAnyOf {
+		shouldRemoveTaint = anySatisfied
+	}
 	currentlyHasTaint := r.hasTaintBySpec(node, rule.Spec.Taint)
 
 	log.Info("Evaluation result", "node", node.Name, "rule", rule.Name,
-		"allConditionsSatisfied", allConditionsSatisfied, "hasTaint", currentlyHasTaint)
+		"conditionPolicy", rule.Spec.GetConditionPolicy(), "conditionsSatisfied", shouldRemoveTaint, "hasTaint", currentlyHasTaint)
 
 	isFirstEvaluation := r.getPreviousNodeEvaluation(rule, node.Name) == nil
 
@@ -606,9 +613,11 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 
 		affectedNodes++
 
-		// Simulate rule evaluation
-		allConditionsSatisfied := true
+		// Simulate rule evaluation using the rule's conditionPolicy
+		conditionPolicy := rule.Spec.GetConditionPolicy()
 		missingConditions := 0
+		allSatisfied := true
+		anySatisfied := false
 
 		for _, condReq := range rule.Spec.Conditions {
 			currentStatus, conditionFound := r.getConditionStatus(
@@ -620,11 +629,16 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 				missingConditions++
 			}
 			if currentStatus != condReq.RequiredStatus {
-				allConditionsSatisfied = false
+				allSatisfied = false
+			} else {
+				anySatisfied = true
 			}
 		}
 
-		shouldRemoveTaint := allConditionsSatisfied
+		shouldRemoveTaint := allSatisfied
+		if conditionPolicy == readinessv1alpha1.ConditionPolicyAnyOf {
+			shouldRemoveTaint = anySatisfied
+		}
 		currentlyHasTaint := r.hasTaintBySpec(&node, rule.Spec.Taint)
 
 		if shouldRemoveTaint && currentlyHasTaint {

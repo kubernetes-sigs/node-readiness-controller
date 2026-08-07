@@ -248,6 +248,7 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 }
 
 // getConditionStatus gets the status of a condition on a node.
+// If the condition is not present, defaultStatus is returned with found=false.
 func (r *RuleReadinessController) getConditionStatus(
 	node *corev1.Node,
 	conditionType string,
