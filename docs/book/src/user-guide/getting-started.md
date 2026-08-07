@@ -60,6 +60,8 @@ The `conditionPolicy` determines how the list of conditions is evaluated.
 *   **`allOf` (Default)**: Require every condition to match its required status.
 *   **`anyOf`**: Require at least one condition to match its required status. Must not be used in `bootstrap-only` mode.
 
+> For more details on `conditionPolicy`, see [Concepts](./concepts.md#condition-evaluation-policy-conditionpolicy).
+
 ### 4. Choose an Enforcement Mode
 The `enforcementMode` determines how the controller manages the taint lifecycle.
 
