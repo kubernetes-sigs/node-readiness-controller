@@ -225,7 +225,7 @@ func checkHealth(ctx context.Context, client *http.Client, endpoint string) (*He
 		}, nil
 	}
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	bodyString := ""
 	if err == nil {
 		bodyString = string(bodyBytes)
