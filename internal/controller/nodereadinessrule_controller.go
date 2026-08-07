@@ -291,6 +291,8 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 				log.Error(err, "Failed to evaluate node for rule", "rule", rule.Name, "node", node.Name)
 				r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
 				metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonEvaluationError)).Inc()
+				r.EventRecorder.Eventf(rule, &node, corev1.EventTypeWarning, "EvaluationError", "EvaluateNode", "Failed to evaluate node %q: %v", node.Name, err)
+				r.EventRecorder.Eventf(&node, rule, corev1.EventTypeWarning, "EvaluationError", "EvaluateNode", "Failed to evaluate node against rule %q: %v", rule.Name, err)
 			} else {
 				appliedNodes = append(appliedNodes, node.Name)
 				var updatedFailedNodes []readinessv1alpha1.NodeFailure
@@ -403,6 +405,8 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 
 		if err = r.removeTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name); err != nil {
 			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonRemoveTaintError)).Inc()
+			r.EventRecorder.Eventf(rule, node, corev1.EventTypeWarning, "RemoveTaintError", "RemoveTaint", "Failed to remove taint '%s:%s' from node %q: %v", rule.Spec.Taint.Key, rule.Spec.Taint.Effect, node.Name, err)
+			r.EventRecorder.Eventf(node, rule, corev1.EventTypeWarning, "RemoveTaintError", "RemoveTaint", "Failed to remove taint '%s:%s' by rule %q: %v", rule.Spec.Taint.Key, rule.Spec.Taint.Effect, rule.Name, err)
 			return fmt.Errorf("failed to remove taint: %w", err)
 		}
 
@@ -435,6 +439,8 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 
 		if err = r.addTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name); err != nil {
 			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonAddTaintError)).Inc()
+			r.EventRecorder.Eventf(rule, node, corev1.EventTypeWarning, "AddTaintError", "AddTaint", "Failed to add taint '%s:%s' to node %q: %v", rule.Spec.Taint.Key, rule.Spec.Taint.Effect, node.Name, err)
+			r.EventRecorder.Eventf(node, rule, corev1.EventTypeWarning, "AddTaintError", "AddTaint", "Failed to add taint '%s:%s' by rule %q: %v", rule.Spec.Taint.Key, rule.Spec.Taint.Effect, rule.Name, err)
 			return fmt.Errorf("failed to add taint: %w", err)
 		}
 
@@ -685,6 +691,8 @@ func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule
 
 			if err := r.removeTaintBySpec(ctx, &node, rule.Spec.Taint, rule.Name); err != nil {
 				errors = append(errors, fmt.Sprintf("node %s: %v", node.Name, err))
+				r.EventRecorder.Eventf(rule, &node, corev1.EventTypeWarning, "RemoveTaintError", "RemoveTaint", "Failed to remove taint '%s:%s' from node %q during cleanup: %v", rule.Spec.Taint.Key, rule.Spec.Taint.Effect, node.Name, err)
+				r.EventRecorder.Eventf(&node, rule, corev1.EventTypeWarning, "RemoveTaintError", "RemoveTaint", "Failed to remove taint '%s:%s' by rule %q during cleanup: %v", rule.Spec.Taint.Key, rule.Spec.Taint.Effect, rule.Name, err)
 			}
 		}
 	}
