@@ -149,6 +149,30 @@ examples/cni-readiness/apply-calico.sh
 
 This section tests how the controller handles new nodes being added to the cluster, simulating an autoscaler.
 
+> **Note: inotify limits on Linux hosts**
+> Each `kind` worker node runs its own systemd instance inside a container,
+> and each consumes several `inotify` instances (journald, udev, service
+> watchers, etc.). The default Linux limit (`fs.inotify.max_user_instances`,
+> often 128) is shared across your entire user session — desktop
+> environment, editors, browsers, and other file-watching tools all draw
+> from the same pool. On a typical dev machine, this budget can already be
+> significantly consumed before any kind nodes start, making it easy to
+> hit `Failed to allocate manager object: Too many open files` when
+> scaling to 3-4+ worker nodes.
+>
+> If you see this error, increase the host's limits and retry:
+> ```bash
+> sudo sysctl fs.inotify.max_user_instances=1024
+> sudo sysctl fs.inotify.max_user_watches=1048576
+>
+> # Persist across reboots
+> echo "fs.inotify.max_user_instances = 1024" | sudo tee -a /etc/sysctl.d/99-kind.conf
+> echo "fs.inotify.max_user_watches = 1048576" | sudo tee -a /etc/sysctl.d/99-kind.conf
+> sudo sysctl --system
+> ```
+> Delete the affected node and re-run the scale-up command once the
+> limits are raised.
+
 1.  **Scale up the worker nodes:**
     ```bash
     # Add 2 new worker nodes (for a total of 4 workers)
