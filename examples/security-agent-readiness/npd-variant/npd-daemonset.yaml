@@ -3,6 +3,8 @@ kind: DaemonSet
 metadata:
   name: node-problem-detector-falco
   namespace: falco
+  # NPD requires privileged mode to monitor node health; run-as-non-root is
+  # inherent to privileged mode.
   labels:
     app: node-problem-detector
     component: falco-monitor
@@ -33,6 +35,7 @@ spec:
         - --config.custom-plugin-monitor=/config/falco-plugin.json
         securityContext:
           privileged: true
+          readOnlyRootFilesystem: true
         env:
         - name: NODE_NAME
           valueFrom:
