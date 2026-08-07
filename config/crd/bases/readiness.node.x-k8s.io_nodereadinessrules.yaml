@@ -33,6 +33,10 @@ spec:
       jsonPath: .spec.dryRun
       name: DryRun
       type: boolean
+    - description: Whether operations for this rule are suspended.
+      jsonPath: .spec.suspend
+      name: Suspend
+      type: boolean
     - description: The age of this resource
       jsonPath: .metadata.creationTimestamp
       name: Age
@@ -185,6 +189,10 @@ spec:
                 x-kubernetes-validations:
                 - message: nodeSelector is immutable
                   rule: self == oldSelf
+              suspend:
+                description: suspend tells the controller to suspend operations for
+                  this NodeReadinessRule.
+                type: boolean
               taint:
                 description: |-
                   taint defines the specific Taint (Key, Value, and Effect) to be managed
