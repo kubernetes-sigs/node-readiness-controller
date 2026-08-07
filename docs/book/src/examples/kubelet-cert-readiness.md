@@ -43,7 +43,7 @@ Before starting, ensure the Node Readiness Controller is deployed. See the [Inst
 
 This example requires at least one worker node with the startup taint. 
 
-For kind clusters, save the provided configuration in [`examples/kubelet-cert-readiness/kind-config.yaml`](https://github.com/kubernetes-sigs/node-readiness-controller/blob/main/examples/security-agent-readiness/kind-cluster-config.yaml) to a file, then create the cluster using the following command:
+For kind clusters, save the provided configuration in [`examples/kubelet-cert-readiness/kind-config.yaml`](https://github.com/kubernetes-sigs/node-readiness-controller/blob/main/examples/kubelet-cert-readiness/kind-config.yaml) to a file, then create the cluster using the following command:
 
 ```sh
 kind create cluster --config <your-kind-config-file.yaml>
