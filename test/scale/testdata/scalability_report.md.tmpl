@@ -1,0 +1,39 @@
+# Node Readiness Controller Scale Test Performance Report
+### Node Count: {{.NodeCount}} | Mode: {{.Mode}}
+
+{{range .Phases}}
+## Performance Report: {{.PhaseTitle}}
+
+### Core Latencies & Durations
+
+| Metric | P50 | P90 | P99 |
+| :--- | :--- | :--- | :--- |
+| **Controller Reconcile Duration** | {{index .Metrics "reconcile_time_p50"}} | {{index .Metrics "reconcile_time_p90"}} | {{index .Metrics "reconcile_time_p99"}} |
+| **Reconciliation Latency** | {{index .Metrics "reconciliation_latency_p50"}} | {{index .Metrics "reconciliation_latency_p90"}} | {{index .Metrics "reconciliation_latency_p99"}} |
+| **Rule Evaluation Duration** | {{index .Metrics "rule_evaluation_duration_p50"}} | {{index .Metrics "rule_evaluation_duration_p90"}} | {{index .Metrics "rule_evaluation_duration_p99"}} |
+| **Workqueue Queue Duration** | {{index .Metrics "workqueue_queue_duration_p50"}} | {{index .Metrics "workqueue_queue_duration_p90"}} | {{index .Metrics "workqueue_queue_duration_p99"}} |
+| **Workqueue Work Duration** | {{index .Metrics "workqueue_work_duration_p50"}} | {{index .Metrics "workqueue_work_duration_p90"}} | {{index .Metrics "workqueue_work_duration_p99"}} |
+
+### System Resources
+
+| Resource | Average | Peak |
+| :--- | :--- | :--- |
+| **CPU Usage** | {{index .Metrics "cpu_cores_rate"}} | {{index .Metrics "cpu_cores_peak"}} |
+| **Resident Memory** | {{index .Metrics "resident_memory_avg"}} | {{index .Metrics "resident_memory_peak"}} |
+
+### Workqueue Activity & Operational Counters
+
+| Workqueue Metric | Node Controller | Rule Controller |
+| :--- | :--- | :--- |
+| **Workqueue Retries** | {{index .Metrics "workqueue_retries_node"}} | {{index .Metrics "workqueue_retries_rules"}} |
+| **Workqueue Adds** | {{index .Metrics "workqueue_adds_node"}} | {{index .Metrics "workqueue_adds_rules"}} |
+
+| Operational Counter | Value |
+| :--- | :--- |
+| **Taint Operations (Added)** | {{index .Metrics "taint_operations_add"}} |
+| **Taint Operations (Removed)** | {{index .Metrics "taint_operations_remove"}} |
+| **Condition Check Failures** | {{index .Metrics "condition_failures_total"}} |
+| **Controller Operational Failures** | {{index .Metrics "operational_failures_total"}} |
+
+---
+{{end}}

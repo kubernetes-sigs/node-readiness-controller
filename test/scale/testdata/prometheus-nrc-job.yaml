@@ -1,0 +1,7 @@
+- job_name: node-readiness-controller
+  scrape_interval: 1s
+  metrics_path: /metrics
+  scheme: http
+  static_configs:
+  - targets:
+    - 127.0.0.1:{{ .Port }}

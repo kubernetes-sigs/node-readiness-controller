@@ -1,0 +1,34 @@
+apiVersion: kwok.x-k8s.io/v1alpha1
+kind: Stage
+metadata:
+  name: security-agent-stage-true
+spec:
+  resourceRef:
+    apiGroup: ""
+    kind: Node
+  selector:
+    matchLabels:
+      type: kwok
+    matchExpressions:
+      - key: ".status.conditions[] | select(.type==\"security.node.x-k8s.io/SecurityAgentReady\") | .status"
+        operator: NotIn
+        values:
+          - "True"
+  next:
+    statusTemplate: |
+      conditions:
+      {{- range .status.conditions }}
+      {{- if ne .type "security.node.x-k8s.io/SecurityAgentReady" }}
+      - type: {{ .type }}
+        status: {{ .status | quote }}
+        reason: {{ .reason | quote }}
+        message: {{ .message | quote }}
+        lastHeartbeatTime: {{ .lastHeartbeatTime | quote }}
+        lastTransitionTime: {{ .lastTransitionTime | quote }}
+      {{- end }}
+      {{- end }}
+      - type: security.node.x-k8s.io/SecurityAgentReady
+        status: "True"
+        reason: "SecurityAgentHealthy"
+        message: "Security agent initialized"
+        lastTransitionTime: "{{ Now }}"

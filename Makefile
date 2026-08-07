@@ -412,6 +412,16 @@ setup-envtest: $(SETUP_ENVTEST) ## Download the binaries required for ENVTEST in
 	@echo KUBEBUILDER_ASSETS=$(KUBEBUILDER_ASSETS)
 
 ## --------------------------------------
+## Scale Testing
+## --------------------------------------
+
+##@ scale:
+
+.PHONY: test-scale
+test-scale: manifests generate ## Run the scale performance tests. See test/scale/README.md for more information.
+	go test -tags=scale -v ./test/scale/... -ginkgo.v -timeout 30m -count=1
+
+## --------------------------------------
 ## Hack / Tools
 ## --------------------------------------
 
