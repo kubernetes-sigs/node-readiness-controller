@@ -55,6 +55,21 @@ type HealthResponse struct {
 	Message string `json:"message"`
 }
 
+func parseDurationWithDefault(input string, defaultVal time.Duration, name string) time.Duration {
+	if input == "" {
+		return defaultVal
+	}
+	parsed, err := time.ParseDuration(input)
+	if err != nil || parsed <= 0 {
+		klog.ErrorS(err, "Invalid duration, using default",
+			"setting", name,
+			"input", input,
+			"default", defaultVal)
+		return defaultVal
+	}
+	return parsed
+}
+
 func main() {
 	klog.InitFlags(nil)
 	flag.Parse()
@@ -82,31 +97,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	checkInterval := os.Getenv(envCheckInterval)
-	interval := defaultCheckInterval
-	if checkInterval != "" {
-		parsedInterval, err := time.ParseDuration(checkInterval)
-		if err == nil {
-			interval = parsedInterval
-		} else {
-			klog.ErrorS(err, "Failed to parse check interval, using default",
-				"input", checkInterval,
-				"default", defaultCheckInterval)
-		}
-	}
-
-	heartbeatPeriodStr := os.Getenv(envHeartbeatPeriod)
-	heartbeatPeriod := defaultHeartbeatPeriod
-	if heartbeatPeriodStr != "" {
-		parsedPeriod, err := time.ParseDuration(heartbeatPeriodStr)
-		if err == nil {
-			heartbeatPeriod = parsedPeriod
-		} else {
-			klog.ErrorS(err, "Failed parse heartbeat period, using default",
-				"input", heartbeatPeriodStr,
-				"default", defaultHeartbeatPeriod)
-		}
-	}
+	interval := parseDurationWithDefault(os.Getenv(envCheckInterval), defaultCheckInterval, "check interval")
+	heartbeatPeriod := parseDurationWithDefault(os.Getenv(envHeartbeatPeriod), defaultHeartbeatPeriod, "heartbeat period")
 
 	// Create Kubernetes client
 	config, err := rest.InClusterConfig()
