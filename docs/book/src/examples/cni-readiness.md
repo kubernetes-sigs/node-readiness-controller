@@ -144,3 +144,35 @@ To test this, add a new node to the cluster.
 
 3.  **Check Taint Removal**:
     As soon as the condition becomes `True`, the Node Readiness Controller will remove the taint, and workloads will be scheduled.
+
+## Cilium CNI Integration & Bootstrap Taints
+
+When using **Cilium** as your CNI plugin:
+
+1. **Align Bootstrap Taints**: Configure Cilium's agent not-ready taint flag to use the standardized `readiness.k8s.io/*` prefix:
+   ```yaml
+   # Helm values for Cilium
+   extraArgs:
+     - --agent-not-ready-taint-key=readiness.k8s.io/network-not-ready
+   ```
+
+2. **Bootstrap NodeReadinessRule**: Once Cilium initializes networking, it sets the built-in Kubernetes node condition `NetworkUnavailable=False`. You can define a rule to untaint nodes based on `NetworkUnavailable`:
+   ```yaml
+   # cilium-network-readiness-rule.yaml
+   apiVersion: readiness.node.x-k8s.io/v1alpha1
+   kind: NodeReadinessRule
+   metadata:
+     name: cilium-network-readiness-rule
+   spec:
+     conditions:
+       - type: "NetworkUnavailable"
+         requiredStatus: "False"
+     taint:
+       key: "readiness.k8s.io/network-not-ready"
+       effect: "NoSchedule"
+       value: "true"
+     enforcementMode: "bootstrap-only"
+   ```
+
+> [!NOTE]
+> Cilium updates `NetworkUnavailable=False` during node bootstrap. For continuous post-startup health monitoring, pair this with a custom DaemonSet probe and `enforcementMode: "continuous"`.
