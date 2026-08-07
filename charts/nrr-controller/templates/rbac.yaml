@@ -37,9 +37,6 @@ metadata:
   labels:
     {{- include "nrr-controller.labels" . | nindent 4 }}
 rules:
-  # The controller records taint events through k8s.io/client-go/tools/events,
-  # which writes to events.k8s.io/v1, so both groups are required here. Keep this
-  # in sync with the generated config/rbac/role.yaml.
   - apiGroups: ["", "events.k8s.io"]
     resources: ["events"]
     verbs: ["create", "patch"]
