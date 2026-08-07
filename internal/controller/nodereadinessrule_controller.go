@@ -241,15 +241,24 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 		}
 	}
 
-	if len(newNodeEvaluations) == len(rule.Status.NodeEvaluations) {
+	var newFailedNodes []readinessv1alpha1.NodeFailure
+	for _, failure := range rule.Status.FailedNodes {
+		if existingNodes[failure.NodeName] {
+			newFailedNodes = append(newFailedNodes, failure)
+		}
+	}
+
+	if len(newNodeEvaluations) == len(rule.Status.NodeEvaluations) && len(newFailedNodes) == len(rule.Status.FailedNodes) {
 		log.V(4).Info("No deleted nodes to clean up", "rule", rule.Name)
 		return nil
 	}
 
 	log.V(4).Info("Cleaning up deleted nodes from rule status",
 		"rule", rule.Name,
-		"before", len(rule.Status.NodeEvaluations),
-		"after", len(newNodeEvaluations))
+		"evaluationsBefore", len(rule.Status.NodeEvaluations),
+		"evaluationsAfter", len(newNodeEvaluations),
+		"failedNodesBefore", len(rule.Status.FailedNodes),
+		"failedNodesAfter", len(newFailedNodes))
 
 	// Use retry on conflict to update status to avoid race conditions from node updates
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -265,12 +274,20 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 			}
 		}
 
-		if len(freshNodeEvaluations) == len(fresh.Status.NodeEvaluations) {
+		var freshFailedNodes []readinessv1alpha1.NodeFailure
+		for _, failure := range fresh.Status.FailedNodes {
+			if existingNodes[failure.NodeName] {
+				freshFailedNodes = append(freshFailedNodes, failure)
+			}
+		}
+
+		if len(freshNodeEvaluations) == len(fresh.Status.NodeEvaluations) && len(freshFailedNodes) == len(fresh.Status.FailedNodes) {
 			return nil
 		}
 
 		patch := client.MergeFrom(fresh.DeepCopy())
 		fresh.Status.NodeEvaluations = freshNodeEvaluations
+		fresh.Status.FailedNodes = freshFailedNodes
 		return r.Status().Patch(ctx, fresh, patch)
 	})
 }
