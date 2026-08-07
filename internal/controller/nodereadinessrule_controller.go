@@ -524,7 +524,7 @@ func (r *RuleReadinessController) ruleAppliesTo(ctx context.Context, rule *readi
 
 	selector, err := metav1.LabelSelectorAsSelector(&rule.Spec.NodeSelector)
 	if err != nil {
-		log.Error(err, "Invalid node selector for rule", "rule", rule.Name)
+		log.V(4).Info("Skipping rule due to invalid node selector", "rule", rule.Name, "error", err.Error())
 		return false
 	}
 
@@ -534,6 +534,11 @@ func (r *RuleReadinessController) ruleAppliesTo(ctx context.Context, rule *readi
 // updateRuleCache updates the rule cache.
 func (r *RuleReadinessController) updateRuleCache(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) {
 	log := ctrl.LoggerFrom(ctx)
+
+	if _, err := metav1.LabelSelectorAsSelector(&rule.Spec.NodeSelector); err != nil {
+		log.Error(err, "Rule has invalid node selector", "rule", rule.Name)
+	}
+
 	r.ruleCacheMutex.Lock()
 	defer r.ruleCacheMutex.Unlock()
 

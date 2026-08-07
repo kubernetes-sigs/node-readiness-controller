@@ -169,6 +169,10 @@ func runCheck(ctx context.Context, httpClient *http.Client, clientset kubernetes
 		}
 	}
 
+	if !health.Healthy {
+		klog.InfoS("Health check unhealthy", "endpoint", checkEndpoint, "reason", health.Reason, "message", health.Message)
+	}
+
 	if err := updateNodeCondition(ctx, clientset, nodeName, conditionType, health, heartbeatPeriod); err != nil {
 		klog.ErrorS(err, "Failed to update node condition", "node", nodeName, "condition", conditionType)
 	}
@@ -321,6 +325,9 @@ func updateNodeCondition(ctx context.Context, client kubernetes.Interface, nodeN
 		}
 
 		_, err = client.CoreV1().Nodes().UpdateStatus(ctx, node, metav1.UpdateOptions{})
+		if err == nil {
+			klog.InfoS("Successfully updated node condition status", "node", nodeName, "condition", conditionType, "status", status, "reason", health.Reason)
+		}
 		return err
 	})
 }

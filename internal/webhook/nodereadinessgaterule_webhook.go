@@ -140,6 +140,7 @@ func (w *NodeReadinessRuleWebhook) nodeSelectorsOverlap(selector1, selector2 met
 	sel2, err2 := metav1.LabelSelectorAsSelector(&selector2)
 
 	if err1 != nil || err2 != nil {
+		ctrl.Log.Error(fmt.Errorf("failed to parse selectors"), "Assuming selectors overlap for safety", "err1", err1, "err2", err2)
 		// If we can't parse selectors, assume they overlap for safety
 		return true
 	}
