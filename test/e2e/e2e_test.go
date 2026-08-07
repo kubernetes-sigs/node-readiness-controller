@@ -777,6 +777,152 @@ spec:
 			By("cleaning up test resources")
 			exec.Command("kubectl", "delete", "nodereadinessrule", "selector-test-dryrun").Run()
 		})
+
+		It("should taint a node when a required condition is completely missing", func() {
+			nodeName := "missing-condition-node"
+
+			By("creating a test node with no relevant conditions")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(`
+apiVersion: v1
+kind: Node
+metadata:
+  name: %s
+  labels:
+    e2e-test: "missing-condition"
+status:
+  conditions:
+    - type: Placeholder
+      status: "True"
+      lastHeartbeatTime: %s
+      lastTransitionTime: %s
+`, nodeName, time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339)))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("applying a rule requiring a condition that does not exist on the node")
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(`
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: missing-condition-rule
+spec:
+  conditions:
+    - type: MissingConditionTest
+      requiredStatus: "True"
+  taint:
+    key: readiness.k8s.io/MissingConditionTest
+    effect: NoSchedule
+  enforcementMode: "continuous"
+  nodeSelector:
+    matchLabels:
+      e2e-test: "missing-condition"
+`)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying taint is added (missing condition treated as unsatisfied)")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "readiness.k8s.io/MissingConditionTest")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("adding the missing condition with satisfied status")
+			err = patchNodeCondition(nodeName, "MissingConditionTest", "True")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying taint is removed after condition is satisfied")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return !strings.Contains(output, "readiness.k8s.io/MissingConditionTest")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("cleaning up test resources")
+			exec.Command("kubectl", "delete", "node", nodeName).Run()
+			exec.Command("kubectl", "delete", "nodereadinessrule", "missing-condition-rule").Run()
+		})
+
+		It("should clean up managed taints when the rule is deleted (finalizer behavior)", func() {
+			nodeName := "finalizer-test-node"
+
+			By("creating a test node with condition unsatisfied")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(`
+apiVersion: v1
+kind: Node
+metadata:
+  name: %s
+  labels:
+    e2e-test: "finalizer"
+status:
+  conditions:
+    - type: FinalizerTest
+      status: "False"
+      lastHeartbeatTime: %s
+      lastTransitionTime: %s
+`, nodeName, time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339)))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("applying a rule to taint the node")
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(`
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: finalizer-test-rule
+spec:
+  conditions:
+    - type: FinalizerTest
+      requiredStatus: "True"
+  taint:
+    key: readiness.k8s.io/FinalizerTest
+    effect: NoSchedule
+  enforcementMode: "continuous"
+  nodeSelector:
+    matchLabels:
+      e2e-test: "finalizer"
+`)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying taint is added")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return strings.Contains(output, "readiness.k8s.io/FinalizerTest")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("deleting the rule")
+			cmd = exec.Command("kubectl", "delete", "nodereadinessrule", "finalizer-test-rule")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying taint is removed by finalizer cleanup")
+			Eventually(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return !strings.Contains(output, "readiness.k8s.io/FinalizerTest")
+			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("cleaning up test resources")
+			exec.Command("kubectl", "delete", "node", nodeName).Run()
+		})
 	})
 })
 
