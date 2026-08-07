@@ -2250,7 +2250,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				},
 				Spec: corev1.NodeSpec{
 					Taints: []corev1.Taint{
-						{Key: "readiness.k8s.io/GPUReady", Effect: corev1.TaintEffectNoSchedule},
+						{Key: "readiness.k8s.io/condition-policy", Effect: corev1.TaintEffectNoSchedule},
 					},
 				},
 				Status: corev1.NodeStatus{
@@ -2269,7 +2269,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 						{Type: "gpu.example.com/HardwareDriverReady", RequiredStatus: corev1.ConditionTrue},
 						{Type: "gpu.example.com/SoftwareFallbackReady", RequiredStatus: corev1.ConditionTrue},
 					},
-					Taint:           corev1.Taint{Key: "readiness.k8s.io/GPUReady", Effect: corev1.TaintEffectNoSchedule},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/condition-policy", Effect: corev1.TaintEffectNoSchedule},
 					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"anyof-test": "true"}},
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 				},
@@ -2308,9 +2308,12 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(readinessController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeTrue())
 		})
 
-		It("allOf (explicit): keeps taint when not all conditions are satisfied", func() {
+		It("allOf (explicit): adds taint when not all conditions are satisfied", func() {
 			rule.Name = "allof-explicit-rule"
 			rule.Spec.ConditionPolicy = nodereadinessiov1alpha1.ConditionPolicyAllOf
+
+			// Node has no taint; controller should add one
+			anyOfNode.Spec.Taints = nil
 
 			readinessController.updateRuleCache(ctx, rule)
 
@@ -2318,7 +2321,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			defer func() { Expect(k8sClient.Delete(ctx, anyOfNode)).To(Succeed()) }()
 			Expect(readinessController.evaluateRuleForNode(ctx, rule, anyOfNode)).To(Succeed())
 
-			// Taint must remain because SoftwareFallbackReady is still False
+			// Taint should have been added because SoftwareFallbackReady is still False
 			Expect(readinessController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeTrue())
 		})
 		It("allOf (explicit): removes taint when all conditions are satisfied", func() {

@@ -90,9 +90,6 @@ func (w *NodeReadinessRuleWebhook) validateSpec(
 	}
 
 	// validate anyOf conditionPolicy is not combined with bootstrap-only mode.
-	// The semantics are undefined: once the taint is permanently removed after
-	// the first condition satisfies, subsequent condition changes have no effect,
-	// making the "any" relationship unverifiable.
 	if spec.ConditionPolicy == readinessv1alpha1.ConditionPolicyAnyOf &&
 		spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
 		allErrs = append(allErrs, field.Forbidden(

@@ -59,12 +59,12 @@ const (
 
 // NodeReadinessRuleSpec defines the desired state of NodeReadinessRule.
 //
-// We validate conditionPolicy immutability here at the struct level rather than the field level.
-// This is required because conditionPolicy is optional field. If a user transitions from an omitted
-// field to an explicit "allOf" or vice-versa, field-level transition rules are not evaluated, since
-// validations are only performed only when both self and oldSelf are present. By evaluating it at
-// the struct level, we can safely use the `has()` macro to normalize absent values and force
-// evaluation under any condition.
+// We put the conditionPolicy immutability validation at `NodeReadinessRuleSpec` level instead of
+// putting it on `conditionPolicy`. This is required because conditionPolicy is optional field. If a
+// user transitions from an omitted field to an explicit "allOf" or vice-versa, field-level
+// transition rules are not evaluated, since validations are only performed only when both self and
+// oldSelf are present. By evaluating it at the struct level, we can safely use the `has()` macro to
+// normalize absent values and force evaluation under any condition.
 // +kubebuilder:validation:XValidation:rule="(!has(oldSelf.conditionPolicy) ? 'allOf' : oldSelf.conditionPolicy) == (!has(self.conditionPolicy) ? 'allOf' : self.conditionPolicy)",message="conditionPolicy is immutable"
 type NodeReadinessRuleSpec struct {
 	// conditions contains a list of the Node conditions that defines the specific
