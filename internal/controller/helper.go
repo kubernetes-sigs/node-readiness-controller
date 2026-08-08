@@ -24,16 +24,20 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-//nolint:godot
 const (
 	// bootstrapAnnotationPrefix is the common prefix for all bootstrap completion
 	// annotations on a Node. The suffix is the rule's metadata.uid (RFC 4122 UUID,
 	// ~36 chars), which is immutable for the object's lifetime and globally unique.
 	//
 	// Full key format: readiness.k8s.io/bootstrap-completed-<ruleUID>
-	// Value format:    {"rule-name":"<ruleName>"}   (for human readability)
+	// Value format:    {"rule-name":"<ruleName>"}   (for human readability).
 	bootstrapAnnotationPrefix = "readiness.k8s.io/bootstrap-completed-"
 )
+
+// bootstrapAnnotationPayload is the JSON value stored in a bootstrap-completion annotation.
+type bootstrapAnnotationPayload struct {
+	RuleName string `json:"rule-name"`
+}
 
 // bootstrapAnnotationKey returns the annotation key for a rule's bootstrap
 // completion state, using the rule's UID as the suffix.
@@ -44,9 +48,7 @@ func bootstrapAnnotationKey(uid types.UID) string {
 // bootstrapAnnotationValue returns the JSON-encoded value to store in the
 // bootstrap annotation. It includes the rule name for human readability.
 func bootstrapAnnotationValue(ruleName string) string {
-	v := struct {
-		RuleName string `json:"rule-name"`
-	}{RuleName: ruleName}
+	v := bootstrapAnnotationPayload{RuleName: ruleName}
 	b, err := json.Marshal(v)
 	if err != nil {
 		return `{"rule-name":""}` // should never happen

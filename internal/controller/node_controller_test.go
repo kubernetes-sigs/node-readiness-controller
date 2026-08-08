@@ -352,6 +352,97 @@ var _ = Describe("Node Controller", func() {
 					return false
 				}, time.Second*2).Should(BeFalse())
 			})
+
+			It("should not retry recovery for an adopted taint", func() {
+				// The node already has the taint, so the first reconcile takes the adopt path.
+				// TaintObservedAt is set while TaintAppliedAt stays zero.
+				_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+				Expect(err).NotTo(HaveOccurred())
+
+				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, updatedRule)).To(Succeed())
+
+				var eval *nodereadinessiov1alpha1.NodeEvaluation
+				for i := range updatedRule.Status.NodeEvaluations {
+					if updatedRule.Status.NodeEvaluations[i].NodeName == nodeName {
+						eval = &updatedRule.Status.NodeEvaluations[i]
+					}
+				}
+				Expect(eval).NotTo(BeNil())
+				Expect(eval.TaintAppliedAt.IsZero()).To(BeTrue(), "TaintAppliedAt must stay zero for an adopted taint")
+				Expect(eval.TaintObservedAt.IsZero()).To(BeFalse(), "TaintObservedAt must be stamped for an adopted taint")
+				Expect(readinessController.taintAnchorMissing(updatedRule, nodeName)).To(BeFalse())
+
+				// Refresh the cache and record the recovery attempts so far.
+				readinessController.ruleCache[ruleName] = updatedRule
+				readinessController.taintAnchorRecoveryMutex.Lock()
+				attemptsBefore := readinessController.taintAnchorRecoveryAttempts[ruleName+"/"+nodeName]
+				readinessController.taintAnchorRecoveryMutex.Unlock()
+
+				_, err = nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+				Expect(err).NotTo(HaveOccurred())
+
+				readinessController.taintAnchorRecoveryMutex.Lock()
+				attemptsAfter := readinessController.taintAnchorRecoveryAttempts[ruleName+"/"+nodeName]
+				readinessController.taintAnchorRecoveryMutex.Unlock()
+				Expect(attemptsAfter).To(Equal(attemptsBefore),
+					"no additional recovery attempt should have been made once TaintObservedAt is known")
+			})
+
+			It("should self-heal the rule cache after recovering the taint anchor", func() {
+				// Reconcile #1: adopt the existing taint and persist TaintObservedAt to the API.
+				_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+				Expect(err).NotTo(HaveOccurred())
+
+				readCachedEval := func() *nodereadinessiov1alpha1.NodeEvaluation {
+					readinessController.ruleCacheMutex.RLock()
+					defer readinessController.ruleCacheMutex.RUnlock()
+					cachedRule, ok := readinessController.ruleCache[ruleName]
+					if !ok {
+						return nil
+					}
+					for i := range cachedRule.Status.NodeEvaluations {
+						if cachedRule.Status.NodeEvaluations[i].NodeName == nodeName {
+							return &cachedRule.Status.NodeEvaluations[i]
+						}
+					}
+					return nil
+				}
+
+				Expect(readCachedEval()).To(BeNil(),
+					"the persistent cache should still be stale immediately after the adopt reconcile")
+
+				// Reconcile #2: recover TaintObservedAt from the API and update the cache.
+				_, err = nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+				Expect(err).NotTo(HaveOccurred())
+
+				cachedEval := readCachedEval()
+				Expect(cachedEval).NotTo(BeNil(),
+					"the persistent cache should now contain a NodeEvaluation for this node")
+				Expect(cachedEval.TaintObservedAt.IsZero()).To(BeFalse(),
+					"the recovered TaintObservedAt should have been written into r.ruleCache directly")
+				Expect(cachedEval.TaintAppliedAt.IsZero()).To(BeTrue())
+
+				readinessController.ruleCacheMutex.RLock()
+				cachedRule := readinessController.ruleCache[ruleName]
+				readinessController.ruleCacheMutex.RUnlock()
+				Expect(readinessController.taintAnchorMissing(cachedRule, nodeName)).To(BeFalse(),
+					"the self-healed cache entry must no longer report the anchor as missing")
+
+				readinessController.taintAnchorRecoveryMutex.Lock()
+				attemptsBefore := readinessController.taintAnchorRecoveryAttempts[ruleName+"/"+nodeName]
+				readinessController.taintAnchorRecoveryMutex.Unlock()
+
+				// Reconcile #3: the cache is already healed, so no further recovery is needed.
+				_, err = nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+				Expect(err).NotTo(HaveOccurred())
+
+				readinessController.taintAnchorRecoveryMutex.Lock()
+				attemptsAfter := readinessController.taintAnchorRecoveryAttempts[ruleName+"/"+nodeName]
+				readinessController.taintAnchorRecoveryMutex.Unlock()
+				Expect(attemptsAfter).To(Equal(attemptsBefore),
+					"no further recovery attempt should be needed once the cache has self-healed")
+			})
 		})
 
 		When("in continuous mode", func() {

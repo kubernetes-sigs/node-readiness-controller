@@ -107,9 +107,20 @@ var (
 		prometheus.HistogramOpts{
 			Name:    "node_readiness_bootstrap_duration_seconds",
 			Help:    "Time from node creation to bootstrap completion (taint removal) for bootstrap-only rules",
-			Buckets: []float64{1, 5, 10, 30, 60, 120, 300, 600, 1200}, // 1s to 20min
+			Buckets: []float64{1, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600}, // 1s to 60min
 		},
 		[]string{"rule"},
+	)
+
+	// BootstrapHoldDuration tracks the time from the readiness taint's anchor timestamp to bootstrap completion.
+	// Measures NRC hold time only; skipped when no anchor is available.
+	BootstrapHoldDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "node_readiness_bootstrap_hold_duration_seconds",
+			Help:    "Time from readiness taint application or observation to bootstrap completion. Measures only NRC-attributable hold time.",
+			Buckets: []float64{1, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600},
+		},
+		[]string{"rule", "controller"}, // controller: applied, adopted
 	)
 
 	// ReconciliationLatency tracks end-to-end latency from condition change to taint operation.
@@ -162,6 +173,7 @@ func init() {
 	metrics.Registry.MustRegister(Failures)
 	metrics.Registry.MustRegister(BootstrapCompleted)
 	metrics.Registry.MustRegister(BootstrapDuration)
+	metrics.Registry.MustRegister(BootstrapHoldDuration)
 	metrics.Registry.MustRegister(ReconciliationLatency)
 	metrics.Registry.MustRegister(NodesByState)
 	metrics.Registry.MustRegister(ConditionEvaluationFailures)
