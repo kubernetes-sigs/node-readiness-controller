@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -216,6 +217,9 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			latestRule.Status.FailedNodes = updatedFailedNodes
 
 			if err := r.Status().Patch(ctx, latestRule, patch); err != nil {
+				if apierrors.IsConflict(err) {
+					metrics.APIConflicts.WithLabelValues(rule.Name, "process_node").Inc()
+				}
 				return err
 			}
 
@@ -293,6 +297,9 @@ func (r *RuleReadinessController) addTaintBySpec(ctx context.Context, node *core
 		stored := latestNode.DeepCopy()
 		latestNode.Spec.Taints = append(latestNode.Spec.Taints, taintSpec)
 		if err := r.Patch(ctx, latestNode, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
+			if apierrors.IsConflict(err) {
+				metrics.APIConflicts.WithLabelValues(ruleName, "add_taint").Inc()
+			}
 			return err
 		}
 
@@ -334,6 +341,9 @@ func (r *RuleReadinessController) removeTaintBySpec(ctx context.Context, node *c
 		}
 		latestNode.Spec.Taints = newTaints
 		if err := r.Patch(ctx, latestNode, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
+			if apierrors.IsConflict(err) {
+				metrics.APIConflicts.WithLabelValues(ruleName, "remove_taint").Inc()
+			}
 			return err
 		}
 
@@ -383,6 +393,9 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 
 		node.Annotations[annotationKey] = bootstrapAnnotationValue(ruleName)
 		if err := r.Patch(ctx, node, patch); err != nil {
+			if apierrors.IsConflict(err) {
+				metrics.APIConflicts.WithLabelValues(ruleName, "mark_bootstrap").Inc()
+			}
 			return err
 		}
 

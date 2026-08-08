@@ -152,6 +152,27 @@ var (
 		},
 		[]string{"rule"},
 	)
+
+	// Counts individual conflict retries inside RetryOnConflict closures, not exhaustion.
+	APIConflicts = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "node_readiness_api_conflicts_total",
+			Help: "Number of API conflict retries inside retry.RetryOnConflict closures. " +
+				"Increments per conflict, not per exhaustion (see node_readiness_failures_total for that). " +
+				"operation: add_taint|remove_taint|mark_bootstrap|process_node|cleanup_nodes|update_status",
+		},
+		[]string{"rule", "operation"},
+	)
+
+	// Counts error driven requeues in RuleReconciler, keyed by the failing stage.
+	ReconcileRequeue = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "node_readiness_reconcile_requeue_total",
+			Help: "Number of error driven requeues in RuleReconciler.Reconcile(), by failing stage. " +
+				"reason: status_update_error|cleanup_error|taint_cleanup_error",
+		},
+		[]string{"rule", "reason"},
+	)
 )
 
 func init() {
@@ -166,4 +187,6 @@ func init() {
 	metrics.Registry.MustRegister(NodesByState)
 	metrics.Registry.MustRegister(ConditionEvaluationFailures)
 	metrics.Registry.MustRegister(RuleLastReconciliationTime)
+	metrics.Registry.MustRegister(APIConflicts)
+	metrics.Registry.MustRegister(ReconcileRequeue)
 }
