@@ -156,7 +156,7 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			log.Error(err, "Failed to evaluate rule for node",
 				"node", node.Name, "rule", rule.Name)
 			// Continue with other rules even if one fails
-			r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
+			r.recordNodeFailure(rule, node.Name, string(metrics.FailureReasonEvaluationError), err.Error())
 			errs = append(errs, err)
 			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonEvaluationError)).Inc()
 		}
@@ -393,6 +393,7 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 	switch {
 	case err != nil:
 		log.Error(err, "Failed to mark bootstrap completed", "node", nodeName, "rule", ruleName, "uid", ruleUID)
+		metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)).Inc()
 	case marked:
 		log.Info("Marked bootstrap completed", "node", nodeName, "rule", ruleName, "uid", ruleUID)
 		metrics.BootstrapCompleted.WithLabelValues(ruleName).Inc()
