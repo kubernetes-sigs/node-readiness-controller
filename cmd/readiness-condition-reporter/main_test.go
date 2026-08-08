@@ -27,6 +27,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
@@ -333,13 +334,14 @@ func TestUpdateNodeCondition(t *testing.T) {
 	staleTime := time.Now().Add(-6 * time.Minute)
 
 	tests := []struct {
-		name             string
-		existingNode     *corev1.Node
-		health           *HealthResponse
-		heartbeatPeriod  time.Duration
-		wantStatus       corev1.ConditionStatus
-		wantReason       string
-		wantUpdateCalled bool
+		name                    string
+		existingNode            *corev1.Node
+		health                  *HealthResponse
+		heartbeatPeriod         time.Duration
+		wantStatus              corev1.ConditionStatus
+		wantReason              string
+		wantUpdateCount         int
+		wantTransitionPreserved bool
 	}{
 		{
 			name: "New Condition Healthy",
@@ -351,10 +353,11 @@ func TestUpdateNodeCondition(t *testing.T) {
 				Reason:  "EndpointOK",
 				Message: "All good",
 			},
-			heartbeatPeriod:  5 * time.Minute,
-			wantStatus:       corev1.ConditionTrue,
-			wantReason:       "EndpointOK",
-			wantUpdateCalled: true,
+			heartbeatPeriod:         5 * time.Minute,
+			wantStatus:              corev1.ConditionTrue,
+			wantReason:              "EndpointOK",
+			wantUpdateCount:         1,
+			wantTransitionPreserved: false,
 		},
 		{
 			// A state change bypasses the heartbeat gate, so the update is written
@@ -376,10 +379,11 @@ func TestUpdateNodeCondition(t *testing.T) {
 				Reason:  "HealthCheckFailed",
 				Message: "Something failed",
 			},
-			heartbeatPeriod:  5 * time.Minute,
-			wantStatus:       corev1.ConditionFalse,
-			wantReason:       "HealthCheckFailed",
-			wantUpdateCalled: true,
+			heartbeatPeriod:         5 * time.Minute,
+			wantStatus:              corev1.ConditionFalse,
+			wantReason:              "HealthCheckFailed",
+			wantUpdateCount:         1,
+			wantTransitionPreserved: false,
 		},
 		{
 			name: "State unchanged: Fresh heartbeat (skip write)",
@@ -403,10 +407,11 @@ func TestUpdateNodeCondition(t *testing.T) {
 				Reason:  "EndpointOk",
 				Message: "All good",
 			},
-			heartbeatPeriod:  5 * time.Minute,
-			wantStatus:       corev1.ConditionTrue,
-			wantReason:       "EndpointOk",
-			wantUpdateCalled: false,
+			heartbeatPeriod:         5 * time.Minute,
+			wantStatus:              corev1.ConditionTrue,
+			wantReason:              "EndpointOk",
+			wantUpdateCount:         0,
+			wantTransitionPreserved: true,
 		},
 		{
 			name: "State unchanged: Stale heartbeat (force write)",
@@ -430,10 +435,11 @@ func TestUpdateNodeCondition(t *testing.T) {
 				Reason:  "EndpointOk",
 				Message: "All good",
 			},
-			heartbeatPeriod:  5 * time.Minute,
-			wantStatus:       corev1.ConditionTrue,
-			wantReason:       "EndpointOk",
-			wantUpdateCalled: true,
+			heartbeatPeriod:         5 * time.Minute,
+			wantStatus:              corev1.ConditionTrue,
+			wantReason:              "EndpointOk",
+			wantUpdateCount:         1,
+			wantTransitionPreserved: true,
 		},
 	}
 
@@ -441,14 +447,24 @@ func TestUpdateNodeCondition(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := fake.NewSimpleClientset(tt.existingNode)
 
-			updateCalled := func() bool {
+			countUpdates := func() int {
+				count := 0
 				for _, a := range client.Actions() {
 					if a.GetVerb() == "update" && a.GetSubresource() == "status" && a.GetResource().Resource == "nodes" {
-						return true
+						count++
 					}
 				}
-				return false
+				return count
 			}
+
+			var previousTransition metav1.Time
+			for _, cond := range tt.existingNode.Status.Conditions {
+				if string(cond.Type) == conditionType {
+					previousTransition = cond.LastTransitionTime
+					break
+				}
+			}
+			testStart := metav1.NewTime(time.Now())
 
 			err := updateNodeCondition(context.Background(), client, nodeName, conditionType, tt.health, tt.heartbeatPeriod)
 			if err != nil {
@@ -456,8 +472,8 @@ func TestUpdateNodeCondition(t *testing.T) {
 			}
 
 			// Assert whether the status write reached the API server
-			if got := updateCalled(); got != tt.wantUpdateCalled {
-				t.Errorf("UpdateStatus called = %v, want %v", got, tt.wantUpdateCalled)
+			if got := countUpdates(); got != tt.wantUpdateCount {
+				t.Errorf("UpdateStatus called = %v, want %v", got, tt.wantUpdateCount)
 			}
 
 			updatedNode, err := client.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
@@ -482,6 +498,14 @@ func TestUpdateNodeCondition(t *testing.T) {
 			}
 			if foundCondition.Reason != tt.wantReason {
 				t.Errorf("Condition reason = %v, want %v", foundCondition.Reason, tt.wantReason)
+			}
+
+			if tt.wantTransitionPreserved {
+				if !foundCondition.LastTransitionTime.Equal(&previousTransition) {
+					t.Errorf("LastTransitionTime = %v, want it preserved as %v", foundCondition.LastTransitionTime, previousTransition)
+				}
+			} else if foundCondition.LastTransitionTime.Before(&testStart) {
+				t.Errorf("LastTransitionTime = %v, want a new transition at or after %v", foundCondition.LastTransitionTime, testStart)
 			}
 		})
 	}
@@ -529,5 +553,30 @@ func TestParseDurationWithDefault(t *testing.T) {
 				t.Errorf("parseDurationWithDefault(%q) = %v, expected %v", tt.input, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestUpdateNodeConditionNodeNotFound(t *testing.T) {
+	client := fake.NewSimpleClientset()
+
+	health := &HealthResponse{
+		Healthy: true,
+		Reason:  "EndpointOK",
+		Message: "All good",
+	}
+
+	err := updateNodeCondition(context.Background(), client, "missing-node", "TestCondition", health, 5*time.Minute)
+	if err == nil {
+		t.Fatal("updateNodeCondition() error = nil, want a NotFound error")
+	}
+	if !apierrors.IsNotFound(err) {
+		t.Errorf("updateNodeCondition() error = %v, want a NotFound error", err)
+	}
+
+	// The lookup failure must abort before any attempt to write the status.
+	for _, a := range client.Actions() {
+		if a.GetVerb() == "update" {
+			t.Error("UpdateStatus was called after the node lookup failed")
+		}
 	}
 }
