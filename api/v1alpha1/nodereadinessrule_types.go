@@ -251,6 +251,11 @@ type NodeEvaluation struct {
 	//
 	// +optional
 	TaintAppliedAt metav1.Time `json:"taintAppliedAt,omitempty,omitzero"`
+
+	// taintObservedAt is the timestamp when the readiness taint was first observed on this Node.
+	//
+	// +optional
+	TaintObservedAt metav1.Time `json:"taintObservedAt,omitempty,omitzero"`
 }
 
 // ConditionEvaluationResult provides a detailed report of the comparison between

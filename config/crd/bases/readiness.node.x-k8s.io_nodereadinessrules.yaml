@@ -430,6 +430,11 @@ spec:
                         applied the readiness taint to this Node.
                       format: date-time
                       type: string
+                    taintObservedAt:
+                      description: taintObservedAt is the timestamp when the readiness
+                        taint was first observed on this Node.
+                      format: date-time
+                      type: string
                     taintStatus:
                       description: taintStatus represents the taint status on the
                         Node, one of Present, Absent.

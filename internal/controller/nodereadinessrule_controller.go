@@ -217,9 +217,9 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	metrics.BootstrapCompleted.DeleteLabelValues(rule.Name)
 	metrics.BootstrapDuration.DeleteLabelValues(rule.Name)
 	metrics.EvaluationDuration.DeleteLabelValues(rule.Name)
-	metrics.BootstrapNRCDuration.DeleteLabelValues(rule.Name)
 
 	// For multi-label metrics, use DeletePartialMatch to wipe all combinations
+	metrics.BootstrapHoldDuration.DeletePartialMatch(ruleLabel)
 	metrics.NodesByState.DeletePartialMatch(ruleLabel)
 	metrics.Failures.DeletePartialMatch(ruleLabel)
 	metrics.ConditionEvaluationFailures.DeletePartialMatch(ruleLabel)
@@ -423,19 +423,32 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 			r.markBootstrapCompleted(ctx, node.Name, rule.Name, rule.GetUID())
 
 			// Observe NRC-attributable hold time only on the first bootstrap completion.
-			// Skip repeated completions and adopted taints.
+			// Skip repeated completions.
 			//
 			// Match BootstrapDuration's guard conditions.
 			if !wasAlreadyCompleted &&
 				!node.CreationTimestamp.Time.Before(rule.CreationTimestamp.Time) && !latestTransition.IsZero() {
-				if prevEval := r.getPreviousNodeEvaluation(rule, node.Name); prevEval != nil && !prevEval.TaintAppliedAt.IsZero() {
-					duration := latestTransition.Time.Sub(prevEval.TaintAppliedAt.Time).Seconds()
+				if prevEval := r.getPreviousNodeEvaluation(rule, node.Name); prevEval != nil {
+					var anchor metav1.Time
+					var controllerLabel string
+					switch {
+					case !prevEval.TaintAppliedAt.IsZero():
+						anchor = prevEval.TaintAppliedAt
+						controllerLabel = "applied"
+					case !prevEval.TaintObservedAt.IsZero():
+						anchor = prevEval.TaintObservedAt
+						controllerLabel = "adopted"
+					}
 
-					if duration < 0 {
-						log.Info("Skipping bootstrap NRC duration metric due to negative duration",
-							"node", node.Name, "rule", rule.Name, "duration", duration)
-					} else {
-						metrics.BootstrapNRCDuration.WithLabelValues(rule.Name).Observe(duration)
+					if !anchor.IsZero() {
+						duration := latestTransition.Time.Sub(anchor.Time).Seconds()
+
+						if duration < 0 {
+							log.Info("Skipping bootstrap hold duration metric due to negative duration",
+								"node", node.Name, "rule", rule.Name, "duration", duration)
+						} else {
+							metrics.BootstrapHoldDuration.WithLabelValues(rule.Name, controllerLabel).Observe(duration)
+						}
 					}
 				}
 			}
@@ -464,12 +477,14 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 			return fmt.Errorf("failed to add taint: %w", err)
 		}
 
-		// Bootstrap-only: record TaintAppliedAt for NRC duration tracking.
-		// Preserve the initial timestamp across repeated evaluations.
+		// Bootstrap-only: record TaintAppliedAt/TaintObservedAt for hold duration tracking.
+		// Preserve the initial timestamps across repeated evaluations.
 		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
 			nodeEval := r.getOrCreateNodeEvaluation(rule, node.Name)
 			if nodeEval.TaintAppliedAt.IsZero() {
-				nodeEval.TaintAppliedAt = metav1.Now()
+				now := metav1.Now()
+				nodeEval.TaintAppliedAt = now
+				nodeEval.TaintObservedAt = now
 			}
 		}
 
@@ -483,6 +498,16 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 
 			message := fmt.Sprintf("Taint '%s:%s' is now managed by rule '%s'", rule.Spec.Taint.Key, rule.Spec.Taint.Effect, rule.Name)
 			r.EventRecorder.Eventf(node, nil, corev1.EventTypeNormal, "TaintAdopted", "AdoptTaint", "%s", message)
+		}
+
+		// Record TaintObservedAt for adopted taints in bootstrap-only mode.
+		// TaintAppliedAt stays unset since NRC did not apply the taint.
+		// This also handles taints added externally after the first evaluation.
+		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
+			nodeEval := r.getOrCreateNodeEvaluation(rule, node.Name)
+			if nodeEval.TaintObservedAt.IsZero() {
+				nodeEval.TaintObservedAt = metav1.Now()
+			}
 		}
 
 	default:
