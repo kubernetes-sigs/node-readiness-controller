@@ -127,9 +127,6 @@ type NodeReadinessRuleSpec struct {
     // Node selector for targeting specific nodes
     NodeSelector *metav1.LabelSelector `json:"nodeSelector,omitempty"`
     
-    // Grace period before applying taint changes
-    GracePeriod *metav1.Duration `json:"gracePeriod,omitempty"`
-    
     // Dry run mode - preview changes without applying
     DryRun bool `json:"dryRun,omitempty"`
 }
