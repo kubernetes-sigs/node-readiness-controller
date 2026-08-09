@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -29,10 +30,13 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	nodereadinessiov1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
@@ -2233,6 +2237,329 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				failedNames = append(failedNames, f.NodeName)
 			}
 			Expect(failedNames).NotTo(ContainElement("stale-recovery-node"))
+		})
+	})
+
+	// Covers api_conflicts_total for updateRuleStatus and cleanupDeletedNodes.
+	Context("api_conflicts_total metric (rule status call sites)", func() {
+		var (
+			fcCtx      context.Context
+			testScheme *runtime.Scheme
+		)
+
+		BeforeEach(func() {
+			fcCtx = context.Background()
+			testScheme = runtime.NewScheme()
+			Expect(corev1.AddToScheme(testScheme)).To(Succeed())
+			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
+		})
+
+		conflictErr := func(name string) error {
+			return apierrors.NewConflict(schema.GroupResource{Resource: "nodereadinessrules"}, name, fmt.Errorf("conflict"))
+		}
+
+		It("should count one API conflict when updateRuleStatus retries after a conflict", func() {
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "conflict-metric-update-status-rule"},
+				Status: nodereadinessiov1alpha1.NodeReadinessRuleStatus{
+					AppliedNodes: []string{"node-a"},
+				},
+			}
+
+			var patchCount atomic.Int32
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(rule).
+				WithStatusSubresource(rule).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						if patchCount.Add(1) == 1 {
+							return conflictErr(obj.GetName())
+						}
+						return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+
+			counter := metrics.APIConflicts.WithLabelValues(rule.Name, "update_status")
+			before := counterValue(counter)
+
+			Expect(controller.updateRuleStatus(fcCtx, rule)).To(Succeed())
+			Expect(counterValue(counter)).To(Equal(before + 1))
+		})
+
+		It("should count one API conflict when cleanupDeletedNodes retries after a conflict", func() {
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "conflict-metric-cleanup-nodes-rule"},
+				Status: nodereadinessiov1alpha1.NodeReadinessRuleStatus{
+					NodeEvaluations: []nodereadinessiov1alpha1.NodeEvaluation{
+						{NodeName: "ghost-node"},
+					},
+				},
+			}
+
+			var patchCount atomic.Int32
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(rule).
+				WithStatusSubresource(rule).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						if patchCount.Add(1) == 1 {
+							return conflictErr(obj.GetName())
+						}
+						return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+
+			nodeList := &corev1.NodeList{}
+
+			counter := metrics.APIConflicts.WithLabelValues(rule.Name, "cleanup_nodes")
+			before := counterValue(counter)
+
+			Expect(controller.cleanupDeletedNodes(fcCtx, rule, nodeList)).To(Succeed())
+			Expect(counterValue(counter)).To(Equal(before + 1))
+		})
+	})
+
+	// Tests the three reconcile_requeue_total reasons
+	Context("reconcile_requeue_total metric", func() {
+		var testScheme *runtime.Scheme
+
+		BeforeEach(func() {
+			testScheme = runtime.NewScheme()
+			Expect(corev1.AddToScheme(testScheme)).To(Succeed())
+			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
+		})
+
+		It("should count a reconcile requeue when updateRuleStatus fails", func() {
+			rqCtx := context.Background()
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "requeue-status-rule",
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "Ready", RequiredStatus: corev1.ConditionTrue}},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/requeue-status", Effect: corev1.TaintEffectNoSchedule},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"env": "requeue-status"}},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(rule).
+				WithStatusSubresource(rule).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						return fmt.Errorf("status patch failed")
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+			reconciler := &RuleReconciler{Client: fc, Scheme: testScheme, Controller: controller}
+
+			counter := metrics.ReconcileRequeue.WithLabelValues(rule.Name, "status_update_error")
+			before := counterValue(counter)
+
+			result, err := reconciler.Reconcile(rqCtx, reconcile.Request{NamespacedName: types.NamespacedName{Name: rule.Name}})
+			Expect(err).To(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(time.Minute))
+			Expect(counterValue(counter)).To(Equal(before + 1))
+		})
+
+		It("should count a reconcile requeue when cleanupDeletedNodes fails", func() {
+			rqCtx := context.Background()
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "requeue-cleanup-rule",
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "Ready", RequiredStatus: corev1.ConditionTrue}},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/requeue-cleanup", Effect: corev1.TaintEffectNoSchedule},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"env": "requeue-cleanup"}},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+				Status: nodereadinessiov1alpha1.NodeReadinessRuleStatus{
+					NodeEvaluations: []nodereadinessiov1alpha1.NodeEvaluation{
+						{NodeName: "ghost-node"},
+					},
+				},
+			}
+
+			var patchCount atomic.Int32
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(rule).
+				WithStatusSubresource(rule).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						if patchCount.Add(1) == 1 {
+							return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+						}
+						return fmt.Errorf("cleanup status patch failed")
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+			reconciler := &RuleReconciler{Client: fc, Scheme: testScheme, Controller: controller}
+
+			counter := metrics.ReconcileRequeue.WithLabelValues(rule.Name, "cleanup_error")
+			before := counterValue(counter)
+
+			result, err := reconciler.Reconcile(rqCtx, reconcile.Request{NamespacedName: types.NamespacedName{Name: rule.Name}})
+			Expect(err).To(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(time.Minute))
+			Expect(counterValue(counter)).To(Equal(before + 1))
+		})
+
+		It("should count a reconcile requeue when taint cleanup fails during rule deletion", func() {
+			rqCtx := context.Background()
+			now := metav1.Now()
+
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "requeue-taint-cleanup-node",
+					Labels: map[string]string{"env": "requeue-taint-cleanup"},
+				},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{{Key: "readiness.k8s.io/requeue-taint-cleanup", Effect: corev1.TaintEffectNoSchedule}},
+				},
+			}
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "requeue-taint-cleanup-rule",
+					Finalizers:        []string{finalizerName},
+					DeletionTimestamp: &now,
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "Ready", RequiredStatus: corev1.ConditionTrue}},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/requeue-taint-cleanup", Effect: corev1.TaintEffectNoSchedule},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"env": "requeue-taint-cleanup"}},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node, rule).
+				WithStatusSubresource(rule).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if _, ok := obj.(*corev1.Node); ok {
+							return fmt.Errorf("taint removal patch failed")
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+			reconciler := &RuleReconciler{Client: fc, Scheme: testScheme, Controller: controller}
+
+			counter := metrics.ReconcileRequeue.WithLabelValues(rule.Name, "taint_cleanup_error")
+			before := counterValue(counter)
+
+			result, err := reconciler.Reconcile(rqCtx, reconcile.Request{NamespacedName: types.NamespacedName{Name: rule.Name}})
+			Expect(err).To(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(time.Minute))
+			Expect(counterValue(counter)).To(Equal(before + 1))
+		})
+
+		It("should not count reconcile requeues on a successful reconcile", func() {
+			rqCtx := context.Background()
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "requeue-success-node",
+					Labels: map[string]string{"env": "requeue-success"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{{Type: "Ready", Status: corev1.ConditionTrue}},
+				},
+			}
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "requeue-success-rule",
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "Ready", RequiredStatus: corev1.ConditionTrue}},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/requeue-success", Effect: corev1.TaintEffectNoSchedule},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"env": "requeue-success"}},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node, rule).
+				WithStatusSubresource(rule).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+			reconciler := &RuleReconciler{Client: fc, Scheme: testScheme, Controller: controller}
+
+			reasons := []string{"status_update_error", "cleanup_error", "taint_cleanup_error"}
+			before := make(map[string]float64, len(reasons))
+			for _, reason := range reasons {
+				before[reason] = counterValue(metrics.ReconcileRequeue.WithLabelValues(rule.Name, reason))
+			}
+
+			result, err := reconciler.Reconcile(rqCtx, reconcile.Request{NamespacedName: types.NamespacedName{Name: rule.Name}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(time.Duration(0)))
+
+			for _, reason := range reasons {
+				Expect(counterValue(metrics.ReconcileRequeue.WithLabelValues(rule.Name, reason))).To(Equal(before[reason]),
+					"reason %s should not have incremented on a successful reconcile", reason)
+			}
 		})
 	})
 })

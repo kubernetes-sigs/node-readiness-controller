@@ -29,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/events"
@@ -1010,6 +1011,285 @@ var _ = Describe("Node Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(patchCalled.Load()).To(BeFalse(),
 				"Patch should not be called when taint removal is a no-op")
+		})
+	})
+
+	Context("api_conflicts_total metric", func() {
+		var (
+			ctx        context.Context
+			testScheme *runtime.Scheme
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			testScheme = runtime.NewScheme()
+			Expect(corev1.AddToScheme(testScheme)).To(Succeed())
+			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
+		})
+
+		conflictErr := func(resource, name string) error {
+			return apierrors.NewConflict(schema.GroupResource{Resource: resource}, name, fmt.Errorf("conflict"))
+		}
+
+		It("should count one API conflict when addTaintBySpec retries after a conflict", func() {
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "conflict-metric-add-node"}}
+
+			var patchCount atomic.Int32
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if patchCount.Add(1) == 1 {
+							return conflictErr("nodes", obj.GetName())
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+
+			ruleName := "conflict-metric-add-rule"
+			counter := metrics.APIConflicts.WithLabelValues(ruleName, "add_taint")
+			before := counterValue(counter)
+
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, node)).To(Succeed())
+			err := controller.addTaintBySpec(ctx, node, corev1.Taint{
+				Key: "readiness.k8s.io/test", Effect: corev1.TaintEffectNoSchedule,
+			}, ruleName)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(counterValue(counter)).To(Equal(before + 1))
+		})
+
+		It("should count one API conflict when removeTaintBySpec retries after a conflict", func() {
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "conflict-metric-remove-node"},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{{Key: "readiness.k8s.io/test", Effect: corev1.TaintEffectNoSchedule}},
+				},
+			}
+
+			var patchCount atomic.Int32
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if patchCount.Add(1) == 1 {
+							return conflictErr("nodes", obj.GetName())
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+
+			ruleName := "conflict-metric-remove-rule"
+			counter := metrics.APIConflicts.WithLabelValues(ruleName, "remove_taint")
+			before := counterValue(counter)
+
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, node)).To(Succeed())
+			err := controller.removeTaintBySpec(ctx, node, corev1.Taint{
+				Key: "readiness.k8s.io/test", Effect: corev1.TaintEffectNoSchedule,
+			}, ruleName)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(counterValue(counter)).To(Equal(before + 1))
+		})
+
+		It("should count one API conflict when markBootstrapCompleted retries after a conflict", func() {
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "conflict-metric-bootstrap-node"}}
+
+			var patchCount atomic.Int32
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if patchCount.Add(1) == 1 {
+							return conflictErr("nodes", obj.GetName())
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+
+			ruleName := "conflict-metric-bootstrap-rule"
+			counter := metrics.APIConflicts.WithLabelValues(ruleName, "mark_bootstrap")
+			before := counterValue(counter)
+
+			controller.markBootstrapCompleted(ctx, node.Name, ruleName)
+
+			Expect(counterValue(counter)).To(Equal(before + 1))
+
+			updated := &corev1.Node{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, updated)).To(Succeed())
+			Expect(updated.Annotations).To(HaveKeyWithValue("readiness.k8s.io/bootstrap-completed-"+ruleName, "true"))
+		})
+
+		It("should count one API conflict when persisting node evaluation status retries after a conflict", func() {
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "conflict-metric-process-node",
+					Labels: map[string]string{"env": "conflict-metric-process"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{{Type: "Ready", Status: corev1.ConditionFalse}},
+				},
+			}
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "conflict-metric-process-rule"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/conflict-metric-process",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"env": "conflict-metric-process"}},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			var patchCount atomic.Int32
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node, rule).
+				WithStatusSubresource(rule).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						if patchCount.Add(1) == 1 {
+							return conflictErr("nodereadinessrules", obj.GetName())
+						}
+						return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+			controller.updateRuleCache(ctx, rule)
+
+			nodeReconciler := &NodeReconciler{
+				Client:     fc,
+				Scheme:     testScheme,
+				Controller: controller,
+			}
+
+			counter := metrics.APIConflicts.WithLabelValues(rule.Name, "process_node")
+			before := counterValue(counter)
+
+			_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: node.Name},
+			})
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(counterValue(counter)).To(Equal(before + 1))
+		})
+
+		It("should not count API conflicts when a patch fails for a non-conflict reason", func() {
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "conflict-metric-nonconflict-node"}}
+
+			var patchCount atomic.Int32
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						patchCount.Add(1)
+						return fmt.Errorf("some non-conflict failure")
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+
+			ruleName := "conflict-metric-nonconflict-rule"
+			counter := metrics.APIConflicts.WithLabelValues(ruleName, "add_taint")
+			before := counterValue(counter)
+
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, node)).To(Succeed())
+			err := controller.addTaintBySpec(ctx, node, corev1.Taint{
+				Key: "readiness.k8s.io/test", Effect: corev1.TaintEffectNoSchedule,
+			}, ruleName)
+
+			Expect(err).To(HaveOccurred())
+			Expect(patchCount.Load()).To(Equal(int32(1)))
+			Expect(counterValue(counter)).To(Equal(before), "counter must not increment on a non-conflict error")
+		})
+
+		It("should count API conflicts on each retry when conflicts never resolve", func() {
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "conflict-metric-exhaust-node"}}
+
+			var patchCount atomic.Int32
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						patchCount.Add(1)
+						return conflictErr("nodes", obj.GetName())
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: record.NewFakeRecorder(10),
+			}
+
+			ruleName := "conflict-metric-exhaust-rule"
+			counter := metrics.APIConflicts.WithLabelValues(ruleName, "add_taint")
+			before := counterValue(counter)
+
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, node)).To(Succeed())
+			err := controller.addTaintBySpec(ctx, node, corev1.Taint{
+				Key: "readiness.k8s.io/test", Effect: corev1.TaintEffectNoSchedule,
+			}, ruleName)
+
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsConflict(err)).To(BeTrue())
+			Expect(counterValue(counter)).To(Equal(before + float64(patchCount.Load())))
+			Expect(patchCount.Load()).To(BeNumerically(">", 1))
 		})
 	})
 
