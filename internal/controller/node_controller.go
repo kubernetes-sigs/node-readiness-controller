@@ -159,8 +159,6 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
 			errs = append(errs, err)
 			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonEvaluationError)).Inc()
-			r.EventRecorder.Eventf(rule, node, corev1.EventTypeWarning, "EvaluationError", "EvaluateNode", "Failed to evaluate node %q: %v", node.Name, err)
-			r.EventRecorder.Eventf(node, rule, corev1.EventTypeWarning, "EvaluationError", "EvaluateNode", "Failed to evaluate node against rule %q: %v", rule.Name, err)
 		}
 
 		// Persist the rule status

@@ -2258,7 +2258,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				},
 			}
 
-			// evaluateRuleForNode with unsatisfied condition on non-existent node triggers addTaintBySpec failure
+			// Trigger evaluation failure on non-existent node.
 			err := c.evaluateRuleForNode(ctx, testRule, nonExistentNode)
 			Expect(err).To(HaveOccurred())
 
@@ -2267,8 +2267,9 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				eventList = append(eventList, <-fakeRecorder.Events)
 			}
 
-			Expect(eventList).To(ContainElement(ContainSubstring("AddTaintError")))
-			Expect(eventList).To(ContainElement(ContainSubstring("Warning")))
+			Expect(eventList).To(HaveLen(1))
+			Expect(eventList[0]).To(ContainSubstring("AddTaintError"))
+			Expect(eventList[0]).To(ContainSubstring("Warning"))
 		})
 	})
 })
