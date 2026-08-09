@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -104,6 +106,192 @@ func TestCheckHealthCancelledContext(t *testing.T) {
 	if health.Reason != "EndpointConnectionError" {
 		t.Errorf("checkHealth() reason = %v, want EndpointConnectionError", health.Reason)
 	}
+}
+
+func TestReporterMetricsCollectAndLint(t *testing.T) {
+	metrics := []struct {
+		name string
+		col  prometheus.Collector
+	}{
+		{"reporterBuildInfo", reporterBuildInfo},
+		{"reporterCheckDuration", reporterCheckDuration},
+		{"reporterChecksTotal", reporterChecksTotal},
+		{"reporterConditionWritesTotal", reporterConditionWritesTotal},
+	}
+
+	for _, m := range metrics {
+		t.Run(m.name, func(t *testing.T) {
+			problems, err := testutil.CollectAndLint(m.col)
+			if err != nil {
+				t.Fatalf("CollectAndLint(%s) error = %v", m.name, err)
+			}
+			if len(problems) > 0 {
+				t.Errorf("CollectAndLint(%s) found problems: %+v", m.name, problems)
+			}
+		})
+	}
+}
+
+func TestRunCheckMetrics(t *testing.T) {
+	nodeName := "metrics-test-node"
+	conditionType := "TestCondition"
+
+	tests := []struct {
+		name           string
+		status         int
+		wantCheckLabel string
+	}{
+		{name: "Healthy", status: http.StatusOK, wantCheckLabel: "healthy"},
+		{name: "Unhealthy", status: http.StatusInternalServerError, wantCheckLabel: "unhealthy"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.status)
+			}))
+			defer server.Close()
+
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}}
+			client := fake.NewSimpleClientset(node)
+			httpClient := &http.Client{Timeout: 1 * time.Second}
+
+			before := testutil.ToFloat64(reporterChecksTotal.WithLabelValues(tt.wantCheckLabel))
+			beforeWrites := testutil.ToFloat64(reporterConditionWritesTotal.WithLabelValues("success"))
+
+			runCheck(context.Background(), httpClient, client, server.URL, nodeName, conditionType, 5*time.Minute)
+
+			after := testutil.ToFloat64(reporterChecksTotal.WithLabelValues(tt.wantCheckLabel))
+			if after != before+1 {
+				t.Errorf("reporterChecksTotal{result=%q} = %v, want %v", tt.wantCheckLabel, after, before+1)
+			}
+
+			afterWrites := testutil.ToFloat64(reporterConditionWritesTotal.WithLabelValues("success"))
+			if afterWrites != beforeWrites+1 {
+				t.Errorf("reporterConditionWritesTotal{result=\"success\"} = %v, want %v", afterWrites, beforeWrites+1)
+			}
+		})
+	}
+}
+
+func TestRunCheckMetricsError(t *testing.T) {
+	nodeName := "metrics-error-node"
+	conditionType := "TestCondition"
+
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}}
+	client := fake.NewSimpleClientset(node)
+	httpClient := &http.Client{Timeout: 1 * time.Second}
+
+	before := testutil.ToFloat64(reporterChecksTotal.WithLabelValues("error"))
+
+	runCheck(context.Background(), httpClient, client, "http://127.0.0.1:0", nodeName, conditionType, 5*time.Minute)
+
+	after := testutil.ToFloat64(reporterChecksTotal.WithLabelValues("error"))
+	if after != before+1 {
+		t.Errorf("reporterChecksTotal{result=\"error\"} = %v, want %v", after, before+1)
+	}
+}
+
+func TestRunCheckConditionWriteErrorMetric(t *testing.T) {
+	nodeName := "no-such-node"
+	conditionType := "TestCondition"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	// No node is seeded, so the condition update fails.
+	client := fake.NewSimpleClientset()
+	httpClient := &http.Client{Timeout: 1 * time.Second}
+
+	before := testutil.ToFloat64(reporterConditionWritesTotal.WithLabelValues("error"))
+
+	runCheck(context.Background(), httpClient, client, server.URL, nodeName, conditionType, 5*time.Minute)
+
+	after := testutil.ToFloat64(reporterConditionWritesTotal.WithLabelValues("error"))
+	if after != before+1 {
+		t.Errorf("reporterConditionWritesTotal{result=\"error\"} = %v, want %v", after, before+1)
+	}
+}
+
+func TestUpdateNodeConditionMetrics(t *testing.T) {
+	nodeName := "condition-metrics-node"
+	conditionType := "TestCondition"
+	staleTime := time.Now().Add(-6 * time.Minute)
+
+	t.Run("skipped", func(t *testing.T) {
+		existingNode := &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+			Status: corev1.NodeStatus{
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:               corev1.NodeConditionType(conditionType),
+						Status:             corev1.ConditionTrue,
+						Reason:             "EndpointOK",
+						Message:            "All good",
+						LastHeartbeatTime:  metav1.NewTime(time.Now()),
+						LastTransitionTime: metav1.NewTime(time.Now()),
+					},
+				},
+			},
+		}
+		client := fake.NewSimpleClientset(existingNode)
+		health := &HealthResponse{Healthy: true, Reason: "EndpointOK", Message: "All good"}
+
+		before := testutil.ToFloat64(reporterConditionWritesTotal.WithLabelValues("skipped"))
+		if err := updateNodeCondition(context.Background(), client, nodeName, conditionType, health, 5*time.Minute); err != nil {
+			t.Fatalf("updateNodeCondition() error = %v", err)
+		}
+		after := testutil.ToFloat64(reporterConditionWritesTotal.WithLabelValues("skipped"))
+		if after != before+1 {
+			t.Errorf("reporterConditionWritesTotal{result=\"skipped\"} = %v, want %v", after, before+1)
+		}
+	})
+
+	t.Run("success on stale heartbeat", func(t *testing.T) {
+		existingNode := &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+			Status: corev1.NodeStatus{
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:               corev1.NodeConditionType(conditionType),
+						Status:             corev1.ConditionTrue,
+						Reason:             "EndpointOK",
+						Message:            "All good",
+						LastHeartbeatTime:  metav1.NewTime(staleTime),
+						LastTransitionTime: metav1.NewTime(staleTime),
+					},
+				},
+			},
+		}
+		client := fake.NewSimpleClientset(existingNode)
+		health := &HealthResponse{Healthy: true, Reason: "EndpointOK", Message: "All good"}
+
+		before := testutil.ToFloat64(reporterConditionWritesTotal.WithLabelValues("success"))
+		if err := updateNodeCondition(context.Background(), client, nodeName, conditionType, health, 5*time.Minute); err != nil {
+			t.Fatalf("updateNodeCondition() error = %v", err)
+		}
+		after := testutil.ToFloat64(reporterConditionWritesTotal.WithLabelValues("success"))
+		if after != before+1 {
+			t.Errorf("reporterConditionWritesTotal{result=\"success\"} = %v, want %v", after, before+1)
+		}
+	})
+
+	t.Run("error when node missing", func(t *testing.T) {
+		client := fake.NewSimpleClientset()
+		health := &HealthResponse{Healthy: true, Reason: "EndpointOK", Message: "All good"}
+
+		before := testutil.ToFloat64(reporterConditionWritesTotal.WithLabelValues("success"))
+		err := updateNodeCondition(context.Background(), client, "missing-node", conditionType, health, 5*time.Minute)
+		if err == nil {
+			t.Fatal("updateNodeCondition() expected error for missing node, got nil")
+		}
+		after := testutil.ToFloat64(reporterConditionWritesTotal.WithLabelValues("success"))
+		if after != before {
+			t.Errorf("reporterConditionWritesTotal{result=\"success\"} changed on error path: before=%v after=%v", before, after)
+		}
+	})
 }
 
 func TestUpdateNodeCondition(t *testing.T) {

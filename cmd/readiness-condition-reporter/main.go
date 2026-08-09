@@ -28,6 +28,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -43,9 +44,22 @@ const (
 	envCheckInterval       = "CHECK_INTERVAL"
 	envImpersonateNode     = "IMPERSONATE_NODE"
 	envHeartbeatPeriod     = "HEARTBEAT_PERIOD"
+	envMetricsBindAddress  = "METRICS_BIND_ADDRESS"
 	defaultCheckInterval   = 30 * time.Second
 	defaultHTTPTimeout     = 10 * time.Second
 	defaultHeartbeatPeriod = 5 * time.Minute
+	defaultMetricsBindAddr = ":9445"
+	metricsShutdownTimeout = 5 * time.Second
+)
+
+// Reason values set on HealthResponse.Reason by checkHealth, and classified
+// by runCheck into the reporterChecksTotal result label.
+const (
+	ReasonEndpointOK              = "EndpointOK"
+	ReasonEndpointNotReady        = "EndpointNotReady"
+	ReasonEndpointConnectionError = "EndpointConnectionError"
+	ReasonRequestCreationError    = "RequestCreationError"
+	ReasonHealthCheckFailed       = "HealthCheckFailed"
 )
 
 // HealthResponse represents the health check response structure.
@@ -108,6 +122,12 @@ func main() {
 		}
 	}
 
+	metricsBindAddrStr := os.Getenv(envMetricsBindAddress)
+	metricsBindAddr := defaultMetricsBindAddr
+	if metricsBindAddrStr != "" {
+		metricsBindAddr = metricsBindAddrStr
+	}
+
 	// Create Kubernetes client
 	config, err := rest.InClusterConfig()
 	if err != nil {
@@ -135,11 +155,27 @@ func main() {
 		Timeout: defaultHTTPTimeout,
 	}
 
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	metricsServer := &http.Server{
+		Addr:              metricsBindAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: defaultHTTPTimeout,
+	}
+	go func() {
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			klog.ErrorS(err, "Metrics server failed", "address", metricsBindAddr)
+		}
+	}()
+
 	// Create a context that cancels on SIGTERM or SIGINT
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
-	klog.InfoS("Starting readiness condition reporter", "node", nodeName, "condition", conditionType, "interval", interval)
+	klog.InfoS("Starting readiness condition reporter", "node", nodeName, "condition", conditionType, "interval", interval, "metricsBindAddress", metricsBindAddr)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -150,6 +186,12 @@ func main() {
 		select {
 		case <-ctx.Done():
 			klog.InfoS("Shutting down readiness condition reporter", "reason", ctx.Err())
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), metricsShutdownTimeout)
+			defer shutdownCancel()
+
+			if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+				klog.ErrorS(err, "Failed to gracefully shut down metrics server")
+			}
 			return
 		case <-ticker.C:
 			runCheck(ctx, httpClient, clientset, checkEndpoint, nodeName, conditionType, heartbeatPeriod)
@@ -159,18 +201,30 @@ func main() {
 
 // runCheck performs a single health check and updates the node condition.
 func runCheck(ctx context.Context, httpClient *http.Client, clientset kubernetes.Interface, checkEndpoint, nodeName, conditionType string, heartbeatPeriod time.Duration) {
+	start := time.Now()
 	health, err := checkHealth(ctx, httpClient, checkEndpoint)
+	reporterCheckDuration.Observe(time.Since(start).Seconds())
 	if err != nil {
 		klog.ErrorS(err, "Health check failed", "endpoint", checkEndpoint)
 		health = &HealthResponse{
 			Healthy: false,
-			Reason:  "HealthCheckFailed",
+			Reason:  ReasonHealthCheckFailed,
 			Message: fmt.Sprintf("Health check failed: %v", err),
 		}
 	}
 
+	switch health.Reason {
+	case ReasonEndpointOK:
+		reporterChecksTotal.WithLabelValues("healthy").Inc()
+	case ReasonEndpointNotReady:
+		reporterChecksTotal.WithLabelValues("unhealthy").Inc()
+	default:
+		reporterChecksTotal.WithLabelValues("error").Inc()
+	}
+
 	if err := updateNodeCondition(ctx, clientset, nodeName, conditionType, health, heartbeatPeriod); err != nil {
 		klog.ErrorS(err, "Failed to update node condition", "node", nodeName, "condition", conditionType)
+		reporterConditionWritesTotal.WithLabelValues("error").Inc()
 	}
 }
 
@@ -200,7 +254,7 @@ func checkHealth(ctx context.Context, client *http.Client, endpoint string) (*He
 	if err != nil {
 		return &HealthResponse{
 			Healthy: false,
-			Reason:  "RequestCreationError",
+			Reason:  ReasonRequestCreationError,
 			Message: fmt.Sprintf("Failed to create request for endpoint %s: %v", endpoint, err),
 		}, nil
 	}
@@ -209,7 +263,7 @@ func checkHealth(ctx context.Context, client *http.Client, endpoint string) (*He
 	if err != nil {
 		return &HealthResponse{
 			Healthy: false,
-			Reason:  "EndpointConnectionError",
+			Reason:  ReasonEndpointConnectionError,
 			Message: fmt.Sprintf("Failed to reach endpoint %s: %v", endpoint, err),
 		}, nil
 	}
@@ -220,7 +274,7 @@ func checkHealth(ctx context.Context, client *http.Client, endpoint string) (*He
 	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
 		return &HealthResponse{
 			Healthy: true,
-			Reason:  "EndpointOK",
+			Reason:  ReasonEndpointOK,
 			Message: fmt.Sprintf("Endpoint reports ready at %s", endpoint),
 		}, nil
 	}
@@ -236,7 +290,7 @@ func checkHealth(ctx context.Context, client *http.Client, endpoint string) (*He
 
 	return &HealthResponse{
 		Healthy: false,
-		Reason:  "EndpointNotReady",
+		Reason:  ReasonEndpointNotReady,
 		Message: fmt.Sprintf("Endpoint returned non-2xx status code %d at %s: %s", resp.StatusCode, endpoint, bodyString),
 	}, nil
 }
@@ -289,6 +343,7 @@ func updateNodeCondition(ctx context.Context, client kubernetes.Interface, nodeN
 		if !needsUpdate {
 			// state has not changed for specified period, skip the write
 			klog.V(4).InfoS("Condition state unchanged, skipping node status update", "node", nodeName, "condition", conditionType)
+			reporterConditionWritesTotal.WithLabelValues("skipped").Inc()
 			return nil
 		}
 
@@ -321,6 +376,9 @@ func updateNodeCondition(ctx context.Context, client kubernetes.Interface, nodeN
 		}
 
 		_, err = client.CoreV1().Nodes().UpdateStatus(ctx, node, metav1.UpdateOptions{})
+		if err == nil {
+			reporterConditionWritesTotal.WithLabelValues("success").Inc()
+		}
 		return err
 	})
 }

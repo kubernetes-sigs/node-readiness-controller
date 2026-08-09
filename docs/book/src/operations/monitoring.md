@@ -84,3 +84,66 @@ Total number of nodes that have completed bootstrap.
 | Label | Description | Values |
 | --- | --- | --- |
 | `rule` | `NodeReadinessRule` name | Any rule name |
+
+## Reporter Metrics
+
+The `readiness-condition-reporter` serves its own Prometheus metrics on `/metrics`, on the address configured by `METRICS_BIND_ADDRESS`. See [Reporter Configuration](../reference/reporter-configuration.md) for deployment details.
+
+### `node_readiness_reporter_build_info`
+
+Reporter binary version to track fleet version skew.
+
+| Property | Value |
+| --- | --- |
+| Type | `gauge` |
+| Labels | `version` |
+| Recorded when | The reporter process starts |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `version` | Reporter binary version | Any version string |
+
+### `node_readiness_reporter_check_duration_seconds`
+
+Duration of health probe checks.
+
+| Property | Value |
+| --- | --- |
+| Type | `histogram` |
+| Labels | none |
+| Buckets | Prometheus default histogram buckets |
+| Recorded when | The reporter completes a health check request to `CHECK_ENDPOINT` |
+
+### `node_readiness_reporter_checks_total`
+
+Total probe check results over time.
+
+| Property | Value |
+| --- | --- |
+| Type | `counter` |
+| Labels | `result` |
+| Recorded when | The reporter completes a health check and classifies the result |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `result` | Outcome of the health check | `healthy`, `unhealthy`, `error` |
+
+### `node_readiness_reporter_condition_writes_total`
+
+Total node condition update outcomes, including writes skipped when state was unchanged.
+
+| Property | Value |
+| --- | --- |
+| Type | `counter` |
+| Labels | `result` |
+| Recorded when | The reporter evaluates whether to write the Node condition after a health check, including when the write is skipped |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `result` | Outcome of the condition write attempt | `success`, `error`, `skipped` |
