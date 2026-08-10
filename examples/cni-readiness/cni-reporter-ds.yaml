@@ -19,6 +19,7 @@ spec:
     metadata:
       labels:
         app: cni-reporter
+        example: cni-readiness
     spec:
       hostNetwork: true
       serviceAccountName: cni-reporter
@@ -35,6 +36,10 @@ spec:
           capabilities:
             drop:
               - "ALL"
+        ports:
+        - name: metrics
+          containerPort: 9445
+          protocol: TCP
         env:
           - name: NODE_NAME
             valueFrom:
