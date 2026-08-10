@@ -152,6 +152,21 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			"rule", rule.Name,
 			"ruleResourceVersion", rule.ResourceVersion)
 
+		// The cached rule carries a status snapshot taken the last time
+		// RuleReconciler ran. Node evaluations persisted since then are missing
+		// from it, and because the rule spec is immutable that reconcile rarely
+		// runs again, so the snapshot can stay stale for the lifetime of the
+		// process. Refresh the evaluations from the live object first, otherwise
+		// every pass looks like the node's first evaluation. This reads through
+		// the controller-runtime cache, so it is not an extra API call.
+		latestRule := &readinessv1alpha1.NodeReadinessRule{}
+		if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, latestRule); err != nil {
+			log.V(4).Info("Could not refresh rule status before evaluation, using cached copy",
+				"node", node.Name, "rule", rule.Name, "error", err.Error())
+		} else {
+			rule.Status.NodeEvaluations = latestRule.Status.NodeEvaluations
+		}
+
 		if err := r.evaluateRuleForNode(ctx, rule, node); err != nil {
 			log.Error(err, "Failed to evaluate rule for node",
 				"node", node.Name, "rule", rule.Name)

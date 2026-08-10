@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -1153,6 +1154,149 @@ var _ = Describe("Node Controller", func() {
 
 			Expect(after).To(BeNumerically(">", before),
 				"metrics.Failures{rule, EvaluationError} must increment when the node reconciler hits an evaluation error")
+		})
+	})
+
+	Context("when a node is re-evaluated while still unready", func() {
+		const (
+			adoptNodeName = "adopt-events-node"
+			adoptRuleName = "adopt-events-rule"
+			adoptTaintKey = "readiness.k8s.io/adopt-events"
+			adoptCondType = "AdoptEventsCondition"
+		)
+
+		var (
+			adoptRecorder *events.FakeRecorder
+			adoptCtrl     *RuleReadinessController
+			adoptNodeRec  *NodeReconciler
+		)
+
+		countAdoptedEvents := func() int {
+			count := 0
+			for {
+				select {
+				case e := <-adoptRecorder.Events:
+					if strings.Contains(e, "TaintAdopted") {
+						count++
+					}
+				default:
+					return count
+				}
+			}
+		}
+
+		BeforeEach(func() {
+			adoptRecorder = events.NewFakeRecorder(100)
+			adoptCtrl = &RuleReadinessController{
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: adoptRecorder,
+			}
+			adoptNodeRec = &NodeReconciler{
+				Client:     k8sClient,
+				Scheme:     k8sClient.Scheme(),
+				Controller: adoptCtrl,
+			}
+
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   adoptNodeName,
+					Labels: map[string]string{"env": "adopt-events"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+
+			fetched := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: adoptNodeName}, fetched)).To(Succeed())
+			fetched.Status.Conditions = []corev1.NodeCondition{{
+				Type:               corev1.NodeConditionType(adoptCondType),
+				Status:             corev1.ConditionFalse,
+				LastTransitionTime: metav1.Now(),
+				LastHeartbeatTime:  metav1.Now(),
+				Reason:             "NotReady",
+				Message:            "still starting up",
+			}}
+			Expect(k8sClient.Status().Update(ctx, fetched)).To(Succeed())
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       adoptRuleName,
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: adoptCondType, RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"env": "adopt-events"}},
+					Taint:           corev1.Taint{Key: adoptTaintKey, Effect: corev1.TaintEffectNoSchedule},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+
+			// Seed the cache the way RuleReconciler does on its first pass, before
+			// any node evaluation has been persisted.
+			adoptCtrl.updateRuleCache(ctx, rule)
+		})
+
+		AfterEach(func() {
+			node := &corev1.Node{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: adoptNodeName}, node); err == nil {
+				_ = k8sClient.Delete(ctx, node)
+			}
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: adoptRuleName}, rule); err == nil {
+				rule.Finalizers = nil
+				_ = k8sClient.Update(ctx, rule)
+				_ = k8sClient.Delete(ctx, rule)
+			}
+			adoptCtrl.removeRuleFromCache(ctx, adoptRuleName)
+		})
+
+		It("should not report adoption for a taint the controller applied itself", func() {
+			By("applying the taint on the first reconcile")
+			_, err := adoptNodeRec.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: adoptNodeName},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(countAdoptedEvents()).To(Equal(0), "applying a taint is not an adoption")
+
+			By("persisting the evaluation for that node")
+			persisted := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: adoptRuleName}, persisted)).To(Succeed())
+			Expect(persisted.Status.NodeEvaluations).To(ContainElement(HaveField("NodeName", adoptNodeName)))
+
+			By("re-evaluating while the node is still unready")
+			for range 3 {
+				_, err = adoptNodeRec.Reconcile(ctx, reconcile.Request{
+					NamespacedName: types.NamespacedName{Name: adoptNodeName},
+				})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			Expect(countAdoptedEvents()).To(Equal(0),
+				"the rule already owns this taint, so no further TaintAdopted events should be emitted")
+		})
+
+		It("should still report adoption for a taint that pre-existed the rule", func() {
+			By("putting the taint on the node before the rule ever evaluates it")
+			node := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: adoptNodeName}, node)).To(Succeed())
+			node.Spec.Taints = append(node.Spec.Taints, corev1.Taint{
+				Key:    adoptTaintKey,
+				Effect: corev1.TaintEffectNoSchedule,
+			})
+			Expect(k8sClient.Update(ctx, node)).To(Succeed())
+
+			_, err := adoptNodeRec.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: adoptNodeName},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(countAdoptedEvents()).To(Equal(1),
+				"a taint the controller did not apply should still be reported as adopted once")
 		})
 	})
 })
