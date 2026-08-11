@@ -62,7 +62,56 @@ REPO="registry.k8s.io/node-readiness-controller/node-readiness-controller"
 TAG=$(skopeo list-tags docker://$REPO | jq .'Tags[-1]' | tr -d '"')
 docker pull $REPO:$TAG
 ```
-### Option 2: Advanced Deployment (Kustomize)
+
+### Option 2: Helm Chart
+
+A Helm chart is maintained in-tree at [`charts/nrr-controller`](https://github.com/kubernetes-sigs/node-readiness-controller/tree/main/charts/nrr-controller). Use it when you want the optional components (metrics, webhook, cert-manager integration) toggled through values rather than by composing Kustomize overlays.
+
+> [!NOTE]
+> The chart is not published to an OCI registry yet, so it must be installed from a clone of the repository. See the [chart README](https://github.com/kubernetes-sigs/node-readiness-controller/blob/main/charts/nrr-controller/README.md) for the full list of configurable values.
+
+Requires Helm 3 and Kubernetes 1.25+ (`kubeVersion: ">=1.25.0-0"`).
+
+**Minimal installation:**
+
+```sh
+git clone https://github.com/kubernetes-sigs/node-readiness-controller.git
+cd node-readiness-controller
+
+helm install nrr-controller ./charts/nrr-controller \
+  --namespace nrr-system --create-namespace
+```
+
+This is equivalent to the `install.yaml` manifest above: the controller runs with leader election enabled, and metrics, the webhook server, and the validating webhook are all disabled by default.
+
+**Full installation (metrics + validating webhook):**
+
+Equivalent to `install-full.yaml`, and like it, **requires [cert-manager](https://cert-manager.io/docs/installation/)** to issue the serving certificates:
+
+```sh
+helm install nrr-controller ./charts/nrr-controller \
+  --namespace nrr-system --create-namespace \
+  --set metrics.enabled=true \
+  --set metrics.secure=true \
+  --set webhook.enabled=true \
+  --set validatingWebhook.enabled=true \
+  --set certManager.enabled=true
+```
+
+**Upgrading:**
+
+```sh
+helm upgrade nrr-controller ./charts/nrr-controller --namespace nrr-system
+```
+
+> [!IMPORTANT]
+> Helm installs the CRD from the chart's `crds/` directory on first install only. It does **not** upgrade or delete CRDs on `helm upgrade` or `helm uninstall`. Before upgrading to a chart version that changes the `NodeReadinessRule` schema, apply the updated CRD yourself:
+>
+> ```sh
+> kubectl apply -f charts/nrr-controller/crds/nodereadinessrules.readiness.node.x-k8s.io.yaml
+> ```
+
+### Option 3: Advanced Deployment (Kustomize)
 
 If you need deeper customization, you can use Kustomize directly from the source.
 
@@ -76,7 +125,7 @@ kubectl apply -k config/default
 
 You can enable optional components (Metrics, TLS, Webhook) by creating a `kustomization.yaml` that includes the relevant components from the `config/` directory. For reference on how these components can be combined, see the `deploy-with-metrics`, `deploy-with-tls`, `deploy-with-webhook`, and `deploy-full` targets in the projects [`Makefile`](https://github.com/kubernetes-sigs/node-readiness-controller/blob/main/Makefile).
 
-### Option 3: Deploy as a Static Pod (Control Plane)
+### Option 4: Deploy as a Static Pod (Control Plane)
 
 Running the controller as a **Static Pod** on control-plane nodes is useful for self-managed clusters (e.g., `kubeadm`) where you want the controller to be available alongside core components like the API server.
 
@@ -105,6 +154,9 @@ After installation, verify that the controller is running successfully.
 
 > [!NOTE] 
 > Replace `${NAMESPACE}` with the namespace where the controller is deployed (typically `nrr-system` for standard deployments, or `kube-system` for static pods).
+
+> [!NOTE]
+> The `component=node-readiness-controller` selector below matches the release manifests and Kustomize output. The Helm chart labels its pods with `app.kubernetes.io/name=nrr-controller` instead, so for a Helm install use `-l app.kubernetes.io/name=nrr-controller` in the commands below.
 
 1.  **Check Pod Status**:
     ```sh
@@ -157,6 +209,9 @@ The controller uses a **finalizer** (`readiness.node.x-k8s.io/cleanup-taints`) o
     # OR if using Kustomize
     kubectl delete -k config/default
 
+    # OR if using Helm
+    helm uninstall nrr-controller --namespace nrr-system
+
     # OR if using Static Pods
     # Remove the manifest from /etc/kubernetes/manifests/ on all control-plane nodes
     ```
@@ -165,6 +220,13 @@ The controller uses a **finalizer** (`readiness.node.x-k8s.io/cleanup-taints`) o
     ```sh
     kubectl delete -k config/crd
     ```
+
+    > [!NOTE]
+    > `helm uninstall` does not remove the CRD, because Helm never deletes CRDs installed from a chart's `crds/` directory. Remove it explicitly if you no longer need it:
+    >
+    > ```sh
+    > kubectl delete crd nodereadinessrules.readiness.node.x-k8s.io
+    > ```
 
 ### Recovering from Stuck Resources
 
