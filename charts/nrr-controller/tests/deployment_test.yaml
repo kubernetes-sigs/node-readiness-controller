@@ -53,3 +53,111 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].ports[0].name
           value: webhook-server
+
+  - it: does not pass concurrency args at defaults
+    template: templates/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --node-concurrent-reconciles=1
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --rule-concurrent-reconciles=1
+
+  - it: passes node-concurrent-reconciles when raised
+    set:
+      controller:
+        nodeConcurrentReconciles: 10
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --node-concurrent-reconciles=10
+
+  - it: passes rule-concurrent-reconciles when raised
+    set:
+      controller:
+        ruleConcurrentReconciles: 5
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --rule-concurrent-reconciles=5
+
+  - it: does not pass kube-api-qps at default
+    template: templates/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --kube-api-qps=-1
+
+  - it: passes kube-api-qps when overridden
+    set:
+      controller:
+        kubeAPIQPS: 50
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kube-api-qps=50
+
+  - it: passes kube-api-burst when overridden
+    set:
+      controller:
+        kubeAPIBurst: 100
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kube-api-burst=100
+
+  - it: does not pass enable-node-state-metrics by default
+    template: templates/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-node-state-metrics
+
+  - it: passes enable-node-state-metrics when enabled
+    set:
+      controller:
+        enableNodeStateMetrics: true
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-node-state-metrics
+
+  - it: does not pass pprof-bind-address by default
+    template: templates/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --pprof-bind-address=
+
+  - it: passes pprof-bind-address when set
+    set:
+      controller:
+        pprofBindAddress: ":6060"
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--pprof-bind-address=:6060"
+
+  - it: does not pass leader-election-namespace by default
+    template: templates/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --leader-election-namespace=
+
+  - it: passes leader-election-namespace when set
+    set:
+      leaderElection:
+        namespace: kube-system
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --leader-election-namespace=kube-system
