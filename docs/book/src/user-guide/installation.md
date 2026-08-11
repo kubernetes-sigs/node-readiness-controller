@@ -62,7 +62,82 @@ REPO="registry.k8s.io/node-readiness-controller/node-readiness-controller"
 TAG=$(skopeo list-tags docker://$REPO | jq .'Tags[-1]' | tr -d '"')
 docker pull $REPO:$TAG
 ```
-### Option 2: Advanced Deployment (Kustomize)
+### Option 2: Helm Chart
+
+The chart lives in the repository under `charts/nrr-controller`. Published chart releases via `registry.k8s.io` OCI are still work in progress, so install it from a checkout for now.
+
+```sh
+git clone https://github.com/kubernetes-sigs/node-readiness-controller.git
+cd node-readiness-controller
+
+helm install nrr-controller ./charts/nrr-controller \
+  --namespace nrr-system --create-namespace
+```
+
+Requires Helm 3.x. This deploys the controller with the same defaults as the standard manifest: leader election on, metrics off, and the validating webhook off.
+
+#### Optional components
+
+Everything beyond the core controller is opt-in, matching the kustomize components.
+
+| Feature | Values | Prerequisites |
+| :--- | :--- | :--- |
+| Metrics endpoint | `metrics.enabled=true` | None for plain HTTP |
+| Metrics over TLS | `metrics.enabled=true`, `metrics.secure=true`, `certManager.enabled=true` | `cert-manager` |
+| Validating webhook | `webhook.enabled=true`, `validatingWebhook.enabled=true`, `certManager.enabled=true` | `cert-manager` |
+
+The webhook rejects rules whose taint key and effect collide with an existing rule over an overlapping node selector, so it is worth enabling in production.
+
+```sh
+helm install nrr-controller ./charts/nrr-controller \
+  --namespace nrr-system --create-namespace \
+  --set certManager.enabled=true \
+  --set webhook.enabled=true \
+  --set validatingWebhook.enabled=true \
+  --set metrics.enabled=true \
+  --set metrics.secure=true
+```
+
+Both `webhook.enabled` and `validatingWebhook.enabled` are needed. The first runs the webhook server in the controller and mounts its certificate, the second registers the `ValidatingWebhookConfiguration` with the API server.
+
+#### Managing rules through the chart
+
+`NodeReadinessRule` objects can be shipped with the release through the `nodeReadinessRules` value:
+
+```yaml
+nodeReadinessRules:
+  - name: kube-proxy-unhealthy-noschedule
+    enforcementMode: continuous
+    conditions:
+      - type: KubeProxyUnhealthy
+        requiredStatus: "False"
+    taint:
+      key: readiness.k8s.io/KubeProxyUnhealthy
+      value: "true"
+      effect: NoSchedule
+    nodeSelector:
+      matchLabels:
+        kubernetes.io/os: linux
+```
+
+`nodeSelector` is required on every entry. Set it explicitly, since an empty selector matches every node in the cluster.
+
+> [!NOTE]
+> With the validating webhook enabled, apply rules only once the controller is serving admission requests. On a first install the webhook is not ready while the rules in the same release are being created, so install the controller first and add the rules in a follow-up `helm upgrade`.
+
+#### CRD upgrades
+
+Helm installs the CRD from the chart's `crds/` directory on first install only. It does not upgrade or remove it on `helm upgrade` or `helm uninstall`.
+
+Before moving to a chart version that changes the `NodeReadinessRule` schema, apply the CRD yourself:
+
+```sh
+kubectl apply -f charts/nrr-controller/crds/nodereadinessrules.readiness.node.x-k8s.io.yaml
+```
+
+Skipping this leaves the old schema in place, and rules using newly added fields are rejected by the API server even though the controller supports them.
+
+### Option 3: Advanced Deployment (Kustomize)
 
 If you need deeper customization, you can use Kustomize directly from the source.
 
@@ -76,7 +151,7 @@ kubectl apply -k config/default
 
 You can enable optional components (Metrics, TLS, Webhook) by creating a `kustomization.yaml` that includes the relevant components from the `config/` directory. For reference on how these components can be combined, see the `deploy-with-metrics`, `deploy-with-tls`, `deploy-with-webhook`, and `deploy-full` targets in the projects [`Makefile`](https://github.com/kubernetes-sigs/node-readiness-controller/blob/main/Makefile).
 
-### Option 3: Deploy as a Static Pod (Control Plane)
+### Option 4: Deploy as a Static Pod (Control Plane)
 
 Running the controller as a **Static Pod** on control-plane nodes is useful for self-managed clusters (e.g., `kubeadm`) where you want the controller to be available alongside core components like the API server.
 
@@ -157,14 +232,21 @@ The controller uses a **finalizer** (`readiness.node.x-k8s.io/cleanup-taints`) o
     # OR if using Kustomize
     kubectl delete -k config/default
 
+    # OR if using Helm
+    helm uninstall nrr-controller --namespace nrr-system
+
     # OR if using Static Pods
     # Remove the manifest from /etc/kubernetes/manifests/ on all control-plane nodes
     ```
+
+    > [!CAUTION]
+    > Rules declared through the chart's `nodeReadinessRules` value are part of the release, so `helm uninstall` deletes them and the controller in one operation. Helm does not wait for the finalizer to run, which is exactly the situation described in [Recovering from Stuck Resources](#recovering-from-stuck-resources). Delete the rules and let them finish terminating before uninstalling the release.
 
 3.  **Uninstall CRDs** (Optional):
     ```sh
     kubectl delete -k config/crd
     ```
+    Helm does not remove the CRD it installed from the chart's `crds/` directory, so delete it explicitly if you used the chart.
 
 ### Recovering from Stuck Resources
 
