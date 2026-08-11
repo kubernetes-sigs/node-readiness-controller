@@ -10,6 +10,6 @@ spec:
   paramRef:
     name: readiness-taints
     namespace: nrr-system
-    parameterNotFoundAction: Deny
+    parameterNotFoundAction: Allow
   matchResources:
     namespaceSelector: {}

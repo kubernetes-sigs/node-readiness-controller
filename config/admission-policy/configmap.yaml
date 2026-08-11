@@ -1,12 +1,15 @@
 ---
-# ConfigMap that stores readiness tolerations
-# This will be populated/updated by the NodeReadinessRule controller
+# ConfigMap that stores the readiness taint keys used as the policy parameter.
+# The NodeReadinessRule controller creates and keeps this in sync; this empty
+# seed is optional (the binding uses parameterNotFoundAction: Allow) and exists
+# only to document the contract and to make the parameter present before the
+# first NodeReadinessRule is reconciled.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: readiness-taints
   namespace: nrr-system
 data:
-  # Store each toleration key separately for easier CEL access
-  # Format: key1=readiness.k8s.io/NetworkReady,key2=readiness.k8s.io/StorageReady
+  # Comma-separated readiness taint keys, e.g.
+  # readiness.k8s.io/NetworkReady,readiness.k8s.io/StorageReady
   taint-keys: ""

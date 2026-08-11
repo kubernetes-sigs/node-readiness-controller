@@ -30,6 +30,26 @@ Injects tolerations (if applicable)
 DaemonSet created with tolerations
 ```
 
+## Failure behavior
+
+Toleration injection is **best-effort** and never fail-closed. A cluster stays
+functional even if the controller is not installed, has not reconciled yet, or is
+unhealthy:
+
+- `failurePolicy: Ignore` on the policy — a CEL evaluation error does not reject
+  the DaemonSet.
+- `parameterNotFoundAction: Allow` on the binding — if the `readiness-taints`
+  ConfigMap does not exist, the mutation is skipped and the DaemonSet is admitted
+  unchanged.
+
+The trade-off is that a DaemonSet created before the first NodeReadinessRule
+exists is admitted without readiness tolerations. Because the policy also matches
+`UPDATE`, the tolerations are injected on the next update to the DaemonSet;
+otherwise add them manually.
+
+Opt out per DaemonSet with the annotation
+`readiness.k8s.io/auto-tolerate: "false"`.
+
 ## Deployment
 
 ### Option 1: Using kustomize

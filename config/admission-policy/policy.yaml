@@ -36,10 +36,12 @@ spec:
       has(object.spec.template.spec.tolerations) ? 
         object.spec.template.spec.tolerations : []
   
-  # Get taint keys from ConfigMap and parse to array
+  # Get taint keys from ConfigMap and parse to array.
+  # Tolerate a ConfigMap with no `data` at all, so a partially-populated param
+  # resource degrades to "inject nothing" rather than an evaluation error.
   - name: taintKeys
     expression: |
-      ("taint-keys" in params.data) && params.data["taint-keys"] != "" ?
+      has(params.data) && ("taint-keys" in params.data) && params.data["taint-keys"] != "" ?
         params.data["taint-keys"].split(",").filter(key, key != "") : []
   
   # Create tolerations from taint keys (as plain maps since CEL has issues with complex types)
