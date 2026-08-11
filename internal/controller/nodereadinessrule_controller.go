@@ -173,6 +173,8 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	if r.Controller.EnableNodeStateMetrics {
 		r.Controller.SyncNodeStateMetrics(ctx, rule)
+	}
+
 	// Sync taints to ConfigMap for MutatingAdmissionPolicy
 	if err := r.Controller.syncTaintsConfigMap(ctx); err != nil {
 		log.Error(err, "Failed to sync taints configmap", "rule", rule.Name)
@@ -186,9 +188,8 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 // 1. Deletes the taints associated with the rule.
 // 2. Remove the rule from the cache.
 // 3. Remove the finalizer from the rule.
-func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) (ctrl.Result, error) {
 // 4. Sync the Taints ConfigMap.
-func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) (ctrl.Result, error) {
+func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Update cache with deletion-marked rule before cleanup.
@@ -227,6 +228,7 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	metrics.ConditionEvaluationFailures.DeletePartialMatch(ruleLabel)
 	metrics.TaintOperations.DeletePartialMatch(ruleLabel)
 	metrics.ReconciliationLatency.DeletePartialMatch(ruleLabel)
+
 	// Sync taints to ConfigMap for MutatingAdmissionPolicy
 	if err := r.Controller.syncTaintsConfigMap(ctx); err != nil {
 		log.Error(err, "Failed to sync taints configmap", "rule", rule.Name)
