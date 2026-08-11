@@ -61,6 +61,12 @@ tests:
             apiGroups: ["readiness.node.x-k8s.io"]
             resources: ["nodereadinessrules/status"]
             verbs: ["get", "patch", "update"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["configmaps"]
+            verbs: ["create", "get", "list", "patch", "watch"]
 
   - it: omits rbac resources when rbac.create is disabled
     template: templates/rbac.yaml
