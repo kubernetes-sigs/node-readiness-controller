@@ -35,12 +35,14 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	nodereadinessiov1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 	"sigs.k8s.io/node-readiness-controller/internal/controller"
 	"sigs.k8s.io/node-readiness-controller/internal/info"
+	"sigs.k8s.io/node-readiness-controller/internal/metrics"
 	"sigs.k8s.io/node-readiness-controller/internal/webhook"
 	// +kubebuilder:scaffold:imports
 )
@@ -157,6 +159,9 @@ func main() {
 
 	// Create the main RuleReadinessController
 	readinessController := controller.NewRuleReadinessController(mgr, clientset, enableNodeStateMetrics)
+
+	// Register the scrape-time collector.
+	crmetrics.Registry.MustRegister(metrics.NewReadinessCollector(readinessController))
 
 	// Create reconcilers linked to the main controller
 	ruleReconciler := &controller.RuleReconciler{

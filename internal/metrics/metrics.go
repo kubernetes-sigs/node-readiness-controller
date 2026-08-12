@@ -57,6 +57,14 @@ const (
 	NodeStateBootstrapping NodeState = "bootstrapping"
 )
 
+// RuleNodeState represents whether a node is held or released by a rule.
+type RuleNodeState string
+
+const (
+	RuleNodeStateHeld     RuleNodeState = "held"
+	RuleNodeStateReleased RuleNodeState = "released"
+)
+
 var (
 	// RulesTotal tracks the number of NodeReadinessRules .
 	RulesTotal = prometheus.NewGauge(
