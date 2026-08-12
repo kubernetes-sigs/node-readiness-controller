@@ -26,10 +26,6 @@ USE_EXISTING_CLUSTER="${USE_EXISTING_CLUSTER:-false}"
 ARTIFACTS="${ARTIFACTS:-.}"
 E2E_KIND_VERSION="${E2E_KIND_VERSION:-v1.36}"
 
-# TODO(psaggu): Remove once trigger for testgrid-alert-email is done!
-echo "early exit, for trigger of testgrid-alert-email"
-exit 1
-
 if [[ "$E2E_KIND_VERSION" =~ ^v[0-9]+\.[0-9]+$ ]]; then
     K8S_VERSION=$(curl -sf --retry 3 --retry-delay 5 --max-time 30 \
         "https://api.github.com/repos/kubernetes/kubernetes/git/matching-refs/tags/${E2E_KIND_VERSION}." \
