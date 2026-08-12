@@ -13,12 +13,16 @@ If you plan to use the `install-full.yaml` option (which includes secure metrics
 First, to install the CRDs, apply the `crds.yaml` manifest:
 
 ```sh
-# Replace with the desired version
-VERSION=v0.1.1
+# Latest release. Other versions are listed on the Releases page:
+# https://github.com/kubernetes-sigs/node-readiness-controller/releases
+VERSION=v0.4.1
+
 kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/crds.yaml
 kubectl wait --for condition=established --timeout=30s crd/nodereadinessrules.readiness.node.x-k8s.io
-
 ```
+
+> [!NOTE]
+> `install-full.yaml` is only published from `v0.2.0` onwards. Older releases ship `crds.yaml` and `install.yaml` only.
 
 #### 2. Install the Controller
 
