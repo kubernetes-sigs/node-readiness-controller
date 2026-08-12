@@ -21,12 +21,14 @@ package scale
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 )
 
 type phaseStats struct {
+	phase string
 	title string
 	start time.Time
 	end   time.Time
@@ -48,7 +50,8 @@ var _ = Describe("Node Readiness Controller Scalability Test", func() {
 
 		By("Applying Security Agent NodeReadinessRule resource")
 		taintStart := time.Now()
-		applyManifest(ctx, securityAgentRuleManifest)
+		ruleManifest := strings.Replace(securityAgentRuleManifest, `enforcementMode: "continuous"`, fmt.Sprintf(`enforcementMode: "%s"`, cfg.EnforcementMode), 1)
+		applyManifest(ctx, ruleManifest)
 
 		By("Applying KWOK's Stage to simulate condition false")
 		applyManifest(ctx, securityAgentStageFalseManifest)
@@ -63,6 +66,7 @@ var _ = Describe("Node Readiness Controller Scalability Test", func() {
 		deleteStage(ctx, "security-agent-stage-false")
 
 		phases = append(phases, phaseStats{
+			phase: "add",
 			title: fmt.Sprintf("%d Nodes - Tainting (Add) Phase [Duration: %s]", nodeCount, taintDuration.Round(time.Millisecond)),
 			start: taintStart,
 			end:   taintEnd,
@@ -84,6 +88,7 @@ var _ = Describe("Node Readiness Controller Scalability Test", func() {
 		untaintDuration := untaintEnd.Sub(untaintStart)
 
 		phases = append(phases, phaseStats{
+			phase: "remove",
 			title: fmt.Sprintf("%d Nodes - Untainting Phase [Duration: %s]", nodeCount, untaintDuration.Round(time.Millisecond)),
 			start: untaintStart,
 			end:   untaintEnd,

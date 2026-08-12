@@ -48,15 +48,17 @@ type scaleConfig struct {
 	SkipTeardown             bool
 	TaintTimeout             string
 	UntaintTimeout           string
+	EnforcementMode          string
 }
 
 var defaultScaleConfig = scaleConfig{
-	KwokctlVersion: "v0.8.0",
-	MetricsPort:    "8080",
-	PrometheusPort: "9090",
-	NodeCount:      1000,
-	TaintTimeout:   "15m",
-	UntaintTimeout: "15m",
+	KwokctlVersion:  "v0.8.0",
+	MetricsPort:     "8080",
+	PrometheusPort:  "9090",
+	NodeCount:       1000,
+	TaintTimeout:    "15m",
+	UntaintTimeout:  "15m",
+	EnforcementMode: "continuous",
 }
 
 var (

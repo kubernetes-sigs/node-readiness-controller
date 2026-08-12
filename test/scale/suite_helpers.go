@@ -20,6 +20,7 @@ package scale
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -138,6 +139,9 @@ func readEnvConfig() {
 	}
 	if timeout := os.Getenv("UNTAINT_TIMEOUT"); timeout != "" {
 		cfg.UntaintTimeout = timeout
+	}
+	if mode := os.Getenv("ENFORCEMENT_MODE"); mode != "" {
+		cfg.EnforcementMode = mode
 	}
 	if os.Getenv("DISABLE_QPS_LIMITS") == "true" {
 		cfg.DisableQPSLimits = true
@@ -291,7 +295,7 @@ func generateScalabilityReport() {
 		Phases    []queryResult
 	}{
 		NodeCount: cfg.NodeCount,
-		Mode:      "continuous",
+		Mode:      cfg.EnforcementMode,
 		Phases:    queryResults,
 	}
 
@@ -302,6 +306,25 @@ func generateScalabilityReport() {
 
 	err = tmpl.Execute(reportFile, reportData)
 	Expect(err).NotTo(HaveOccurred(), "Failed to template report data onto report file")
+
+	// Generate JSON Report
+	jsonPhases := make([]PhaseJSON, 0, len(queryResults))
+	for _, q := range queryResults {
+		jsonPhases = append(jsonPhases, buildPhaseJSON(q))
+	}
+
+	jsonReport := ScalabilityReportJSON{
+		NodeCount: cfg.NodeCount,
+		Mode:      cfg.EnforcementMode,
+		Phases:    jsonPhases,
+	}
+
+	jsonBytes, err := json.MarshalIndent(jsonReport, "", "  ")
+	Expect(err).NotTo(HaveOccurred(), "Failed to marshal scalability report to JSON")
+
+	jsonReportPath := filepath.Join(cfg.ArtifactsDir, "scalability_report.json")
+	err = os.WriteFile(jsonReportPath, jsonBytes, 0600)
+	Expect(err).NotTo(HaveOccurred(), "Failed to write scalability report JSON file")
 }
 
 func teardownKwokCluster(cmd *exec.Cmd, logFile *os.File, kwokctlPath string) {

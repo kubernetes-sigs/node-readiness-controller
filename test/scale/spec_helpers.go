@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -50,9 +51,139 @@ type prometheusResponse struct {
 }
 
 type queryResult struct {
-	PhaseTitle      string            `json:"phase_title"`
-	DurationSeconds float64           `json:"duration_seconds"`
-	Metrics         map[string]string `json:"metrics"`
+	Phase           string             `json:"phase"`
+	PhaseTitle      string             `json:"phase_title"`
+	DurationSeconds float64            `json:"duration_seconds"`
+	Metrics         map[string]string  `json:"metrics"`
+	RawMetrics      map[string]float64 `json:"raw_metrics"`
+}
+
+type ScalabilityReportJSON struct {
+	NodeCount int         `json:"node_count"`
+	Mode      string      `json:"mode"`
+	Phases    []PhaseJSON `json:"phases"`
+}
+
+type PhaseJSON struct {
+	Phase           string         `json:"phase"`
+	DurationSeconds float64        `json:"duration_seconds"`
+	Latencies       LatenciesJSON  `json:"latencies"`
+	Resources       ResourcesJSON  `json:"resources"`
+	Workqueue       WorkqueueJSON  `json:"workqueue"`
+	Operations      OperationsJSON `json:"operations"`
+}
+
+type PercentilesJSON struct {
+	P50 float64 `json:"p50"`
+	P90 float64 `json:"p90"`
+	P99 float64 `json:"p99"`
+}
+
+type LatenciesJSON struct {
+	ReconcileTime          PercentilesJSON `json:"reconcile_time"`
+	ReconciliationLatency  PercentilesJSON `json:"reconciliation_latency"`
+	RuleEvaluationDuration PercentilesJSON `json:"rule_evaluation_duration"`
+	WorkqueueQueueDuration PercentilesJSON `json:"workqueue_queue_duration"`
+	WorkqueueWorkDuration  PercentilesJSON `json:"workqueue_work_duration"`
+}
+
+type CPUUsageJSON struct {
+	Rate float64 `json:"rate"`
+	Peak float64 `json:"peak"`
+}
+
+type MemoryUsageJSON struct {
+	AvgBytes  float64 `json:"avg_bytes"`
+	PeakBytes float64 `json:"peak_bytes"`
+}
+
+type ResourcesJSON struct {
+	CPUCores       CPUUsageJSON    `json:"cpu_cores"`
+	ResidentMemory MemoryUsageJSON `json:"resident_memory"`
+}
+
+type ControllerWorkqueueJSON struct {
+	Adds    int64 `json:"adds"`
+	Retries int64 `json:"retries"`
+}
+
+type WorkqueueJSON struct {
+	Node  ControllerWorkqueueJSON `json:"node"`
+	Rules ControllerWorkqueueJSON `json:"rules"`
+}
+
+type OperationsJSON struct {
+	TaintsAdded         int64 `json:"taints_added"`
+	TaintsRemoved       int64 `json:"taints_removed"`
+	ConditionFailures   int64 `json:"condition_failures"`
+	OperationalFailures int64 `json:"operational_failures"`
+}
+
+func buildPhaseJSON(q queryResult) PhaseJSON {
+	getRaw := func(key string) float64 {
+		return q.RawMetrics[key]
+	}
+	getInt := func(key string) int64 {
+		return int64(q.RawMetrics[key])
+	}
+
+	return PhaseJSON{
+		Phase:           q.Phase,
+		DurationSeconds: q.DurationSeconds,
+		Latencies: LatenciesJSON{
+			ReconcileTime: PercentilesJSON{
+				P50: getRaw("reconcile_time_p50"),
+				P90: getRaw("reconcile_time_p90"),
+				P99: getRaw("reconcile_time_p99"),
+			},
+			ReconciliationLatency: PercentilesJSON{
+				P50: getRaw("reconciliation_latency_p50"),
+				P90: getRaw("reconciliation_latency_p90"),
+				P99: getRaw("reconciliation_latency_p99"),
+			},
+			RuleEvaluationDuration: PercentilesJSON{
+				P50: getRaw("rule_evaluation_duration_p50"),
+				P90: getRaw("rule_evaluation_duration_p90"),
+				P99: getRaw("rule_evaluation_duration_p99"),
+			},
+			WorkqueueQueueDuration: PercentilesJSON{
+				P50: getRaw("workqueue_queue_duration_p50"),
+				P90: getRaw("workqueue_queue_duration_p90"),
+				P99: getRaw("workqueue_queue_duration_p99"),
+			},
+			WorkqueueWorkDuration: PercentilesJSON{
+				P50: getRaw("workqueue_work_duration_p50"),
+				P90: getRaw("workqueue_work_duration_p90"),
+				P99: getRaw("workqueue_work_duration_p99"),
+			},
+		},
+		Resources: ResourcesJSON{
+			CPUCores: CPUUsageJSON{
+				Rate: getRaw("cpu_cores_rate"),
+				Peak: getRaw("cpu_cores_peak"),
+			},
+			ResidentMemory: MemoryUsageJSON{
+				AvgBytes:  getRaw("resident_memory_avg"),
+				PeakBytes: getRaw("resident_memory_peak"),
+			},
+		},
+		Workqueue: WorkqueueJSON{
+			Node: ControllerWorkqueueJSON{
+				Adds:    getInt("workqueue_adds_node"),
+				Retries: getInt("workqueue_retries_node"),
+			},
+			Rules: ControllerWorkqueueJSON{
+				Adds:    getInt("workqueue_adds_rules"),
+				Retries: getInt("workqueue_retries_rules"),
+			},
+		},
+		Operations: OperationsJSON{
+			TaintsAdded:         getInt("taint_operations_add"),
+			TaintsRemoved:       getInt("taint_operations_remove"),
+			ConditionFailures:   getInt("condition_failures_total"),
+			OperationalFailures: getInt("operational_failures_total"),
+		},
+	}
 }
 
 var (
@@ -272,8 +403,10 @@ func formatMetricValue(val string, unit string) string {
 	return val
 }
 
-func buildReportForPhase(phaseTitle string, phaseStart time.Time, phaseEnd time.Time, metricsMap map[string]string) queryResult {
+func buildReportForPhase(phaseName string, phaseTitle string, phaseStart time.Time, phaseEnd time.Time, metricsMap map[string]string) queryResult {
 	formattedMetrics := make(map[string]string, len(metricsMap))
+	rawMetrics := make(map[string]float64, len(metricsMap))
+
 	for _, q := range metricQueries {
 		metricValue, ok := metricsMap[q.Key]
 		if !ok {
@@ -281,19 +414,25 @@ func buildReportForPhase(phaseTitle string, phaseStart time.Time, phaseEnd time.
 		}
 
 		formattedMetrics[q.Key] = formatMetricValue(metricValue, q.Unit)
+
+		if floatVal, err := strconv.ParseFloat(metricValue, 64); err == nil && !math.IsNaN(floatVal) && !math.IsInf(floatVal, 0) {
+			rawMetrics[q.Key] = floatVal
+		}
 	}
 
 	return queryResult{
+		Phase:           phaseName,
 		PhaseTitle:      phaseTitle,
 		DurationSeconds: phaseEnd.Sub(phaseStart).Seconds(),
 		Metrics:         formattedMetrics,
+		RawMetrics:      rawMetrics,
 	}
 }
 
 func collectAndRecordPhaseMetrics(ctx context.Context, phases []phaseStats) {
 	for _, phase := range phases {
 		metricsMap := collectMetricsForPhase(ctx, phase.start, phase.end)
-		reportStruct := buildReportForPhase(phase.title, phase.start, phase.end, metricsMap)
+		reportStruct := buildReportForPhase(phase.phase, phase.title, phase.start, phase.end, metricsMap)
 		queryResults = append(queryResults, reportStruct)
 	}
 }
