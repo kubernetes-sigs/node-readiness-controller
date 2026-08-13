@@ -29,7 +29,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 
 	"sigs.k8s.io/node-readiness-controller/internal/info"
@@ -353,6 +352,7 @@ func TestUpdateNodeCondition(t *testing.T) {
 		wantReason              string
 		wantUpdateCount         int
 		wantTransitionPreserved bool
+		wantNotFoundErr         bool
 	}{
 		{
 			name: "New Condition Healthy",
@@ -462,15 +462,21 @@ func TestUpdateNodeCondition(t *testing.T) {
 			},
 			heartbeatPeriod: 5 * time.Minute,
 			wantUpdateCount: 0,
+			wantNotFoundErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var objs []runtime.Object
+			var client *fake.Clientset
+			if tt.existingNode != nil {
+				client = fake.NewClientset(tt.existingNode)
+			} else {
+				client = fake.NewClientset()
+			}
+
 			var previousTransition metav1.Time
 			if tt.existingNode != nil {
-				objs = append(objs, tt.existingNode)
 				for _, cond := range tt.existingNode.Status.Conditions {
 					if string(cond.Type) == conditionType {
 						previousTransition = cond.LastTransitionTime
@@ -478,25 +484,25 @@ func TestUpdateNodeCondition(t *testing.T) {
 					}
 				}
 			}
-			client := fake.NewSimpleClientset(objs...)
-
 			if previousTransition.IsZero() {
 				previousTransition = metav1.NewTime(time.Now())
 			}
 
 			err := updateNodeCondition(context.Background(), client, nodeName, conditionType, tt.health, tt.heartbeatPeriod)
-			if tt.existingNode == nil {
-				if !apierrors.IsNotFound(err) {
-					t.Fatalf("updateNodeCondition() error = %v, want a NotFound error", err)
-				}
-				if got := countUpdateCalls(client); got != tt.wantUpdateCount {
-					t.Errorf("UpdateStatus called = %v, want %v", got, tt.wantUpdateCount)
-				}
-				return
-			}
-
 			if err != nil {
+				if tt.wantNotFoundErr {
+					if !apierrors.IsNotFound(err) {
+						t.Fatalf("updateNodeCondition() error = %v, want a NotFound error", err)
+					}
+					if got := countUpdateCalls(client); got != tt.wantUpdateCount {
+						t.Errorf("UpdateStatus called = %v, want %v", got, tt.wantUpdateCount)
+					}
+					return
+				}
 				t.Fatalf("updateNodeCondition() error = %v", err)
+			}
+			if tt.wantNotFoundErr {
+				t.Fatal("updateNodeCondition() succeeded, want a NotFound error")
 			}
 
 			// Assert whether the status write reached the API server
