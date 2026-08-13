@@ -69,6 +69,22 @@ Total number of failure events recorded by the controller.
 | `rule` | `NodeReadinessRule` name | Any rule name |
 | `reason` | Failure label recorded by the controller | `EvaluationError`, `AddTaintError`, `RemoveTaintError` |
 
+### `node_readiness_build_info`
+
+Build information for the node-readiness-controller binary.
+
+| Property | Value |
+| --- | --- |
+| Type | `gauge` |
+| Labels | `version` |
+| Recorded when | The controller starts up |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `version` | Build version of the running binary | Any version string, or `unknown` if not set at build time |
+
 ### `node_readiness_bootstrap_completed_total`
 
 Total number of nodes that have completed bootstrap.
