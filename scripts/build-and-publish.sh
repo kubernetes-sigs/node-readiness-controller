@@ -41,6 +41,11 @@ if [[ "$COMPONENT" == "controller" ]]; then
 elif [[ "$COMPONENT" == "reporter" ]]; then
   echo "Building reporter..."
   IMG_TAG=${IMG_TAG} IMG_PREFIX=${IMG_PREFIX}/node-readiness-reporter make docker-buildx-reporter
+elif [[ "$COMPONENT" == "chart" ]]; then
+  echo "Building Helm chart..."
+  rm -rf ./bin/chart
+  RELEASE_VERSION=${IMG_TAG} make build-helm
+  RELEASE_VERSION=${IMG_TAG} HELM_IMAGE=${IMG_PREFIX}/charts make publish-helm
 else
   echo "Unknown component: $COMPONENT"
   exit 1

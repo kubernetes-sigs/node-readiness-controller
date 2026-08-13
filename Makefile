@@ -75,6 +75,9 @@ GOVULNCHECK_PKG := golang.org/x/vuln/cmd/govulncheck
 IMG_PREFIX ?= controller
 IMG_TAG ?= latest
 
+# OCI registry to publish the Helm chart to
+HELM_IMAGE ?= registry.k8s.io/node-readiness-controller/charts
+
 # Kind cluster name for loading images
 KIND_CLUSTER ?= nrr-test
 
@@ -492,8 +495,15 @@ endif
 lint-chart: ensure-helm-install
 	helm lint ./charts/nrr-controller
 
-build-helm:
+inject-helm-version: ## Inject the release version into the Helm chart's appVersion and image tag
+	sed 's/tag: .*/tag: "$(RELEASE_VERSION)"/' charts/nrr-controller/values.yaml > charts/nrr-controller/values.yaml.tmp && mv charts/nrr-controller/values.yaml.tmp charts/nrr-controller/values.yaml
+	sed 's/^appVersion: .*/appVersion: "$(RELEASE_VERSION)"/' charts/nrr-controller/Chart.yaml > charts/nrr-controller/Chart.yaml.tmp && mv charts/nrr-controller/Chart.yaml.tmp charts/nrr-controller/Chart.yaml
+
+build-helm: inject-helm-version
 	helm package ./charts/nrr-controller --dependency-update --destination ./bin/chart
+
+publish-helm: ## Publish the packaged Helm chart to an OCI registry
+	helm push ./bin/chart/nrr-controller-*.tgz oci://$(HELM_IMAGE)
 
 kind-multi-node:
 	kind create cluster --name $(KIND_CLUSTER) --config ./config/testing/kind/kind-3node-config.yaml --wait 2m
