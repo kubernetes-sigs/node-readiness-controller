@@ -23,16 +23,20 @@ The automation will:
 2. Create and push a git tag `vX.Y.Z` at the merged commit.
 3. If it is a minor or major release (e.g. `v0.2.0`), it will automatically branch off `release-vX.Y.Z` and push it to the repository.
 
-## 3. Promote the Images
+## 3. Promote the Images and Helm Chart
 
-After the release tag is pushed, the images must be built, pushed to staging, and then promoted to the official registry.
+After the release tag is pushed, the images and Helm chart must be built, pushed to staging, and then promoted to the official registry.
 
-### A. Verify Staging Images
-- Monitor the image push job status on [Testgrid (sig-node-image-pushes)](https://testgrid.k8s.io/sig-node-image-pushes#post-node-readiness-controller-push-images).
+### A. Verify Staging Images and Chart
+- Monitor the push job status on [Testgrid (sig-node-image-pushes)](https://testgrid.k8s.io/sig-node-image-pushes#post-node-readiness-controller-push-images).
 - The Prow job configuration is in [test-infra](https://github.com/kubernetes/test-infra/blob/master/config/jobs/image-pushing/k8s-staging-node-readiness-controller.yaml) if troubleshooting is needed.
 - Verify the images exist in the staging repository:
   ```sh
   skopeo list-tags docker://us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/node-readiness-controller | grep vX.Y.Z
+  ```
+- Verify the chart exists in the staging repository (replace `<chart-version>` with the version in `charts/nrr-controller/Chart.yaml` at the tagged commit):
+  ```sh
+  helm pull oci://us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/charts/nrr-controller --version <chart-version>
   ```
 
 ### B. Create PR for Promotion
@@ -41,21 +45,30 @@ After the release tag is pushed, the images must be built, pushed to staging, an
   skopeo inspect docker://us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/node-readiness-controller:vX.Y.Z --format '{{.Digest}}'
   skopeo inspect docker://us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/node-readiness-reporter:vX.Y.Z --format '{{.Digest}}'
   ```
+- Identify the chart digest:
+  ```sh
+  skopeo inspect --raw docker://us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/charts/nrr-controller:<chart-version> | sha256sum
+  ```
+  Alternatively, note the digest printed by `helm push`/`helm pull` when the chart was published/verified above.
 - Fork [kubernetes/k8s.io](https://github.com/kubernetes/k8s.io).
 - Update
   `registry.k8s.io/images/k8s-staging-node-readiness-controller/images.yaml`
-  with the new digests and tags ([sample PR](https://github.com/kubernetes/k8s.io/pull/9176)).
+  with the new digests and tags for the images and the chart ([sample PR](https://github.com/kubernetes/k8s.io/pull/9176)).
 - Submit the PR to `kubernetes/k8s.io`. Once it is approved and merged
   automation will schedule the promotion.
 
 ## 4. Final Verification and GitHub Release
 
-Before publishing the release, verify the images are available at k8s-registry:
+Before publishing the release, verify the images and chart are available at k8s-registry:
 
 ### A. Verify Official Registry
 - Ensure the images are available at `registry.k8s.io`:
   ```sh
   skopeo list-tags docker://registry.k8s.io/node-readiness-controller/node-readiness-controller | grep vX.Y.Z
+  ```
+- Ensure the chart is available at `registry.k8s.io`:
+  ```sh
+  helm pull oci://registry.k8s.io/node-readiness-controller/charts/nrr-controller --version <chart-version>
   ```
 
 ### B. Test Release Artifacts
