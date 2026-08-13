@@ -487,23 +487,20 @@ crd-ref-docs:
 
 # helm
 
-ensure-helm-install:
-ifndef HAS_HELM
-	curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 && chmod 700 ./get_helm.sh && ./get_helm.sh
-endif
+HELM ?= go run helm.sh/helm/v3/cmd/helm@v3.15.1
 
-lint-chart: ensure-helm-install
-	helm lint ./charts/nrr-controller
+lint-chart:
+	$(HELM) lint ./charts/nrr-controller
 
 inject-helm-version: ## Inject the release version into the Helm chart's appVersion and image tag
 	sed 's/tag: .*/tag: "$(RELEASE_VERSION)"/' charts/nrr-controller/values.yaml > charts/nrr-controller/values.yaml.tmp && mv charts/nrr-controller/values.yaml.tmp charts/nrr-controller/values.yaml
 	sed 's/^appVersion: .*/appVersion: "$(RELEASE_VERSION)"/' charts/nrr-controller/Chart.yaml > charts/nrr-controller/Chart.yaml.tmp && mv charts/nrr-controller/Chart.yaml.tmp charts/nrr-controller/Chart.yaml
 
 build-helm: inject-helm-version
-	helm package ./charts/nrr-controller --dependency-update --destination ./bin/chart
+	$(HELM) package ./charts/nrr-controller --dependency-update --destination ./bin/chart
 
 publish-helm: ## Publish the packaged Helm chart to an OCI registry
-	helm push ./bin/chart/nrr-controller-*.tgz oci://$(HELM_IMAGE)
+	$(HELM) push ./bin/chart/nrr-controller-*.tgz oci://$(HELM_IMAGE)
 
 kind-multi-node:
 	kind create cluster --name $(KIND_CLUSTER) --config ./config/testing/kind/kind-3node-config.yaml --wait 2m
