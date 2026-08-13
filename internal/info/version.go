@@ -18,11 +18,11 @@ package info
 
 import "strings"
 
-// version must be set by go build's -X main.version= option in the Makefile.
+// version must be set by go build's -X sigs.k8s.io/node-readiness-controller/internal/info.version= option in the Makefile.
 var version = "unknown"
 
 // gitCommit will be the hash that the binary was built from
-// and will be populated by the Makefile.
+// and will be populated by the Makefile via -X sigs.k8s.io/node-readiness-controller/internal/info.gitCommit=.
 var gitCommit = ""
 
 // GetVersionParts returns the different version components.
@@ -34,6 +34,11 @@ func GetVersionParts() []string {
 	}
 
 	return v
+}
+
+// GetVersion returns the raw version string.
+func GetVersion() string {
+	return version
 }
 
 // GetVersionString returns the string representation of the version.

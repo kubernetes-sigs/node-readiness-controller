@@ -19,6 +19,8 @@ package metrics
 import (
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
+
+	"sigs.k8s.io/node-readiness-controller/internal/info"
 )
 
 // FailureReason represents the reason for a failed operation.
@@ -152,6 +154,18 @@ var (
 		},
 		[]string{"rule"},
 	)
+
+	// BuildInfo exposes the running binary's build version.
+	BuildInfo = prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name: "node_readiness_build_info",
+			Help: "Build information for the node-readiness-controller binary.",
+			ConstLabels: prometheus.Labels{
+				"version": info.GetVersion(),
+			},
+		},
+		func() float64 { return 1 },
+	)
 )
 
 func init() {
@@ -166,4 +180,5 @@ func init() {
 	metrics.Registry.MustRegister(NodesByState)
 	metrics.Registry.MustRegister(ConditionEvaluationFailures)
 	metrics.Registry.MustRegister(RuleLastReconciliationTime)
+	metrics.Registry.MustRegister(BuildInfo)
 }

@@ -77,6 +77,10 @@ IMG_TAG ?= latest
 
 # OCI registry to publish the Helm chart to
 HELM_IMAGE ?= registry.k8s.io/node-readiness-controller/charts
+# Version metadata embedded into the binary via -ldflags.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo unknown)
+GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+LDFLAGS := -X sigs.k8s.io/node-readiness-controller/internal/info.version=$(VERSION) -X sigs.k8s.io/node-readiness-controller/internal/info.gitCommit=$(GIT_COMMIT)
 
 # Kind cluster name for loading images
 KIND_CLUSTER ?= nrr-test
@@ -190,7 +194,7 @@ verify: ## Run all verification scripts.
 
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
-	go build -o bin/manager cmd/main.go
+	go build -ldflags "$(LDFLAGS)" -o bin/manager cmd/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
@@ -202,11 +206,11 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build container image with Docker.
-	DOCKER_BUILDKIT=1 docker build -t ${IMG_PREFIX}:${IMG_TAG} .
+	DOCKER_BUILDKIT=1 docker build --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) -t ${IMG_PREFIX}:${IMG_TAG} .
 
 .PHONY: podman-build
 podman-build: ## Build container image with Podman.
-	podman build -t localhost/${IMG_PREFIX}:${IMG_TAG} .
+	podman build --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) -t localhost/${IMG_PREFIX}:${IMG_TAG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -223,7 +227,7 @@ PLATFORMS ?= linux/arm64,linux/amd64
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
 	- $(CONTAINER_TOOL) buildx create --name nrrcontroller-builder
 	$(CONTAINER_TOOL) buildx use nrrcontroller-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG_PREFIX}:${IMG_TAG} .
+	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) --tag ${IMG_PREFIX}:${IMG_TAG} .
 	- $(CONTAINER_TOOL) buildx rm nrrcontroller-builder
 
 .PHONY: kind-load
@@ -258,7 +262,7 @@ docker-push-reporter: ## Push docker image with the reporter.
 docker-buildx-reporter: ## Build and push docker image for the reporter for cross-platform support
 	- $(CONTAINER_TOOL) buildx create --name reporter-builder
 	$(CONTAINER_TOOL) buildx use reporter-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG_PREFIX}:${IMG_TAG} -f Dockerfile.reporter .
+	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) --tag ${IMG_PREFIX}:${IMG_TAG} -f Dockerfile.reporter .
 	- $(CONTAINER_TOOL) buildx rm reporter-builder
 
 .PHONY: build-installer
