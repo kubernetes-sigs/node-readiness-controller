@@ -1155,4 +1155,72 @@ var _ = Describe("Node Controller", func() {
 				"metrics.Failures{rule, EvaluationError} must increment when the node reconciler hits an evaluation error")
 		})
 	})
+
+	Context("Node lifecycle state management (Issue #338)", func() {
+		var (
+			ctx        context.Context
+			testScheme *runtime.Scheme
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			testScheme = runtime.NewScheme()
+			Expect(corev1.AddToScheme(testScheme)).To(Succeed())
+			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
+		})
+
+		It("should clean up rule status (NodeEvaluations, AppliedNodes, FailedNodes) on node deletion", func() {
+			nodeName := "deleted-node-test"
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "deletion-test-rule"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					NodeSelector: metav1.LabelSelector{MatchLabels: map[string]string{"env": "test"}},
+					Taint:        corev1.Taint{Key: "readiness.k8s.io/test-taint", Effect: corev1.TaintEffectNoSchedule},
+				},
+				Status: nodereadinessiov1alpha1.NodeReadinessRuleStatus{
+					NodeEvaluations: []nodereadinessiov1alpha1.NodeEvaluation{
+						{NodeName: nodeName},
+						{NodeName: "other-node"},
+					},
+					AppliedNodes: []string{nodeName, "other-node"},
+					FailedNodes: []nodereadinessiov1alpha1.NodeFailure{
+						{NodeName: nodeName, Reason: "OldFailure"},
+					},
+				},
+			}
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(rule).
+				WithStatusSubresource(rule).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     map[string]*nodereadinessiov1alpha1.NodeReadinessRule{rule.Name: rule},
+				EventRecorder: events.NewFakeRecorder(10),
+			}
+
+			nodeReconciler := &NodeReconciler{
+				Client:     fc,
+				Scheme:     testScheme,
+				Controller: controller,
+			}
+
+			_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: nodeName},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: rule.Name}, updatedRule)).To(Succeed())
+			Expect(updatedRule.Status.AppliedNodes).To(Equal([]string{"other-node"}))
+			Expect(updatedRule.Status.NodeEvaluations).To(HaveLen(1))
+			Expect(updatedRule.Status.NodeEvaluations[0].NodeName).To(Equal("other-node"))
+			Expect(updatedRule.Status.FailedNodes).To(BeEmpty())
+		})
+
+	})
 })

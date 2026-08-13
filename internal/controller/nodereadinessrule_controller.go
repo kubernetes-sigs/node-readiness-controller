@@ -241,15 +241,31 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 		}
 	}
 
-	if len(newNodeEvaluations) == len(rule.Status.NodeEvaluations) {
+	var newAppliedNodes []string
+	for _, nodeName := range rule.Status.AppliedNodes {
+		if existingNodes[nodeName] {
+			newAppliedNodes = append(newAppliedNodes, nodeName)
+		}
+	}
+
+	var newFailedNodes []readinessv1alpha1.NodeFailure
+	for _, failure := range rule.Status.FailedNodes {
+		if existingNodes[failure.NodeName] {
+			newFailedNodes = append(newFailedNodes, failure)
+		}
+	}
+
+	if len(newNodeEvaluations) == len(rule.Status.NodeEvaluations) &&
+		len(newAppliedNodes) == len(rule.Status.AppliedNodes) &&
+		len(newFailedNodes) == len(rule.Status.FailedNodes) {
 		log.V(4).Info("No deleted nodes to clean up", "rule", rule.Name)
 		return nil
 	}
 
 	log.V(4).Info("Cleaning up deleted nodes from rule status",
 		"rule", rule.Name,
-		"before", len(rule.Status.NodeEvaluations),
-		"after", len(newNodeEvaluations))
+		"beforeEvaluations", len(rule.Status.NodeEvaluations),
+		"afterEvaluations", len(newNodeEvaluations))
 
 	// Use retry on conflict to update status to avoid race conditions from node updates
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -265,12 +281,30 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 			}
 		}
 
-		if len(freshNodeEvaluations) == len(fresh.Status.NodeEvaluations) {
+		var freshAppliedNodes []string
+		for _, nodeName := range fresh.Status.AppliedNodes {
+			if existingNodes[nodeName] {
+				freshAppliedNodes = append(freshAppliedNodes, nodeName)
+			}
+		}
+
+		var freshFailedNodes []readinessv1alpha1.NodeFailure
+		for _, failure := range fresh.Status.FailedNodes {
+			if existingNodes[failure.NodeName] {
+				freshFailedNodes = append(freshFailedNodes, failure)
+			}
+		}
+
+		if len(freshNodeEvaluations) == len(fresh.Status.NodeEvaluations) &&
+			len(freshAppliedNodes) == len(fresh.Status.AppliedNodes) &&
+			len(freshFailedNodes) == len(fresh.Status.FailedNodes) {
 			return nil
 		}
 
 		patch := client.MergeFrom(fresh.DeepCopy())
 		fresh.Status.NodeEvaluations = freshNodeEvaluations
+		fresh.Status.AppliedNodes = freshAppliedNodes
+		fresh.Status.FailedNodes = freshFailedNodes
 		return r.Status().Patch(ctx, fresh, patch)
 	})
 }
@@ -516,6 +550,19 @@ func (r *RuleReadinessController) getApplicableRulesForNode(ctx context.Context,
 	}
 
 	return applicableRules
+}
+
+// getAllCachedRules returns a deep copy of all rules currently in the rule cache.
+func (r *RuleReadinessController) getAllCachedRules() []*readinessv1alpha1.NodeReadinessRule {
+	r.ruleCacheMutex.RLock()
+	defer r.ruleCacheMutex.RUnlock()
+
+	var rules []*readinessv1alpha1.NodeReadinessRule
+	for _, rule := range r.ruleCache {
+		rules = append(rules, rule.DeepCopy())
+	}
+
+	return rules
 }
 
 // ruleAppliesTo checks if a rule applies to a node.
