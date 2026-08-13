@@ -1562,7 +1562,18 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 		AfterEach(func() {
 			_ = k8sClient.Delete(ctx, testNode)
-			_ = k8sClient.Delete(ctx, rule)
+			if err := k8sClient.Delete(ctx, rule); err == nil {
+				// The cleanup-rule is not reconciled by every test. Remove its
+				// finalizer so the shared fixture cannot leak into the next spec.
+				Eventually(func() error {
+					current := &nodereadinessiov1alpha1.NodeReadinessRule{}
+					if err := k8sClient.Get(ctx, types.NamespacedName{Name: rule.Name}, current); err != nil {
+						return client.IgnoreNotFound(err)
+					}
+					current.Finalizers = nil
+					return k8sClient.Update(ctx, current)
+				}, time.Second*5).Should(Succeed())
+			}
 		})
 
 		It("should remove taints from nodes when rule is deleted", func() {
@@ -1616,6 +1627,84 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: "cleanup-rule"}, deletedRule)
 				return err != nil && client.IgnoreNotFound(err) == nil
 			}, time.Second*10).Should(BeTrue(), "Rule should be fully deleted")
+		})
+
+		It("should not add a cleanup finalizer or remove taints for an always-dry-run rule", func() {
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "dry-run-delete-node",
+					Labels: map[string]string{"dry-run-delete": "true"},
+				},
+				Spec: corev1.NodeSpec{Taints: []corev1.Taint{{
+					Key: "readiness.k8s.io/dry-run-delete", Value: "pre-existing", Effect: corev1.TaintEffectNoSchedule,
+				}}},
+			}
+			dryRunRule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "dry-run-delete-rule"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					DryRun:          true,
+					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "Ready", RequiredStatus: corev1.ConditionTrue}},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"dry-run-delete": "true"}},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/dry-run-delete", Value: "pre-existing", Effect: corev1.TaintEffectNoSchedule},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			Expect(k8sClient.Create(ctx, dryRunRule)).To(Succeed())
+
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: dryRunRule.Name}})
+			Expect(err).NotTo(HaveOccurred())
+
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: dryRunRule.Name}, updatedRule)).To(Succeed())
+			Expect(updatedRule.Finalizers).NotTo(ContainElement(finalizerName))
+
+			Expect(k8sClient.Delete(ctx, dryRunRule)).To(Succeed())
+			updatedNode := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode)).To(Succeed())
+			Expect(updatedNode.Spec.Taints).To(ContainElement(corev1.Taint{
+				Key: "readiness.k8s.io/dry-run-delete", Value: "pre-existing", Effect: corev1.TaintEffectNoSchedule,
+			}))
+			Expect(k8sClient.Delete(ctx, node)).To(Succeed())
+		})
+
+		It("should add and retain the finalizer after a dry-run rule enters enforcement", func() {
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "dry-run-transition-rule"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					DryRun:          true,
+					Conditions:      []nodereadinessiov1alpha1.ConditionRequirement{{Type: "Ready", RequiredStatus: corev1.ConditionTrue}},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"dry-run-transition": "true"}},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/dry-run-transition", Effect: corev1.TaintEffectNoSchedule},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+
+			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: rule.Name}})
+			Expect(err).NotTo(HaveOccurred())
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: rule.Name}, updatedRule)).To(Succeed())
+			Expect(updatedRule.Finalizers).NotTo(ContainElement(finalizerName))
+
+			updatedRule.Spec.DryRun = false
+			Expect(k8sClient.Update(ctx, updatedRule)).To(Succeed())
+			_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: rule.Name}})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: rule.Name}, updatedRule)).To(Succeed())
+			Expect(updatedRule.Finalizers).To(ContainElement(finalizerName))
+
+			updatedRule.Spec.DryRun = true
+			Expect(k8sClient.Update(ctx, updatedRule)).To(Succeed())
+			_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: rule.Name}})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: rule.Name}, updatedRule)).To(Succeed())
+			Expect(updatedRule.Finalizers).To(ContainElement(finalizerName))
+			Expect(k8sClient.Delete(ctx, updatedRule)).To(Succeed())
+			_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: rule.Name}})
+			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 

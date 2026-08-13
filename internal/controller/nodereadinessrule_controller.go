@@ -115,7 +115,10 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	log = log.WithValues("ruleName", rule.Name)
 	ctx = ctrl.LoggerInto(ctx, log)
 
-	// Add finalizer first if not set to avoid the race condition between init and delete.
+	// Add the cleanup finalizer only once the rule is enforceable. A dry-run-only
+	// rule must not perform taint cleanup when it is deleted. Once added, the
+	// finalizer is retained across later dry-run reconciliations as a persistent
+	// indication that the rule may have previously entered enforcement.
 	if finalizerAdded, err := r.ensureFinalizer(ctx, rule, finalizerName); err != nil {
 		return ctrl.Result{}, err
 	} else if finalizerAdded {
@@ -188,10 +191,14 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	log.V(3).Info("Updating cache with deletion-marked rule before cleanup")
 	r.Controller.updateRuleCache(ctx, rule)
 
-	log.Info("Cleaning up taints for deleted rule", "rule", rule.Name)
-	if err := r.Controller.cleanupTaintsForRule(ctx, rule, nodeList); err != nil {
-		log.Error(err, "Failed to cleanup taints for rule", "rule", rule.Name)
-		return ctrl.Result{RequeueAfter: time.Minute}, err
+	if controllerutil.ContainsFinalizer(rule, finalizerName) {
+		log.Info("Cleaning up taints for deleted rule", "rule", rule.Name)
+		if err := r.Controller.cleanupTaintsForRule(ctx, rule, nodeList); err != nil {
+			log.Error(err, "Failed to cleanup taints for rule", "rule", rule.Name)
+			return ctrl.Result{RequeueAfter: time.Minute}, err
+		}
+	} else {
+		log.Info("Skipping taint cleanup for deleted rule without cleanup finalizer", "rule", rule.Name)
 	}
 
 	log.V(3).Info("Removing the rule from cache")
@@ -699,6 +706,11 @@ func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule
 func (r *RuleReconciler) ensureFinalizer(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, finalizer string) (finalizerAdded bool, err error) {
 	// Finalizers can only be added when the deletionTimestamp is not set.
 	if !rule.GetDeletionTimestamp().IsZero() {
+		return false, nil
+	}
+	// Dry-run rules are previews and must not acquire deletion-time cleanup
+	// behavior until they first enter enforcement.
+	if rule.Spec.DryRun {
 		return false, nil
 	}
 	if controllerutil.ContainsFinalizer(rule, finalizer) {
