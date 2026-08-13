@@ -76,6 +76,16 @@ helm install nrr-controller ./charts/nrr-controller \
 
 Requires Helm 3.x. This deploys the controller with the same defaults as the standard manifest: leader election on, metrics off, and the validating webhook off.
 
+For anything beyond a couple of overrides, keep your settings in a file instead of a long `--set` list:
+
+```sh
+helm show values ./charts/nrr-controller > custom-values.yaml
+
+helm install nrr-controller ./charts/nrr-controller \
+  --namespace nrr-system --create-namespace \
+  -f custom-values.yaml
+```
+
 #### Optional components
 
 Everything beyond the core controller is opt-in, matching the kustomize components.
@@ -124,6 +134,28 @@ nodeReadinessRules:
 
 > [!NOTE]
 > With the validating webhook enabled, apply rules only once the controller is serving admission requests. On a first install the webhook is not ready while the rules in the same release are being created, so install the controller first and add the rules in a follow-up `helm upgrade`.
+
+#### Upgrading
+
+Pull the version of the chart you want and upgrade the release in place. Values you set at install time are carried over, so only pass the ones you are changing:
+
+```sh
+git pull
+
+helm upgrade nrr-controller ./charts/nrr-controller \
+  --namespace nrr-system \
+  -f custom-values.yaml
+```
+
+`helm upgrade --install` works too if you want one command that handles both the first install and later upgrades.
+
+Check what changed before applying it to a live cluster:
+
+```sh
+helm diff upgrade nrr-controller ./charts/nrr-controller --namespace nrr-system   # needs the helm-diff plugin
+```
+
+Read the CRD note below first. Helm will not update the CRD for you, so a chart bump that changes the schema needs that step done by hand.
 
 #### CRD upgrades
 
