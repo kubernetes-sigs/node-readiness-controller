@@ -27,4 +27,4 @@ make manifests
 
 diff -u \
   config/crd/bases/readiness.node.x-k8s.io_nodereadinessrules.yaml \
-  charts/nrr-controller/crds/nodereadinessrules.readiness.node.x-k8s.io.yaml
+  charts/node-readiness-controller/crds/nodereadinessrules.readiness.node.x-k8s.io.yaml

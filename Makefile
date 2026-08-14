@@ -490,17 +490,17 @@ crd-ref-docs:
 HELM ?= go run helm.sh/helm/v3/cmd/helm@v3.15.1
 
 lint-chart:
-	$(HELM) lint ./charts/nrr-controller
+	$(HELM) lint ./charts/node-readiness-controller
 
 inject-helm-version: ## Inject the release version into the Helm chart's appVersion and image tag
-	sed 's/tag: .*/tag: "$(RELEASE_VERSION)"/' charts/nrr-controller/values.yaml > charts/nrr-controller/values.yaml.tmp && mv charts/nrr-controller/values.yaml.tmp charts/nrr-controller/values.yaml
-	sed 's/^appVersion: .*/appVersion: "$(RELEASE_VERSION)"/' charts/nrr-controller/Chart.yaml > charts/nrr-controller/Chart.yaml.tmp && mv charts/nrr-controller/Chart.yaml.tmp charts/nrr-controller/Chart.yaml
+	sed 's/tag: .*/tag: "$(RELEASE_VERSION)"/' charts/node-readiness-controller/values.yaml > charts/node-readiness-controller/values.yaml.tmp && mv charts/node-readiness-controller/values.yaml.tmp charts/node-readiness-controller/values.yaml
+	sed 's/^appVersion: .*/appVersion: "$(RELEASE_VERSION)"/' charts/node-readiness-controller/Chart.yaml > charts/node-readiness-controller/Chart.yaml.tmp && mv charts/node-readiness-controller/Chart.yaml.tmp charts/node-readiness-controller/Chart.yaml
 
 build-helm: inject-helm-version
-	$(HELM) package ./charts/nrr-controller --dependency-update --destination ./bin/chart
+	$(HELM) package ./charts/node-readiness-controller --dependency-update --destination ./bin/chart
 
 publish-helm: ## Publish the packaged Helm chart to an OCI registry
-	$(HELM) push ./bin/chart/nrr-controller-*.tgz oci://$(HELM_IMAGE)
+	$(HELM) push ./bin/chart/node-readiness-controller-*.tgz oci://$(HELM_IMAGE)
 
 kind-multi-node:
 	kind create cluster --name $(KIND_CLUSTER) --config ./config/testing/kind/kind-3node-config.yaml --wait 2m

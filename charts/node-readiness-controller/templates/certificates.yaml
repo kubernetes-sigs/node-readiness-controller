@@ -1,0 +1,44 @@
+{{- if and .Values.certManager.enabled .Values.certManager.metricsCertificate.create .Values.metrics.enabled .Values.metrics.secure }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "node-readiness-controller.fullname" . }}-{{ .Values.certManager.metricsCertificate.name }}
+  namespace: {{ include "node-readiness-controller.namespace" . }}
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.metrics.certSecretName }}
+  {{- with .Values.certManager.certificateSubject }}
+  subject:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  dnsNames:
+    - {{ include "node-readiness-controller.fullname" . }}-metrics-service.{{ include "node-readiness-controller.namespace" . }}.svc
+    - {{ include "node-readiness-controller.fullname" . }}-metrics-service.{{ include "node-readiness-controller.namespace" . }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ include "node-readiness-controller.fullname" . }}-{{ .Values.certManager.issuer.name }}
+{{- end }}
+{{- if and .Values.certManager.enabled .Values.webhook.enabled .Values.certManager.webhookCertificate.create }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "node-readiness-controller.fullname" . }}-{{ .Values.certManager.webhookCertificate.name }}
+  namespace: {{ include "node-readiness-controller.namespace" . }}
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.webhook.certSecretName }}
+  {{- with .Values.certManager.certificateSubject }}
+  subject:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  dnsNames:
+    - {{ include "node-readiness-controller.fullname" . }}-webhook-service.{{ include "node-readiness-controller.namespace" . }}.svc
+    - {{ include "node-readiness-controller.fullname" . }}-webhook-service.{{ include "node-readiness-controller.namespace" . }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ include "node-readiness-controller.fullname" . }}-{{ .Values.certManager.issuer.name }}
+{{- end }}

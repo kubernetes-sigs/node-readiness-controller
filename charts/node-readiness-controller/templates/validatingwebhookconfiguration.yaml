@@ -2,12 +2,12 @@
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
-  name: {{ include "nrr-controller.fullname" . }}-{{ .Values.validatingWebhook.name }}
+  name: {{ include "node-readiness-controller.fullname" . }}-{{ .Values.validatingWebhook.name }}
   labels:
-    {{- include "nrr-controller.labels" . | nindent 4 }}
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
   {{- if .Values.certManager.enabled }}
   annotations:
-    cert-manager.io/inject-ca-from: {{ include "nrr-controller.namespace" . }}/{{ include "nrr-controller.fullname" . }}-{{ .Values.certManager.webhookCertificate.name }}
+    cert-manager.io/inject-ca-from: {{ include "node-readiness-controller.namespace" . }}/{{ include "node-readiness-controller.fullname" . }}-{{ .Values.certManager.webhookCertificate.name }}
   {{- end }}
 webhooks:
   - name: {{ .Values.validatingWebhook.webhookName }}
@@ -15,8 +15,8 @@ webhooks:
       {{- toYaml .Values.validatingWebhook.admissionReviewVersions | nindent 6 }}
     clientConfig:
       service:
-        name: {{ include "nrr-controller.fullname" . }}-webhook-service
-        namespace: {{ include "nrr-controller.namespace" . }}
+        name: {{ include "node-readiness-controller.fullname" . }}-webhook-service
+        namespace: {{ include "node-readiness-controller.namespace" . }}
         port: {{ .Values.webhook.service.port }}
         path: {{ .Values.validatingWebhook.path }}
     failurePolicy: {{ .Values.validatingWebhook.failurePolicy }}

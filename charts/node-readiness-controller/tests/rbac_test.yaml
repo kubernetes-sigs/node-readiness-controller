@@ -4,14 +4,14 @@ templates:
   - "*.yaml"
 
 release:
-  name: nrr-controller
+  name: node-readiness-controller
 
 tests:
   - it: grants events on both the core and events.k8s.io groups
     template: templates/rbac.yaml
     documentSelector:
       path: metadata.name
-      value: nrr-controller-manager-role
+      value: node-readiness-controller-manager-role
     asserts:
       - isKind:
           of: ClusterRole
@@ -29,7 +29,7 @@ tests:
     template: templates/rbac.yaml
     documentSelector:
       path: metadata.name
-      value: nrr-controller-manager-role
+      value: node-readiness-controller-manager-role
     asserts:
       - contains:
           path: rules

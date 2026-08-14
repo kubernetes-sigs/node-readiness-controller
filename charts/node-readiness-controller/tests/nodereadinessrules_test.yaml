@@ -4,7 +4,7 @@ templates:
   - templates/nodereadinessrules.yaml
 
 release:
-  name: nrr-controller
+  name: node-readiness-controller
 
 tests:
   - it: renders full rule spec with explicit all-nodes selector

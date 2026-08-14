@@ -4,7 +4,7 @@ templates:
   - "*.yaml"
 
 release:
-  name: nrr-controller
+  name: node-readiness-controller
 
 tests:
   - it: adds pod annotations and labels when set
@@ -43,4 +43,4 @@ tests:
           path: spec.template.metadata.labels
       - equal:
           path: spec.template.metadata.labels["app.kubernetes.io/name"]
-          value: nrr-controller
+          value: node-readiness-controller

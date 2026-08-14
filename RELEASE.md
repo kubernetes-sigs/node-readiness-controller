@@ -34,9 +34,9 @@ After the release tag is pushed, the images and Helm chart must be built, pushed
   ```sh
   skopeo list-tags docker://us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/node-readiness-controller | grep vX.Y.Z
   ```
-- Verify the chart exists in the staging repository (replace `<chart-version>` with the version in `charts/nrr-controller/Chart.yaml` at the tagged commit):
+- Verify the chart exists in the staging repository (replace `<chart-version>` with the version in `charts/node-readiness-controller/Chart.yaml` at the tagged commit):
   ```sh
-  helm pull oci://us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/charts/nrr-controller --version <chart-version>
+  helm pull oci://us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/charts/node-readiness-controller --version <chart-version>
   ```
 
 ### B. Create PR for Promotion
@@ -47,7 +47,7 @@ After the release tag is pushed, the images and Helm chart must be built, pushed
   ```
 - Identify the chart digest:
   ```sh
-  skopeo inspect --raw docker://us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/charts/nrr-controller:<chart-version> | sha256sum
+  skopeo inspect --raw docker://us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/charts/node-readiness-controller:<chart-version> | sha256sum
   ```
   Alternatively, note the digest printed by `helm push`/`helm pull` when the chart was published/verified above.
 - Fork [kubernetes/k8s.io](https://github.com/kubernetes/k8s.io).
@@ -68,7 +68,7 @@ Before publishing the release, verify the images and chart are available at k8s-
   ```
 - Ensure the chart is available at `registry.k8s.io`:
   ```sh
-  helm pull oci://registry.k8s.io/node-readiness-controller/charts/nrr-controller --version <chart-version>
+  helm pull oci://registry.k8s.io/node-readiness-controller/charts/node-readiness-controller --version <chart-version>
   ```
 
 ### B. Test Release Artifacts

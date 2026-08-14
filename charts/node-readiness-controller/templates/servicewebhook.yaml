@@ -1,0 +1,17 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "node-readiness-controller.fullname" . }}-webhook-service
+  namespace: {{ include "node-readiness-controller.namespace" . }}
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: webhook
+      port: {{ .Values.webhook.service.port }}
+      protocol: TCP
+      targetPort: {{ .Values.webhook.service.targetPort }}
+  selector:
+    {{- include "node-readiness-controller.selectorLabels" . | nindent 4 }}
+{{- end }}
