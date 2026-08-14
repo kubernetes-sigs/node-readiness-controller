@@ -174,4 +174,15 @@ var metricQueries = []MetricQuery{
 		Unit:      "adds",
 		IsCounter: true,
 	},
+	{
+		Key:       "kube_api_requests_total",
+		QueryTmpl: "sum(rest_client_requests_total{job=\"node-readiness-controller\"}) - (sum(rest_client_requests_total{job=\"node-readiness-controller\"} @ %.3f) or vector(0))",
+		Unit:      "requests",
+		IsCounter: true,
+	},
+	{
+		Key:       "kube_api_requests_rate",
+		QueryTmpl: "sum(rate(rest_client_requests_total{job=\"node-readiness-controller\"}[%ds]))",
+		Unit:      "req/s",
+	},
 }

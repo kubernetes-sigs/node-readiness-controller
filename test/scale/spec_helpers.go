@@ -71,6 +71,7 @@ type PhaseJSON struct {
 	Resources       ResourcesJSON  `json:"resources"`
 	Workqueue       WorkqueueJSON  `json:"workqueue"`
 	Operations      OperationsJSON `json:"operations"`
+	APIClient       APIClientJSON  `json:"api_client"`
 }
 
 type PercentilesJSON struct {
@@ -117,6 +118,11 @@ type OperationsJSON struct {
 	TaintsRemoved       int64 `json:"taints_removed"`
 	ConditionFailures   int64 `json:"condition_failures"`
 	OperationalFailures int64 `json:"operational_failures"`
+}
+
+type APIClientJSON struct {
+	RequestsTotal int64   `json:"requests_total"`
+	RequestsRate  float64 `json:"requests_rate"`
 }
 
 func buildPhaseJSON(q queryResult) PhaseJSON {
@@ -182,6 +188,10 @@ func buildPhaseJSON(q queryResult) PhaseJSON {
 			TaintsRemoved:       getInt("taint_operations_remove"),
 			ConditionFailures:   getInt("condition_failures_total"),
 			OperationalFailures: getInt("operational_failures_total"),
+		},
+		APIClient: APIClientJSON{
+			RequestsTotal: getInt("kube_api_requests_total"),
+			RequestsRate:  getRaw("kube_api_requests_rate"),
 		},
 	}
 }
@@ -386,7 +396,7 @@ func formatMetricValue(val string, unit string) string {
 	if val == "N/A" || val == "" {
 		return val
 	}
-	if unit == "s" || unit == "cores" {
+	if unit == "s" || unit == "cores" || unit == "req/s" {
 		if floatVal, err := strconv.ParseFloat(val, 64); err == nil {
 			return fmt.Sprintf("%.3f %s", floatVal, unit)
 		}

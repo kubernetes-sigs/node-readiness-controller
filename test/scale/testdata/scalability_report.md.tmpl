@@ -35,5 +35,12 @@
 | **Condition Check Failures** | {{index .Metrics "condition_failures_total"}} |
 | **Controller Operational Failures** | {{index .Metrics "operational_failures_total"}} |
 
+### Kubernetes API Client Metrics
+
+| Metric | Value |
+| :--- | :--- |
+| **Kube API Requests (Total)** | {{index .Metrics "kube_api_requests_total"}} |
+| **Kube API Request Rate** | {{index .Metrics "kube_api_requests_rate"}} |
+
 ---
 {{end}}
