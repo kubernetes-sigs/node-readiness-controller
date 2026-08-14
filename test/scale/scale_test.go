@@ -57,7 +57,7 @@ var _ = Describe("Node Readiness Controller Scalability Test", func() {
 		applyManifest(ctx, securityAgentStageFalseManifest)
 
 		By("Waiting for the controller manager to reconcile and add taints to all nodes")
-		waitForNodeTaints(ctx, nodeCount, cfg.TaintTimeout)
+		waitForNodeTaints(ctx, nodeCount)
 
 		taintEnd := time.Now()
 		taintDuration := taintEnd.Sub(taintStart)
@@ -82,7 +82,7 @@ var _ = Describe("Node Readiness Controller Scalability Test", func() {
 		applyManifest(ctx, securityAgentStageTrueManifest)
 
 		By("Waiting for the controller manager to reconcile and remove taints on all nodes")
-		waitForNodeTaints(ctx, 0, cfg.UntaintTimeout)
+		waitForNodeTaints(ctx, 0)
 
 		untaintEnd := time.Now()
 		untaintDuration := untaintEnd.Sub(untaintStart)

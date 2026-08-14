@@ -190,7 +190,7 @@ var (
 	// We are using client-go over kubectl to increase the polling frequency when counting nodes.
 	clientset *kubernetes.Clientset
 	// We need an HTTP client to query Prometheus endpoint.
-	promHTTPClient = &http.Client{Timeout: 5 * time.Second}
+	promHTTPClient = &http.Client{}
 )
 
 func getKubeClient() (*kubernetes.Clientset, error) {
@@ -275,13 +275,13 @@ func countTaintedNodes(ctx context.Context, labelSelector string, taintKey strin
 	return count, nil
 }
 
-func waitForNodeTaints(ctx context.Context, targetTaintedCount int, timeout string) {
+func waitForNodeTaints(ctx context.Context, targetTaintedCount int) {
 	Eventually(func(g Gomega) int {
 		count, err := countTaintedNodes(ctx, "type=kwok", "readiness.k8s.io/SecurityAgentNotReady", "pending")
 		g.Expect(err).NotTo(HaveOccurred())
 		By(fmt.Sprintf("Progress: %d/%d nodes tainted", count, cfg.NodeCount))
 		return count
-	}, timeout, "1s").Should(Equal(targetTaintedCount), "Tainted node count did not reach expected target")
+	}).WithPolling(1 * time.Second).Should(Equal(targetTaintedCount), "Tainted node count did not reach expected target")
 }
 
 func queryPrometheusInstant(ctx context.Context, query string, ts float64) (string, error) {

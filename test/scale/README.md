@@ -38,8 +38,6 @@ All scale parameters are configurable via shell environment variables passed dir
 | `ARTIFACTS` | `test/scale/artifacts/` | Directory where test logs and reports are saved (populated by Prow for SpyGlass). |
 | `KUBECONFIG` | *Automatic* | Target kubeconfig path. Defaults to the managed KWOK cluster configuration. |
 | `SKIP_TEARDOWN` | `false` | If set to `true`, keeps the simulated nodes active, and the KWOK cluster/Prometheus instance running after the test finishes. |
-| `TAINT_TIMEOUT` | `15m` | Maximum wait duration for the controller to apply taints to all nodes. |
-| `UNTAINT_TIMEOUT` | `15m` | Maximum wait duration for the controller to remove taints from all nodes. |
 | `ENFORCEMENT_MODE` | `continuous` | Enforcement mode configured for the test `NodeReadinessRule` (e.g. `continuous`, `bootstrap-only`). |
 
 ---

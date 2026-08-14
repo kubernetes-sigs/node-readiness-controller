@@ -31,6 +31,7 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck
 	. "github.com/onsi/gomega"    //nolint:staticcheck
@@ -134,12 +135,6 @@ func readEnvConfig() {
 	if leaseSecs := os.Getenv("NODE_LEASE_DURATION_SECONDS"); leaseSecs != "" {
 		cfg.NodeLeaseDurationSeconds = leaseSecs
 	}
-	if timeout := os.Getenv("TAINT_TIMEOUT"); timeout != "" {
-		cfg.TaintTimeout = timeout
-	}
-	if timeout := os.Getenv("UNTAINT_TIMEOUT"); timeout != "" {
-		cfg.UntaintTimeout = timeout
-	}
 	if mode := os.Getenv("ENFORCEMENT_MODE"); mode != "" {
 		cfg.EnforcementMode = mode
 	}
@@ -221,7 +216,7 @@ func setupPrometheusScraper() {
 		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%s/-/ready", cfg.PrometheusPort))
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	}, "30s", "1s").Should(Succeed(), "Prometheus is not ready")
+	}).WithPolling(1 * time.Second).Should(Succeed(), "Prometheus is not ready")
 }
 
 func scaleKwokNodes(kwokctlPath string) {
@@ -235,7 +230,7 @@ func scaleKwokNodes(kwokctlPath string) {
 		count, err := countKwokNodes(context.Background(), "type=kwok")
 		g.Expect(err).NotTo(HaveOccurred())
 		return count
-	}, "15m", "1s").Should(Equal(cfg.NodeCount), "Nodes failed to scale")
+	}).WithPolling(1 * time.Second).Should(Equal(cfg.NodeCount), "Nodes failed to scale")
 }
 
 func setupArtifacts() *os.File {
@@ -279,7 +274,7 @@ func startControllerDaemon(binPath string, logFile *os.File) *exec.Cmd {
 		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%s/metrics", cfg.MetricsPort))
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	}, "15s", "500ms").Should(Succeed(), fmt.Sprintf("Controller failed to start or bind to port %s", cfg.MetricsPort))
+	}).WithPolling(500 * time.Millisecond).Should(Succeed(), fmt.Sprintf("Controller failed to start or bind to port %s", cfg.MetricsPort))
 
 	return cmd
 }

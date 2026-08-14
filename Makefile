@@ -440,7 +440,7 @@ setup-envtest: $(SETUP_ENVTEST) ## Download the binaries required for ENVTEST in
 
 .PHONY: test-scale
 test-scale: manifests generate ## Run the scale performance tests. See test/scale/README.md for more information.
-	go test -tags=scale -v ./test/scale/... -ginkgo.v -timeout 30m -count=1
+	go test -tags=scale -v ./test/scale/... -ginkgo.v -count=1
 
 ## --------------------------------------
 ## Hack / Tools

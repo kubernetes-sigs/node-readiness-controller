@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -46,8 +47,6 @@ type scaleConfig struct {
 	DisableQPSLimits         bool
 	NodeLeaseDurationSeconds string
 	SkipTeardown             bool
-	TaintTimeout             string
-	UntaintTimeout           string
 	EnforcementMode          string
 }
 
@@ -56,8 +55,6 @@ var defaultScaleConfig = scaleConfig{
 	MetricsPort:     "8080",
 	PrometheusPort:  "9090",
 	NodeCount:       1000,
-	TaintTimeout:    "15m",
-	UntaintTimeout:  "15m",
 	EnforcementMode: "continuous",
 }
 
@@ -83,6 +80,10 @@ var prometheusJobTemplate string
 
 var _ = BeforeSuite(func() {
 	readEnvConfig()
+
+	// Set global Gomega timeout for Eventually calls. Without an explicit timeout parameter,
+	// Gomega defaults to a 1-second timeout, which causes some assertions to fail.
+	SetDefaultEventuallyTimeout(2 * time.Hour)
 
 	By("Ensuring kwokctl binary is present")
 	kwokctlBinaryPath = ensureKwokctl(cfg.KwokctlVersion)
