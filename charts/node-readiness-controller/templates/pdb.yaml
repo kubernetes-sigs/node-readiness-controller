@@ -7,10 +7,10 @@ metadata:
   labels:
     {{- include "node-readiness-controller.labels" . | nindent 4 }}
 spec:
-  {{- if .Values.podDisruptionBudget.minAvailable }}
+  {{- if or .Values.podDisruptionBudget.minAvailable (eq (toString .Values.podDisruptionBudget.minAvailable) "0") }}
   minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
   {{- end }}
-  {{- if .Values.podDisruptionBudget.maxUnavailable }}
+  {{- if or .Values.podDisruptionBudget.maxUnavailable (eq (toString .Values.podDisruptionBudget.maxUnavailable) "0") }}
   maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
   {{- end }}
   selector:

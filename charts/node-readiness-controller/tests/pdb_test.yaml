@@ -40,6 +40,21 @@ tests:
           path: spec.maxUnavailable
           value: 1
 
+  - it: creates PDB with maxUnavailable 0
+    set:
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: null
+        maxUnavailable: 0
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - isNull:
+          path: spec.minAvailable
+      - equal:
+          path: spec.maxUnavailable
+          value: 0
+
   - it: has matching selector labels
     set:
       podDisruptionBudget:
