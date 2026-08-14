@@ -1,0 +1,72 @@
+suite: Test Node Readiness Controller Manager RBAC
+
+templates:
+  - "*.yaml"
+
+release:
+  name: node-readiness-controller
+
+tests:
+  - it: grants events on both the core and events.k8s.io groups
+    template: templates/rbac.yaml
+    documentSelector:
+      path: metadata.name
+      value: node-readiness-controller-manager-role
+    asserts:
+      - isKind:
+          of: ClusterRole
+      # The controller records taint events via k8s.io/client-go/tools/events,
+      # which writes to events.k8s.io/v1. Granting only the core group makes
+      # every TaintAdded, TaintRemoved and TaintAdopted write forbidden.
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["", "events.k8s.io"]
+            resources: ["events"]
+            verbs: ["create", "patch"]
+
+  - it: grants the node and rule permissions the controller needs
+    template: templates/rbac.yaml
+    documentSelector:
+      path: metadata.name
+      value: node-readiness-controller-manager-role
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["nodes"]
+            verbs: ["get", "list", "patch", "update", "watch"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["nodes/status"]
+            verbs: ["get"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["readiness.node.x-k8s.io"]
+            resources: ["nodereadinessrules"]
+            verbs: ["get", "list", "patch", "update", "watch"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["readiness.node.x-k8s.io"]
+            resources: ["nodereadinessrules/finalizers"]
+            verbs: ["update"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["readiness.node.x-k8s.io"]
+            resources: ["nodereadinessrules/status"]
+            verbs: ["get", "patch", "update"]
+
+  - it: omits rbac resources when rbac.create is disabled
+    template: templates/rbac.yaml
+    set:
+      rbac:
+        create: false
+    asserts:
+      - hasDocuments:
+          count: 0

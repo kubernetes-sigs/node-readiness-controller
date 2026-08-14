@@ -1,0 +1,11 @@
+{{- if and .Values.certManager.enabled .Values.certManager.issuer.create }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "node-readiness-controller.fullname" . }}-{{ .Values.certManager.issuer.name }}
+  namespace: {{ include "node-readiness-controller.namespace" . }}
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+{{- end }}

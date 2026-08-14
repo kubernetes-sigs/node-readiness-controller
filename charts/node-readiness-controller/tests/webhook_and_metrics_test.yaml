@@ -4,7 +4,7 @@ templates:
   - "*.yaml"
 
 release:
-  name: nrr-controller
+  name: node-readiness-controller
 
 set:
   webhook:
@@ -39,7 +39,7 @@ tests:
           value: vnodereadinessrule.readiness.node.x-k8s.io
       - equal:
           path: webhooks[0].clientConfig.service.name
-          value: nrr-controller-webhook-service
+          value: node-readiness-controller-webhook-service
       - equal:
           path: webhooks[0].clientConfig.service.port
           value: 443

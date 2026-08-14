@@ -1,6 +1,8 @@
 FROM --platform=$BUILDPLATFORM golang:1.26.0 AS builder
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=unknown
+ARG GIT_COMMIT=unknown
 
 WORKDIR /workspace
 
@@ -9,7 +11,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o reporter ./cmd/readiness-condition-reporter/
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a \
+	-ldflags "-X sigs.k8s.io/node-readiness-controller/internal/info.version=${VERSION} -X sigs.k8s.io/node-readiness-controller/internal/info.gitCommit=${GIT_COMMIT}" \
+	-o reporter ./cmd/readiness-condition-reporter/
 
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /

@@ -7,13 +7,19 @@ options:
   substitution_option: ALLOW_LOOSE
 steps:
   - name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:latest
-    entrypoint: ./scripts/build-and-publish-image.sh
+    entrypoint: ./scripts/build-and-publish.sh
     env:
     - IMG_PREFIX=us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller
     - COMPONENT=controller
 
   - name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:latest
-    entrypoint: ./scripts/build-and-publish-image.sh
+    entrypoint: ./scripts/build-and-publish.sh
     env:
     - IMG_PREFIX=us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller
     - COMPONENT=reporter
+
+  - name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:latest
+    entrypoint: ./scripts/build-and-publish.sh
+    env:
+    - IMG_PREFIX=us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller
+    - COMPONENT=chart

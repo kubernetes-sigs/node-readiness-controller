@@ -54,6 +54,26 @@ securityContext:
 
 terminationGracePeriodSeconds: 10
 
+# Controller performance tuning flags.
+# These map directly to the CLI flags in cmd/main.go.
+controller:
+  # -- Maximum QPS to the Kubernetes API server.
+  # -1 means no limit (controller-runtime default).
+  kubeAPIQPS: -1
+  # -- Maximum burst for throttled API server requests.
+  # -1 means no limit (controller-runtime default).
+  kubeAPIBurst: -1
+  # -- Maximum number of Node objects reconciled concurrently.
+  # Raise on large clusters to reduce taint latency during node joins.
+  nodeConcurrentReconciles: 1
+  # -- Maximum number of NodeReadinessRule objects reconciled concurrently.
+  ruleConcurrentReconciles: 1
+  # -- Enable per-rule aggregate node state metrics
+  # (node_readiness_nodes_by_state gauge). Increases API reads on node updates.
+  enableNodeStateMetrics: false
+  # -- Bind address for the pprof endpoint. Leave empty to disable.
+  pprofBindAddress: ""
+
 rbac:
   create: true
 
@@ -65,6 +85,9 @@ serviceAccount:
 # Enable leader election to support multiple replicas
 leaderElection:
   enabled: true
+  # -- Namespace for the leader election lease.
+  # Defaults to the release namespace when empty.
+  namespace: ""
 
 # The bind address for the health probe endpoints (/healthz, /readyz)
 healthProbeBindAddress: ":8081"

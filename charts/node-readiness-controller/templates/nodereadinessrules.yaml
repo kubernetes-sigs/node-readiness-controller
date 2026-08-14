@@ -2,7 +2,7 @@
 {{- range $rule := .Values.nodeReadinessRules }}
 {{- $spec := omit $rule "name" }}
 {{- if or (not (hasKey $spec "nodeSelector")) (kindIs "invalid" $spec.nodeSelector) }}
-{{- fail (printf "nodeReadinessRules[%s]: spec.nodeSelector is required and immutable. Set it explicitly; use 'nodeSelector: {}' only if the rule is intended to match ALL nodes." ($rule.name | default "?")) }}
+{{- fail (printf "nodeReadinessRules[%s]: spec.nodeSelector is required and immutable. An empty selector to match every node in the cluster is rejected by the validating webhook to avoid cluster wide misconfiguration risks." ($rule.name | default "?")) }}
 {{- end }}
 ---
 apiVersion: readiness.node.x-k8s.io/v1alpha1

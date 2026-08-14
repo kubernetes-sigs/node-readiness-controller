@@ -20,6 +20,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,7 +29,39 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
+
+	"sigs.k8s.io/node-readiness-controller/internal/info"
 )
+
+func TestReporterBuildInfo(t *testing.T) {
+	expected := `
+# HELP node_readiness_reporter_build_info Reporter binary version to track fleet version skew.
+# TYPE node_readiness_reporter_build_info gauge
+node_readiness_reporter_build_info{version="` + info.GetVersion() + `"} 1
+`
+	if err := testutil.CollectAndCompare(reporterBuildInfo, strings.NewReader(expected), "node_readiness_reporter_build_info"); err != nil {
+		t.Fatalf("unexpected collecting result:\n%s", err)
+	}
+
+	gathered, err := registry.Gather()
+	if err != nil {
+		t.Fatalf("failed to gather metrics: %v", err)
+	}
+
+	var found bool
+	for _, mf := range gathered {
+		if mf.GetName() == "node_readiness_reporter_build_info" {
+			found = true
+			if got := mf.GetType().String(); got != "GAUGE" {
+				t.Fatalf("expected node_readiness_reporter_build_info to be a gauge, got %s", got)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected node_readiness_reporter_build_info to be registered with the reporter metrics registry")
+	}
+}
 
 func TestCheckHealth(t *testing.T) {
 	tests := []struct {
@@ -451,6 +484,51 @@ func TestUpdateNodeCondition(t *testing.T) {
 			}
 			if foundCondition.Reason != tt.wantReason {
 				t.Errorf("Condition reason = %v, want %v", foundCondition.Reason, tt.wantReason)
+			}
+		})
+	}
+}
+
+func TestParseDurationWithDefault(t *testing.T) {
+	defaultVal := 30 * time.Second
+
+	tests := []struct {
+		name     string
+		input    string
+		expected time.Duration
+	}{
+		{
+			name:     "valid positive duration",
+			input:    "60s",
+			expected: 60 * time.Second,
+		},
+		{
+			name:     "zero duration",
+			input:    "0s",
+			expected: defaultVal,
+		},
+		{
+			name:     "negative duration",
+			input:    "-30s",
+			expected: defaultVal,
+		},
+		{
+			name:     "unparseable duration",
+			input:    "abc",
+			expected: defaultVal,
+		},
+		{
+			name:     "empty duration",
+			input:    "",
+			expected: defaultVal,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseDurationWithDefault(tt.input, defaultVal, "test duration")
+			if result != tt.expected {
+				t.Errorf("parseDurationWithDefault(%q) = %v, expected %v", tt.input, result, tt.expected)
 			}
 		})
 	}

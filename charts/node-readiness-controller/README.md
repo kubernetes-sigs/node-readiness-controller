@@ -7,7 +7,7 @@
 ```shell
 git clone https://github.com/kubernetes-sigs/node-readiness-controller.git
 cd node-readiness-controller
-helm install my-release --namespace nrr-system --create-namespace ./charts/nrr-controller
+helm install my-release --namespace nrr-system --create-namespace ./charts/node-readiness-controller
 ```
 
 > Published chart releases via `registry.k8s.io` OCI are WIP.
@@ -25,7 +25,7 @@ This chart bootstraps a [node-readiness-controller](https://github.com/kubernete
 To install the chart with the release name `my-release`:
 
 ```shell
-helm install --namespace nrr-system --create-namespace my-release ./charts/nrr-controller
+helm install --namespace nrr-system --create-namespace my-release ./charts/node-readiness-controller
 ```
 
 The command deploys the _node-readiness-controller_ on the Kubernetes cluster in the default configuration. The [configuration](#configuration) section lists the parameters that can be configured during installation.
@@ -34,7 +34,7 @@ The command deploys the _node-readiness-controller_ on the Kubernetes cluster in
 
 ## CRD Upgrades
 
-Helm installs CRDs from the chart `crds/` directory during initial install, but Helm does not upgrade or delete CRDs from that directory during `helm upgrade` or `helm uninstall`. Before upgrading to a chart version that changes the `NodeReadinessRule` schema, apply the updated CRD from the release artifacts or from `charts/nrr-controller/crds`.
+Helm installs CRDs from the chart `crds/` directory during initial install, but Helm does not upgrade or delete CRDs from that directory during `helm upgrade` or `helm uninstall`. Before upgrading to a chart version that changes the `NodeReadinessRule` schema, apply the updated CRD from the release artifacts or from `charts/node-readiness-controller/crds`.
 
 ## Uninstalling the Chart
 
@@ -56,11 +56,18 @@ The following table lists the configurable parameters of the _node-readiness-con
 | `image.tag`                              | Docker tag to use                                                                                                                | `v[chart appVersion]`                                             |
 | `image.pullPolicy`                       | Docker image pull policy                                                                                                         | `IfNotPresent`                                                    |
 | `imagePullSecrets`                       | Docker repository secrets                                                                                                        | `[]`                                                              |
-| `nameOverride`                           | String to partially override `nrr-controller.fullname` template (will prepend the release name)                                 | `""`                                                              |
-| `fullnameOverride`                       | String to fully override `nrr-controller.fullname` template                                                                      | `""`                                                              |
+| `nameOverride`                           | String to partially override `node-readiness-controller.fullname` template (will prepend the release name)                                 | `""`                                                              |
+| `fullnameOverride`                       | String to fully override `node-readiness-controller.fullname` template                                                                      | `""`                                                              |
 | `namespaceOverride`                      | Override the deployment namespace; defaults to .Release.Namespace                                                               | `""`                                                              |
 | `replicaCount`                           | The replica count for Deployment                                                                                                | `1`                                                               |
+| `controller.kubeAPIQPS`                  | Maximum QPS to the Kubernetes API server. `-1` means no limit.                                                                  | `-1`                                                              |
+| `controller.kubeAPIBurst`                | Maximum burst for throttled API server requests. `-1` means no limit.                                                           | `-1`                                                              |
+| `controller.nodeConcurrentReconciles`    | Maximum number of Node objects reconciled concurrently. Raise on large clusters.                                                | `1`                                                               |
+| `controller.ruleConcurrentReconciles`    | Maximum number of NodeReadinessRule objects reconciled concurrently.                                                             | `1`                                                               |
+| `controller.enableNodeStateMetrics`      | Enable per-rule aggregate node state metrics (`node_readiness_nodes_by_state` gauge).                                           | `false`                                                           |
+| `controller.pprofBindAddress`            | Bind address for the pprof debug endpoint. Leave empty to disable.                                                              | `""`                                                              |
 | `leaderElection.enabled`                 | Enable leader election to support multiple replicas                                                                             | `true`                                                            |
+| `leaderElection.namespace`               | Namespace for the leader election lease. Defaults to the release namespace when empty.                                          | `""`                                                              |
 | `priorityClassName`                      | The name of the priority class to add to pods                                                                                    | `system-cluster-critical`                                         |
 | `rbac.create`                            | If `true`, create & use RBAC resources                                                                                          | `true`                                                            |
 | `resources`                              | Node Readiness Controller container CPU and memory requests/limits                                                              | _see values.yaml_                                                 |

@@ -27,12 +27,15 @@ var registry = prometheus.NewRegistry()
 
 var (
 	// reporterBuildInfo tracks the reporter binary version to track fleet version skew.
-	reporterBuildInfo = prometheus.NewGaugeVec(
+	reporterBuildInfo = prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
 			Name: "node_readiness_reporter_build_info",
 			Help: "Reporter binary version to track fleet version skew.",
+			ConstLabels: prometheus.Labels{
+				"version": info.GetVersion(),
+			},
 		},
-		[]string{"version"},
+		func() float64 { return 1 },
 	)
 
 	// reporterCheckDuration tracks the duration of health probe checks.
@@ -69,10 +72,4 @@ func init() {
 	registry.MustRegister(reporterCheckDuration)
 	registry.MustRegister(reporterChecksTotal)
 	registry.MustRegister(reporterConditionWritesTotal)
-
-	version := "unknown"
-	if parts := info.GetVersionParts(); len(parts) > 0 {
-		version = parts[0]
-	}
-	reporterBuildInfo.WithLabelValues(version).Set(1)
 }

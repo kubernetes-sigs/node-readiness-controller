@@ -60,7 +60,7 @@ jobs:
 
       - name: Run Helm Unit Tests
         run: |
-          helm unittest charts/nrr-controller --strict -d
+          helm unittest charts/node-readiness-controller --strict -d
 
       - name: Run chart-testing (list-changed)
         id: list-changed

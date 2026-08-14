@@ -248,11 +248,11 @@ endif
 
 .PHONY: docker-build-reporter
 docker-build-reporter: ## Build reporter container image with Docker.
-	DOCKER_BUILDKIT=1 docker build -f Dockerfile.reporter -t ${IMG_PREFIX}:${IMG_TAG} .
+	DOCKER_BUILDKIT=1 docker build --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) -f Dockerfile.reporter -t ${IMG_PREFIX}:${IMG_TAG} .
 
 .PHONY: podman-build-reporter
 podman-build-reporter: ## Build reporter container image with Podman.
-	podman build -f Dockerfile.reporter -t ${IMG_PREFIX}:${IMG_TAG} .
+	podman build --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) -f Dockerfile.reporter -t ${IMG_PREFIX}:${IMG_TAG} .
 
 .PHONY: docker-push-reporter
 docker-push-reporter: ## Push docker image with the reporter.
@@ -419,6 +419,16 @@ setup-envtest: $(SETUP_ENVTEST) ## Download the binaries required for ENVTEST in
 	@echo KUBEBUILDER_ASSETS=$(KUBEBUILDER_ASSETS)
 
 ## --------------------------------------
+## Scale Testing
+## --------------------------------------
+
+##@ scale:
+
+.PHONY: test-scale
+test-scale: manifests generate ## Run the scale performance tests. See test/scale/README.md for more information.
+	go test -tags=scale -v ./test/scale/... -ginkgo.v -count=1
+
+## --------------------------------------
 ## Hack / Tools
 ## --------------------------------------
 
@@ -491,16 +501,20 @@ crd-ref-docs:
 
 # helm
 
-ensure-helm-install:
-ifndef HAS_HELM
-	curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 && chmod 700 ./get_helm.sh && ./get_helm.sh
-endif
+HELM ?= go run helm.sh/helm/v3/cmd/helm@v3.15.1
 
-lint-chart: ensure-helm-install
-	helm lint ./charts/nrr-controller
+lint-chart:
+	$(HELM) lint ./charts/node-readiness-controller
 
-build-helm:
-	helm package ./charts/nrr-controller --dependency-update --destination ./bin/chart
+inject-helm-version: ## Inject the release version into the Helm chart's appVersion and image tag
+	sed 's/tag: .*/tag: "$(RELEASE_VERSION)"/' charts/node-readiness-controller/values.yaml > charts/node-readiness-controller/values.yaml.tmp && mv charts/node-readiness-controller/values.yaml.tmp charts/node-readiness-controller/values.yaml
+	sed 's/^appVersion: .*/appVersion: "$(RELEASE_VERSION)"/' charts/node-readiness-controller/Chart.yaml > charts/node-readiness-controller/Chart.yaml.tmp && mv charts/node-readiness-controller/Chart.yaml.tmp charts/node-readiness-controller/Chart.yaml
+
+build-helm: inject-helm-version
+	$(HELM) package ./charts/node-readiness-controller --dependency-update --destination ./bin/chart
+
+publish-helm: ## Publish the packaged Helm chart to an OCI registry
+	$(HELM) push ./bin/chart/node-readiness-controller-*.tgz oci://$(HELM_IMAGE)
 
 kind-multi-node:
 	kind create cluster --name $(KIND_CLUSTER) --config ./config/testing/kind/kind-3node-config.yaml --wait 2m

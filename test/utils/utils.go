@@ -169,7 +169,11 @@ func GetProjectDir() (string, error) {
 	if err != nil {
 		return wd, fmt.Errorf("failed to get current working directory: %w", err)
 	}
-	wd = strings.ReplaceAll(wd, "/test/e2e", "")
+
+	if index := strings.LastIndex(wd, "/test"); index != -1 {
+		wd = wd[:index]
+	}
+
 	return wd, nil
 }
 

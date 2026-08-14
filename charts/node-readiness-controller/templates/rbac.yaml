@@ -3,10 +3,10 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "nrr-controller.fullname" . }}-leader-election-role
-  namespace: {{ include "nrr-controller.namespace" . }}
+  name: {{ include "node-readiness-controller.fullname" . }}-leader-election-role
+  namespace: {{ include "node-readiness-controller.namespace" . }}
   labels:
-    {{- include "nrr-controller.labels" . | nindent 4 }}
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
 rules:
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
@@ -16,28 +16,28 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "nrr-controller.fullname" . }}-leader-election-rolebinding
-  namespace: {{ include "nrr-controller.namespace" . }}
+  name: {{ include "node-readiness-controller.fullname" . }}-leader-election-rolebinding
+  namespace: {{ include "node-readiness-controller.namespace" . }}
   labels:
-    {{- include "nrr-controller.labels" . | nindent 4 }}
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "nrr-controller.fullname" . }}-leader-election-role
+  name: {{ include "node-readiness-controller.fullname" . }}-leader-election-role
 subjects:
   - kind: ServiceAccount
-    name: {{ include "nrr-controller.serviceAccountName" . }}
-    namespace: {{ include "nrr-controller.namespace" . }}
+    name: {{ include "node-readiness-controller.serviceAccountName" . }}
+    namespace: {{ include "node-readiness-controller.namespace" . }}
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "nrr-controller.fullname" . }}-manager-role
+  name: {{ include "node-readiness-controller.fullname" . }}-manager-role
   labels:
-    {{- include "nrr-controller.labels" . | nindent 4 }}
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
 rules:
-  - apiGroups: [""]
+  - apiGroups: ["", "events.k8s.io"]
     resources: ["events"]
     verbs: ["create", "patch"]
   - apiGroups: [""]
@@ -60,25 +60,25 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "nrr-controller.fullname" . }}-manager-rolebinding
+  name: {{ include "node-readiness-controller.fullname" . }}-manager-rolebinding
   labels:
-    {{- include "nrr-controller.labels" . | nindent 4 }}
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "nrr-controller.fullname" . }}-manager-role
+  name: {{ include "node-readiness-controller.fullname" . }}-manager-role
 subjects:
   - kind: ServiceAccount
-    name: {{ include "nrr-controller.serviceAccountName" . }}
-    namespace: {{ include "nrr-controller.namespace" . }}
+    name: {{ include "node-readiness-controller.serviceAccountName" . }}
+    namespace: {{ include "node-readiness-controller.namespace" . }}
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "nrr-controller.fullname" . }}-metrics-auth-role
+  name: {{ include "node-readiness-controller.fullname" . }}-metrics-auth-role
   labels:
-    {{- include "nrr-controller.labels" . | nindent 4 }}
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
 rules:
   - apiGroups: ["authentication.k8s.io"]
     resources: ["tokenreviews"]
@@ -91,25 +91,25 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "nrr-controller.fullname" . }}-metrics-auth-rolebinding
+  name: {{ include "node-readiness-controller.fullname" . }}-metrics-auth-rolebinding
   labels:
-    {{- include "nrr-controller.labels" . | nindent 4 }}
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "nrr-controller.fullname" . }}-metrics-auth-role
+  name: {{ include "node-readiness-controller.fullname" . }}-metrics-auth-role
 subjects:
   - kind: ServiceAccount
-    name: {{ include "nrr-controller.serviceAccountName" . }}
-    namespace: {{ include "nrr-controller.namespace" . }}
+    name: {{ include "node-readiness-controller.serviceAccountName" . }}
+    namespace: {{ include "node-readiness-controller.namespace" . }}
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "nrr-controller.fullname" . }}-metrics-reader
+  name: {{ include "node-readiness-controller.fullname" . }}-metrics-reader
   labels:
-    {{- include "nrr-controller.labels" . | nindent 4 }}
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
 rules:
   - nonResourceURLs: ["/metrics"]
     verbs: ["get"]
@@ -118,9 +118,9 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "nrr-controller.fullname" . }}-nodereadinessrule-admin-role
+  name: {{ include "node-readiness-controller.fullname" . }}-nodereadinessrule-admin-role
   labels:
-    {{- include "nrr-controller.labels" . | nindent 4 }}
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
 rules:
   - apiGroups: ["readiness.node.x-k8s.io"]
     resources: ["nodereadinessrules"]
@@ -133,9 +133,9 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "nrr-controller.fullname" . }}-nodereadinessrule-editor-role
+  name: {{ include "node-readiness-controller.fullname" . }}-nodereadinessrule-editor-role
   labels:
-    {{- include "nrr-controller.labels" . | nindent 4 }}
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
 rules:
   - apiGroups: ["readiness.node.x-k8s.io"]
     resources: ["nodereadinessrules"]
@@ -148,9 +148,9 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "nrr-controller.fullname" . }}-nodereadinessrule-viewer-role
+  name: {{ include "node-readiness-controller.fullname" . }}-nodereadinessrule-viewer-role
   labels:
-    {{- include "nrr-controller.labels" . | nindent 4 }}
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
 rules:
   - apiGroups: ["readiness.node.x-k8s.io"]
     resources: ["nodereadinessrules"]

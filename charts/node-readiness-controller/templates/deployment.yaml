@@ -1,15 +1,15 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "nrr-controller.fullname" . }}-manager
-  namespace: {{ include "nrr-controller.namespace" . }}
+  name: {{ include "node-readiness-controller.fullname" . }}-manager
+  namespace: {{ include "node-readiness-controller.namespace" . }}
   labels:
-    {{- include "nrr-controller.labels" . | nindent 4 }}
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "nrr-controller.selectorLabels" . | nindent 6 }}
+      {{- include "node-readiness-controller.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       annotations:
@@ -17,12 +17,12 @@ spec:
           {{- .Values.podAnnotations | toYaml | nindent 10 }}
         {{- end }}
       labels:
-        {{- include "nrr-controller.selectorLabels" . | nindent 8 }}
+        {{- include "node-readiness-controller.selectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
-      serviceAccountName: {{ include "nrr-controller.serviceAccountName" . }}
+      serviceAccountName: {{ include "node-readiness-controller.serviceAccountName" . }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -41,6 +41,9 @@ spec:
             {{- if .Values.leaderElection.enabled }}
             - --leader-elect
             {{- end }}
+            {{- if .Values.leaderElection.namespace }}
+            - --leader-election-namespace={{ .Values.leaderElection.namespace }}
+            {{- end }}
             - --health-probe-bind-address={{ .Values.healthProbeBindAddress }}
             - --enable-webhook={{ ternary "true" "false" .Values.webhook.enabled }}
             {{- if .Values.metrics.enabled }}
@@ -51,6 +54,24 @@ spec:
             {{- end }}
             {{- else }}
             - --metrics-bind-address=0
+            {{- end }}
+            {{- if ne (int .Values.controller.kubeAPIQPS) -1 }}
+            - --kube-api-qps={{ .Values.controller.kubeAPIQPS }}
+            {{- end }}
+            {{- if ne (int .Values.controller.kubeAPIBurst) -1 }}
+            - --kube-api-burst={{ .Values.controller.kubeAPIBurst }}
+            {{- end }}
+            {{- if gt (int .Values.controller.nodeConcurrentReconciles) 1 }}
+            - --node-concurrent-reconciles={{ .Values.controller.nodeConcurrentReconciles }}
+            {{- end }}
+            {{- if gt (int .Values.controller.ruleConcurrentReconciles) 1 }}
+            - --rule-concurrent-reconciles={{ .Values.controller.ruleConcurrentReconciles }}
+            {{- end }}
+            {{- if .Values.controller.enableNodeStateMetrics }}
+            - --enable-node-state-metrics
+            {{- end }}
+            {{- if .Values.controller.pprofBindAddress }}
+            - --pprof-bind-address={{ .Values.controller.pprofBindAddress }}
             {{- end }}
           {{- if .Values.webhook.enabled }}
           ports:
