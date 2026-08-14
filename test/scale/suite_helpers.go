@@ -151,7 +151,7 @@ func readEnvConfig() {
 
 func cleanupStaleResources(kwokctlPath string) {
 	_ = exec.Command(kwokctlPath, "delete", "cluster").Run()
-	_ = exec.Command("pkill", "-f", "node-readiness-controller").Run()
+	_ = exec.Command("pkill", "-f", "node-readiness-controller").Run() // FIXME: find an alternative to pkill.
 }
 
 func createKwokCluster(kwokctlPath string) {
@@ -212,7 +212,7 @@ func setupPrometheusScraper() {
 	err = os.WriteFile(prometheusConfigPath, []byte(newConfig), 0600)
 	Expect(err).NotTo(HaveOccurred(), "Failed to update Prometheus configuration with new job")
 
-	err = exec.Command("pkill", "-HUP", "prometheus").Run()
+	err = exec.Command("pkill", "-HUP", "prometheus").Run() //FIXME: remove pkill when kwok/pull/1722 gets cut to a release
 	Expect(err).NotTo(HaveOccurred(), "Failed to restart Prometheus instance to load updated configuration")
 
 	Eventually(func(g Gomega) {
