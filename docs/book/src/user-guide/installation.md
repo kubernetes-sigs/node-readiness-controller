@@ -110,6 +110,21 @@ helm install nrr-controller ./charts/nrr-controller \
 
 Both `webhook.enabled` and `validatingWebhook.enabled` are needed. The first runs the webhook server in the controller and mounts its certificate, the second registers the `ValidatingWebhookConfiguration` with the API server.
 
+#### Tuning for larger clusters
+
+The values under `controller` map to the manager's own flags, and each one is only passed to the container when you move it off its default:
+
+| Value | Flag | Default |
+| :--- | :--- | :--- |
+| `controller.nodeConcurrentReconciles` | `--node-concurrent-reconciles` | `1` |
+| `controller.ruleConcurrentReconciles` | `--rule-concurrent-reconciles` | `1` |
+| `controller.kubeAPIQPS` | `--kube-api-qps` | `-1`, client-side throttling off |
+| `controller.kubeAPIBurst` | `--kube-api-burst` | `-1`, client-side throttling off |
+| `controller.enableNodeStateMetrics` | `--enable-node-state-metrics` | `false` |
+| `controller.pprofBindAddress` | `--pprof-bind-address` | unset, disabled |
+
+Raising the two concurrency values is the usual response to readiness taints lagging behind node joins on a large cluster. `enableNodeStateMetrics` adds the per-rule `node_readiness_nodes_by_state` gauge at the cost of extra API reads on node updates, so turn it on when you want the fleet view and can afford the reads.
+
 #### Managing rules through the chart
 
 `NodeReadinessRule` objects can be shipped with the release through the `nodeReadinessRules` value:
