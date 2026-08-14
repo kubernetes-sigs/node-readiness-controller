@@ -1,0 +1,53 @@
+suite: Test Node Readiness Controller PDB
+
+templates:
+  - pdb.yaml
+
+release:
+  name: node-readiness-controller
+
+tests:
+  - it: does not create PDB by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: creates PDB when enabled
+    set:
+      podDisruptionBudget:
+        enabled: true
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - equal:
+          path: spec.minAvailable
+          value: 1
+      - isNull:
+          path: spec.maxUnavailable
+
+  - it: creates PDB with maxUnavailable
+    set:
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: null
+        maxUnavailable: 1
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - isNull:
+          path: spec.minAvailable
+      - equal:
+          path: spec.maxUnavailable
+          value: 1
+
+  - it: has matching selector labels
+    set:
+      podDisruptionBudget:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels['app.kubernetes.io/name']
+          value: node-readiness-controller
+      - equal:
+          path: spec.selector.matchLabels['app.kubernetes.io/instance']
+          value: node-readiness-controller
