@@ -39,6 +39,7 @@ All scale parameters are configurable via shell environment variables passed dir
 | `KUBECONFIG` | *Automatic* | Target kubeconfig path. Defaults to the managed KWOK cluster configuration. |
 | `SKIP_TEARDOWN` | `false` | If set to `true`, keeps the simulated nodes active, and the KWOK cluster/Prometheus instance running after the test finishes. |
 | `ENFORCEMENT_MODE` | `continuous` | Enforcement mode configured for the test `NodeReadinessRule` (e.g. `continuous`, `bootstrap-only`). |
+| `KWOK_RUNTIME` | `binary` | Cluster runtime mode configured for `kwokctl` (e.g. `binary`, `kind`). |
 
 ---
 

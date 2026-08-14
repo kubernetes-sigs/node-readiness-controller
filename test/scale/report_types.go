@@ -29,6 +29,7 @@ type queryResult struct {
 type ScalabilityReportJSON struct {
 	NodeCount int         `json:"node_count"`
 	Mode      string      `json:"mode"`
+	Runtime   string      `json:"runtime"`
 	Phases    []PhaseJSON `json:"phases"`
 }
 

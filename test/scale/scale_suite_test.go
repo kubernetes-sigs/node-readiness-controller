@@ -48,6 +48,7 @@ type scaleConfig struct {
 	NodeLeaseDurationSeconds string
 	SkipTeardown             bool
 	EnforcementMode          string
+	Runtime                  string
 }
 
 var defaultScaleConfig = scaleConfig{
@@ -56,6 +57,7 @@ var defaultScaleConfig = scaleConfig{
 	PrometheusPort:  "9090",
 	NodeCount:       1000,
 	EnforcementMode: "continuous",
+	Runtime:         "binary",
 }
 
 var (

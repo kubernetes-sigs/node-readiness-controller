@@ -138,6 +138,9 @@ func readEnvConfig() {
 	if mode := os.Getenv("ENFORCEMENT_MODE"); mode != "" {
 		cfg.EnforcementMode = mode
 	}
+	if runtime := os.Getenv("KWOK_RUNTIME"); runtime != "" {
+		cfg.Runtime = runtime
+	}
 	if os.Getenv("DISABLE_QPS_LIMITS") == "true" {
 		cfg.DisableQPSLimits = true
 	}
@@ -154,7 +157,7 @@ func cleanupStaleResources(kwokctlPath string) {
 func createKwokCluster(kwokctlPath string) {
 	createArgs := []string{
 		"create", "cluster",
-		"--runtime", "binary",
+		"--runtime", cfg.Runtime,
 		"--prometheus-port", cfg.PrometheusPort,
 		"--enable-crds", "Stage",
 	}
@@ -287,10 +290,12 @@ func generateScalabilityReport() {
 	reportData := struct {
 		NodeCount int
 		Mode      string
+		Runtime   string
 		Phases    []queryResult
 	}{
 		NodeCount: cfg.NodeCount,
 		Mode:      cfg.EnforcementMode,
+		Runtime:   cfg.Runtime,
 		Phases:    queryResults,
 	}
 
@@ -311,6 +316,7 @@ func generateScalabilityReport() {
 	jsonReport := ScalabilityReportJSON{
 		NodeCount: cfg.NodeCount,
 		Mode:      cfg.EnforcementMode,
+		Runtime:   cfg.Runtime,
 		Phases:    jsonPhases,
 	}
 
