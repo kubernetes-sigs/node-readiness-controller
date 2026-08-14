@@ -64,13 +64,13 @@ docker pull $REPO:$TAG
 ```
 ### Option 2: Helm Chart
 
-The chart lives in the repository under `charts/nrr-controller`. Published chart releases via `registry.k8s.io` OCI are still work in progress, so install it from a checkout for now.
+The chart lives in the repository under `charts/node-readiness-controller`. Published chart releases via `registry.k8s.io` OCI are still work in progress, so install it from a checkout for now.
 
 ```sh
 git clone https://github.com/kubernetes-sigs/node-readiness-controller.git
 cd node-readiness-controller
 
-helm install nrr-controller ./charts/nrr-controller \
+helm install node-readiness-controller ./charts/node-readiness-controller \
   --namespace nrr-system --create-namespace
 ```
 
@@ -79,9 +79,9 @@ Requires Helm 3.x. This deploys the controller with the same defaults as the sta
 For anything beyond a couple of overrides, keep your settings in a file instead of a long `--set` list:
 
 ```sh
-helm show values ./charts/nrr-controller > custom-values.yaml
+helm show values ./charts/node-readiness-controller > custom-values.yaml
 
-helm install nrr-controller ./charts/nrr-controller \
+helm install node-readiness-controller ./charts/node-readiness-controller \
   --namespace nrr-system --create-namespace \
   -f custom-values.yaml
 ```
@@ -99,7 +99,7 @@ Everything beyond the core controller is opt-in, matching the kustomize componen
 The webhook rejects rules whose taint key and effect collide with an existing rule over an overlapping node selector, so it is worth enabling in production.
 
 ```sh
-helm install nrr-controller ./charts/nrr-controller \
+helm install node-readiness-controller ./charts/node-readiness-controller \
   --namespace nrr-system --create-namespace \
   --set certManager.enabled=true \
   --set webhook.enabled=true \
@@ -157,7 +157,7 @@ Pull the version of the chart you want and upgrade the release in place. Values 
 ```sh
 git pull
 
-helm upgrade nrr-controller ./charts/nrr-controller \
+helm upgrade node-readiness-controller ./charts/node-readiness-controller \
   --namespace nrr-system \
   -f custom-values.yaml
 ```
@@ -167,7 +167,7 @@ helm upgrade nrr-controller ./charts/nrr-controller \
 Check what changed before applying it to a live cluster:
 
 ```sh
-helm diff upgrade nrr-controller ./charts/nrr-controller --namespace nrr-system   # needs the helm-diff plugin
+helm diff upgrade node-readiness-controller ./charts/node-readiness-controller --namespace nrr-system   # needs the helm-diff plugin
 ```
 
 Read the CRD note below first. Helm will not update the CRD for you, so a chart bump that changes the schema needs that step done by hand.
@@ -179,7 +179,7 @@ Helm installs the CRD from the chart's `crds/` directory on first install only. 
 Before moving to a chart version that changes the `NodeReadinessRule` schema, apply the CRD yourself:
 
 ```sh
-kubectl apply -f charts/nrr-controller/crds/nodereadinessrules.readiness.node.x-k8s.io.yaml
+kubectl apply -f charts/node-readiness-controller/crds/nodereadinessrules.readiness.node.x-k8s.io.yaml
 ```
 
 Skipping this leaves the old schema in place, and rules using newly added fields are rejected by the API server even though the controller supports them.
@@ -230,13 +230,13 @@ After installation, verify that the controller is running successfully.
 
 1.  **Check Pod Status**:
     ```sh
-    kubectl get pods -n ${NAMESPACE} -l component=node-readiness-controller
+    kubectl get pods -n ${NAMESPACE} -l control-plane=controller-manager
     ```
     You should see the controller pods in `Running` status.
 
 2.  **Check Logs**:
     ```sh
-    kubectl logs -n ${NAMESPACE} -l component=node-readiness-controller
+    kubectl logs -n ${NAMESPACE} -l control-plane=controller-manager
     ```
     Look for "Starting EventSource" or "Starting Controller" messages indicating the manager is active.
 
@@ -280,7 +280,7 @@ The controller uses a **finalizer** (`readiness.node.x-k8s.io/cleanup-taints`) o
     kubectl delete -k config/default
 
     # OR if using Helm
-    helm uninstall nrr-controller --namespace nrr-system
+    helm uninstall node-readiness-controller --namespace nrr-system
 
     # OR if using Static Pods
     # Remove the manifest from /etc/kubernetes/manifests/ on all control-plane nodes
