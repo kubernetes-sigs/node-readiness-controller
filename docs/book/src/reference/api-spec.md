@@ -27,10 +27,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `type` _string_ | type corresponds to the Node condition type being evaluated. |  | MaxLength: 316 <br />MinLength: 1 <br />Required: \{\} <br /> |
-| `currentStatus` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#conditionstatus-v1-core)_ | currentStatus is the actual status value observed on the Node, one of True, False, Unknown. |  | Enum: [True False Unknown] <br />Required: \{\} <br /> |
-| `requiredStatus` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#conditionstatus-v1-core)_ | requiredStatus is the status value defined in the rule that must be matched, one of True, False, Unknown. |  | Enum: [True False Unknown] <br />Required: \{\} <br /> |
-| `defaultStatus` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#conditionstatus-v1-core)_ | defaultStatus is the status a condition is evaluated to if the condition<br />is not found in a node. Reflects the defaultStatus configured in the rule<br />spec. |  | Enum: [True False Unknown] <br />Optional: \{\} <br /> |
+| `type` _string_ | type corresponds to the Node condition type being evaluated. |  | MaxLength: 316 <br />MinLength: 1 <br /> |
+| `currentStatus` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#conditionstatus-v1-core)_ | currentStatus is the actual status value observed on the Node, one of True, False, Unknown. |  | Enum: [True False Unknown] <br /> |
+| `requiredStatus` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#conditionstatus-v1-core)_ | requiredStatus is the status value defined in the rule that must be matched, one of True, False, Unknown. |  | Enum: [True False Unknown] <br /> |
+| `defaultStatus` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#conditionstatus-v1-core)_ | defaultStatus is the status a condition is evaluated to if the condition<br />is not found in a node. Reflects the defaultStatus configured in the rule<br />spec. |  | Enum: [True False Unknown] <br /> |
 
 
 #### ConditionPolicy
@@ -66,9 +66,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `type` _string_ | type of Node condition<br />Following kubebuilder validation is referred from https://pkg.go.dev/k8s.io/apimachinery/pkg/apis/meta/v1#Condition |  | MaxLength: 316 <br />MinLength: 1 <br />Required: \{\} <br /> |
-| `requiredStatus` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#conditionstatus-v1-core)_ | requiredStatus is status of the condition, one of True, False, Unknown. |  | Enum: [True False Unknown] <br />Required: \{\} <br /> |
-| `defaultStatus` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#conditionstatus-v1-core)_ | defaultStatus is the status a condition is evaluated to if the condition<br />is not found in a node.<br />Accepted values are True, False, Unknown. It is optional.<br />When omitted, the effective default is Unknown, applied transparently by<br />the controller at evaluation time.<br />Note: This field must not be set when enforcementMode is bootstrap-only. |  | Enum: [True False Unknown] <br />Optional: \{\} <br /> |
+| `type` _string_ | type of Node condition<br />Following kubebuilder validation is referred from https://pkg.go.dev/k8s.io/apimachinery/pkg/apis/meta/v1#Condition |  | MaxLength: 316 <br />MinLength: 1 <br /> |
+| `requiredStatus` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#conditionstatus-v1-core)_ | requiredStatus is status of the condition, one of True, False, Unknown. |  | Enum: [True False Unknown] <br /> |
+| `defaultStatus` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#conditionstatus-v1-core)_ | defaultStatus is the status a condition is evaluated to if the condition<br />is not found in a node.<br />Accepted values are True, False, Unknown. It is optional.<br />When omitted, the effective default is Unknown, applied transparently by<br />the controller at evaluation time.<br />Note: This field must not be set when enforcementMode is bootstrap-only. |  | Enum: [True False Unknown] <br /> |
 
 
 #### DryRunResults
@@ -85,11 +85,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `affectedNodes` _integer_ | affectedNodes is the total count of Nodes that match the rule's criteria. |  | Minimum: 0 <br />Optional: \{\} <br /> |
-| `taintsToAdd` _integer_ | taintsToAdd is the number of Nodes that currently lack the specified taint and would have it applied. |  | Minimum: 0 <br />Optional: \{\} <br /> |
-| `taintsToRemove` _integer_ | taintsToRemove is the number of Nodes that currently possess the<br />taint but no longer meet the criteria, leading to its removal. |  | Minimum: 0 <br />Optional: \{\} <br /> |
-| `riskyOperations` _integer_ | riskyOperations represents the count of Nodes where required conditions<br />are missing entirely, potentially indicating an ambiguous node state. |  | Minimum: 0 <br />Optional: \{\} <br /> |
-| `summary` _string_ | summary provides a human-readable overview of the dry run evaluation,<br />highlighting key findings or warnings. |  | MaxLength: 4096 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `affectedNodes` _integer_ | affectedNodes is the total count of Nodes that match the rule's criteria. |  | Minimum: 0 <br /> |
+| `taintsToAdd` _integer_ | taintsToAdd is the number of Nodes that currently lack the specified taint and would have it applied. |  | Minimum: 0 <br /> |
+| `taintsToRemove` _integer_ | taintsToRemove is the number of Nodes that currently possess the<br />taint but no longer meet the criteria, leading to its removal. |  | Minimum: 0 <br /> |
+| `riskyOperations` _integer_ | riskyOperations represents the count of Nodes where required conditions<br />are missing entirely, potentially indicating an ambiguous node state. |  | Minimum: 0 <br /> |
+| `summary` _string_ | summary provides a human-readable overview of the dry run evaluation,<br />highlighting key findings or warnings. |  | MaxLength: 4096 <br />MinLength: 1 <br /> |
 
 
 #### EnforcementMode
@@ -123,10 +123,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nodeName` _string_ | nodeName is the name of the evaluated Node. |  | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br />Required: \{\} <br /> |
-| `conditionResults` _[ConditionEvaluationResult](#conditionevaluationresult) array_ | conditionResults provides a detailed breakdown of each condition evaluation<br />for this Node. This allows for granular auditing of which specific<br />criteria passed or failed during the rule assessment. |  | MaxItems: 5000 <br />Required: \{\} <br /> |
-| `taintStatus` _[TaintStatus](#taintstatus)_ | taintStatus represents the taint status on the Node, one of Present, Absent. |  | Enum: [Present Absent] <br />Required: \{\} <br /> |
-| `lastEvaluationTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#time-v1-meta)_ | lastEvaluationTime is the timestamp when the controller last assessed this Node. |  | Required: \{\} <br /> |
+| `nodeName` _string_ | nodeName is the name of the evaluated Node. |  | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br /> |
+| `conditionResults` _[ConditionEvaluationResult](#conditionevaluationresult) array_ | conditionResults provides a detailed breakdown of each condition evaluation<br />for this Node. This allows for granular auditing of which specific<br />criteria passed or failed during the rule assessment. |  | MaxItems: 5000 <br /> |
+| `taintStatus` _[TaintStatus](#taintstatus)_ | taintStatus represents the taint status on the Node, one of Present, Absent. |  | Enum: [Present Absent] <br /> |
+| `lastEvaluationTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#time-v1-meta)_ | lastEvaluationTime is the timestamp when the controller last assessed this Node. |  |  |
 
 
 #### NodeFailure
@@ -142,10 +142,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nodeName` _string_ | nodeName is the name of the failed Node.<br />Following kubebuilder validation is referred from<br />https://github.com/kubernetes/apimachinery/blob/84d740c9e27f3ccc94c8bc4d13f1b17f60f7080b/pkg/util/validation/validation.go#L198 |  | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br />Required: \{\} <br /> |
-| `reason` _string_ | reason provides a brief explanation of the evaluation result. |  | MaxLength: 256 <br />MinLength: 1 <br />Optional: \{\} <br /> |
-| `message` _string_ | message is a human-readable message indicating details about the evaluation. |  | MaxLength: 10240 <br />MinLength: 1 <br />Optional: \{\} <br /> |
-| `lastEvaluationTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#time-v1-meta)_ | lastEvaluationTime is the timestamp of the last rule check failed for this Node. |  | Required: \{\} <br /> |
+| `nodeName` _string_ | nodeName is the name of the failed Node.<br />Following kubebuilder validation is referred from<br />https://github.com/kubernetes/apimachinery/blob/84d740c9e27f3ccc94c8bc4d13f1b17f60f7080b/pkg/util/validation/validation.go#L198 |  | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br /> |
+| `reason` _string_ | reason provides a brief explanation of the evaluation result. |  | MaxLength: 256 <br />MinLength: 1 <br /> |
+| `message` _string_ | message is a human-readable message indicating details about the evaluation. |  | MaxLength: 10240 <br />MinLength: 1 <br /> |
+| `lastEvaluationTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#time-v1-meta)_ | lastEvaluationTime is the timestamp of the last rule check failed for this Node. |  |  |
 
 
 #### NodeReadinessRule
@@ -162,9 +162,9 @@ NodeReadinessRule is the Schema for the NodeReadinessRules API.
 | --- | --- | --- | --- |
 | `apiVersion` _string_ | `readiness.node.x-k8s.io/v1alpha1` | | |
 | `kind` _string_ | `NodeReadinessRule` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
-| `spec` _[NodeReadinessRuleSpec](#nodereadinessrulespec)_ | spec defines the desired state of NodeReadinessRule |  | Required: \{\} <br /> |
-| `status` _[NodeReadinessRuleStatus](#nodereadinessrulestatus)_ | status defines the observed state of NodeReadinessRule |  | MinProperties: 1 <br />Optional: \{\} <br /> |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[NodeReadinessRuleSpec](#nodereadinessrulespec)_ | spec defines the desired state of NodeReadinessRule |  |  |
+| `status` _[NodeReadinessRuleStatus](#nodereadinessrulestatus)_ | status defines the observed state of NodeReadinessRule |  | MinProperties: 1 <br /> |
 
 
 #### NodeReadinessRuleSpec
@@ -173,13 +173,6 @@ NodeReadinessRule is the Schema for the NodeReadinessRules API.
 
 NodeReadinessRuleSpec defines the desired state of NodeReadinessRule.
 
-We put the conditionPolicy immutability validation at `NodeReadinessRuleSpec` level instead of
-putting it on `conditionPolicy`. This is required because conditionPolicy is optional field. If a
-user transitions from an omitted field to an explicit "allOf" or vice-versa, field-level
-transition rules are not evaluated, since validations are only performed only when both self and
-oldSelf are present. By evaluating it at the struct level, we can safely use the `has()` macro to
-normalize absent values and force evaluation under any condition.
-
 
 
 _Appears in:_
@@ -187,12 +180,12 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[ConditionRequirement](#conditionrequirement) array_ | conditions contains a list of the Node conditions that defines the specific<br />criteria that must be met for taints to be managed on the target Node.<br />The presence or status of these conditions directly triggers the application or removal of Node taints. |  | MaxItems: 32 <br />MinItems: 1 <br />Required: \{\} <br /> |
-| `enforcementMode` _[EnforcementMode](#enforcementmode)_ | enforcementMode specifies how the controller maintains the desired state.<br />enforcementMode is one of bootstrap-only, continuous.<br />"bootstrap-only" applies the configuration once during initial setup.<br />"continuous" ensures the state is monitored and corrected throughout the resource lifecycle. |  | Enum: [bootstrap-only continuous] <br />Required: \{\} <br /> |
-| `taint` _[Taint](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#taint-v1-core)_ | taint defines the specific Taint (Key, Value, and Effect) to be managed<br />on Nodes that meet the defined condition criteria.<br />The taint key must follow Kubernetes qualified name format: prefix/name<br />where prefix is 'readiness.k8s.io' (DNS subdomain) and name is a qualified<br />name (max 63 chars, alphanumeric, '-', '_', '.', must start and end with alphanumeric).<br />ref: git.k8s.io/kubernetes/staging/src/k8s.io/apimachinery/pkg/api/validate/content/kube.go#L24-L72<br />Supported effects: NoSchedule, PreferNoSchedule, NoExecute.<br />Caution: NoExecute evicts existing pods and can cause significant disruption<br />when combined with continuous enforcement mode. Prefer NoSchedule for most use cases. |  | Required: \{\} <br /> |
-| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#labelselector-v1-meta)_ | nodeSelector limits the scope of this rule to a specific subset of Nodes. |  | Required: \{\} <br /> |
-| `conditionPolicy` _[ConditionPolicy](#conditionpolicy)_ | conditionPolicy controls how the conditions list is evaluated.<br />"allOf" (default) requires every condition to match its requiredStatus before the taint is removed.<br />"anyOf" requires at least one condition to match its requiredStatus.<br />anyOf cannot be used with enforcementMode: bootstrap-only. |  | Enum: [allOf anyOf] <br />Optional: \{\} <br /> |
-| `dryRun` _boolean_ | dryRun when set to true, The controller will evaluate Node conditions and log intended taint modifications<br />without persisting changes to the cluster. Proposed actions are reflected in the resource status. |  | Optional: \{\} <br /> |
+| `conditions` _[ConditionRequirement](#conditionrequirement) array_ | conditions contains a list of the Node conditions that defines the specific<br />criteria that must be met for taints to be managed on the target Node.<br />The presence or status of these conditions directly triggers the application or removal of Node taints. |  | MaxItems: 32 <br />MinItems: 1 <br /> |
+| `enforcementMode` _[EnforcementMode](#enforcementmode)_ | enforcementMode specifies how the controller maintains the desired state.<br />enforcementMode is one of bootstrap-only, continuous.<br />"bootstrap-only" applies the configuration once during initial setup.<br />"continuous" ensures the state is monitored and corrected throughout the resource lifecycle. |  | Enum: [bootstrap-only continuous] <br /> |
+| `taint` _[Taint](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#taint-v1-core)_ | taint defines the specific Taint (Key, Value, and Effect) to be managed<br />on Nodes that meet the defined condition criteria.<br />The taint key must follow Kubernetes qualified name format: prefix/name<br />where prefix is 'readiness.k8s.io' (DNS subdomain) and name is a qualified<br />name (max 63 chars, alphanumeric, '-', '_', '.', must start and end with alphanumeric).<br />ref: git.k8s.io/kubernetes/staging/src/k8s.io/apimachinery/pkg/api/validate/content/kube.go#L24-L72<br />Supported effects: NoSchedule, PreferNoSchedule, NoExecute.<br />Caution: NoExecute evicts existing pods and can cause significant disruption<br />when combined with continuous enforcement mode. Prefer NoSchedule for most use cases. |  |  |
+| `nodeSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#labelselector-v1-meta)_ | nodeSelector limits the scope of this rule to a specific subset of Nodes. |  |  |
+| `conditionPolicy` _[ConditionPolicy](#conditionpolicy)_ | conditionPolicy controls how the conditions list is evaluated.<br />"allOf" (default) requires every condition to match its requiredStatus before the taint is removed.<br />"anyOf" requires at least one condition to match its requiredStatus.<br />anyOf cannot be used with enforcementMode: bootstrap-only. |  | Enum: [allOf anyOf] <br /> |
+| `dryRun` _boolean_ | dryRun when set to true, The controller will evaluate Node conditions and log intended taint modifications<br />without persisting changes to the cluster. Proposed actions are reflected in the resource status. |  |  |
 
 
 #### NodeReadinessRuleStatus
@@ -209,11 +202,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `observedGeneration` _integer_ | observedGeneration reflects the generation of the most recently observed NodeReadinessRule by the controller. |  | Minimum: 1 <br />Optional: \{\} <br /> |
-| `appliedNodes` _string array_ | appliedNodes lists the names of Nodes where the taint has been successfully managed.<br />This provides a quick reference to the scope of impact for this rule. |  | MaxItems: 5000 <br />items:MaxLength: 253 <br />Optional: \{\} <br /> |
-| `failedNodes` _[NodeFailure](#nodefailure) array_ | failedNodes lists the Nodes where the rule evaluation encountered an error.<br />This is used for troubleshooting configuration issues, such as invalid selectors during node lookup. |  | MaxItems: 5000 <br />Optional: \{\} <br /> |
-| `nodeEvaluations` _[NodeEvaluation](#nodeevaluation) array_ | nodeEvaluations provides detailed insight into the rule's assessment for individual Nodes.<br />This is primarily used for auditing and debugging why specific Nodes were or<br />were not targeted by the rule. |  | MaxItems: 5000 <br />Optional: \{\} <br /> |
-| `dryRunResults` _[DryRunResults](#dryrunresults)_ | dryRunResults captures the outcome of the rule evaluation when DryRun is enabled.<br />This field provides visibility into the actions the controller would have taken,<br />allowing users to preview taint changes before they are committed. |  | MinProperties: 1 <br />Optional: \{\} <br /> |
+| `observedGeneration` _integer_ | observedGeneration reflects the generation of the most recently observed NodeReadinessRule by the controller. |  | Minimum: 1 <br /> |
+| `appliedNodes` _string array_ | appliedNodes lists the names of Nodes where the taint has been successfully managed.<br />This provides a quick reference to the scope of impact for this rule. |  | MaxItems: 5000 <br />items:MaxLength: 253 <br /> |
+| `failedNodes` _[NodeFailure](#nodefailure) array_ | failedNodes lists the Nodes where the rule evaluation encountered an error.<br />This is used for troubleshooting configuration issues, such as invalid selectors during node lookup. |  | MaxItems: 5000 <br /> |
+| `nodeEvaluations` _[NodeEvaluation](#nodeevaluation) array_ | nodeEvaluations provides detailed insight into the rule's assessment for individual Nodes.<br />This is primarily used for auditing and debugging why specific Nodes were or<br />were not targeted by the rule. |  | MaxItems: 5000 <br /> |
+| `dryRunResults` _[DryRunResults](#dryrunresults)_ | dryRunResults captures the outcome of the rule evaluation when DryRun is enabled.<br />This field provides visibility into the actions the controller would have taken,<br />allowing users to preview taint changes before they are committed. |  | MinProperties: 1 <br /> |
 
 
 #### TaintStatus
