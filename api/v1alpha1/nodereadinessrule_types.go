@@ -33,6 +33,18 @@ const (
 	EnforcementModeContinuous EnforcementMode = "continuous"
 )
 
+// ConditionPolicy defines how the list of conditions is aggregated when evaluating a rule.
+// +kubebuilder:validation:Enum=allOf;anyOf
+type ConditionPolicy string
+
+const (
+	// ConditionPolicyAllOf requires ALL conditions to match their requiredStatus (default).
+	ConditionPolicyAllOf ConditionPolicy = "allOf"
+
+	// ConditionPolicyAnyOf requires at least ONE condition to match its requiredStatus.
+	ConditionPolicyAnyOf ConditionPolicy = "anyOf"
+)
+
 // TaintStatus specifies status of the Taint on Node.
 // +kubebuilder:validation:Enum=Present;Absent
 type TaintStatus string
@@ -46,6 +58,14 @@ const (
 )
 
 // NodeReadinessRuleSpec defines the desired state of NodeReadinessRule.
+//
+// We put the conditionPolicy immutability validation at `NodeReadinessRuleSpec` level instead of
+// putting it on `conditionPolicy`. This is required because conditionPolicy is optional field. If a
+// user transitions from an omitted field to an explicit "allOf" or vice-versa, field-level
+// transition rules are not evaluated, since validations are only performed only when both self and
+// oldSelf are present. By evaluating it at the struct level, we can safely use the `has()` macro to
+// normalize absent values and force evaluation under any condition.
+// +kubebuilder:validation:XValidation:rule="(!has(oldSelf.conditionPolicy) ? 'allOf' : oldSelf.conditionPolicy) == (!has(self.conditionPolicy) ? 'allOf' : self.conditionPolicy)",message="conditionPolicy is immutable"
 type NodeReadinessRuleSpec struct {
 	// conditions contains a list of the Node conditions that defines the specific
 	// criteria that must be met for taints to be managed on the target Node.
@@ -98,6 +118,15 @@ type NodeReadinessRuleSpec struct {
 	// +required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="nodeSelector is immutable"
 	NodeSelector metav1.LabelSelector `json:"nodeSelector,omitempty,omitzero"`
+
+	// conditionPolicy controls how the conditions list is evaluated.
+	// "allOf" (default) requires every condition to match its requiredStatus before the taint is removed.
+	// "anyOf" requires at least one condition to match its requiredStatus.
+	//
+	// anyOf cannot be used with enforcementMode: bootstrap-only.
+	//
+	// +optional
+	ConditionPolicy ConditionPolicy `json:"conditionPolicy,omitempty"` // Use GetConditionPolicy() for safe access; field may be empty even when allOf applies.
 
 	// dryRun when set to true, The controller will evaluate Node conditions and log intended taint modifications
 	// without persisting changes to the cluster. Proposed actions are reflected in the resource status.
@@ -377,6 +406,20 @@ func (c *ConditionRequirement) GetDefaultStatus() corev1.ConditionStatus {
 		return corev1.ConditionUnknown
 	}
 	return c.DefaultStatus
+}
+
+// GetConditionPolicy returns the effective condition policy, defaulting to allOf
+// when the field is not explicitly set.
+//
+// Always use this method instead of reading ConditionPolicy directly. The field
+// is intentionally left without an OpenAPI schema default (kubebuilder:default
+// is forbidden by project policy) and the Spec is immutable, so defaulting
+// must happen at read time via this accessor.
+func (spec *NodeReadinessRuleSpec) GetConditionPolicy() ConditionPolicy {
+	if spec.ConditionPolicy == "" {
+		return ConditionPolicyAllOf
+	}
+	return spec.ConditionPolicy
 }
 
 func init() {

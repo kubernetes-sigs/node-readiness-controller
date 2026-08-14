@@ -25,7 +25,7 @@ With this controller you can:
 
 ### Key Features
 
-- **Multi-condition Rules**: Define rules that require ALL specified conditions to be satisfied
+- **Multi-condition Rules**: Define rules with flexible condition policies (`allOf` or `anyOf`) to require ALL or ANY specified conditions to be satisfied
 - **Flexible Enforcement**: Support for bootstrap-only and continuous enforcement modes
 - **Conflict Prevention**: Validation webhook prevents conflicting taint configurations
 - **Dry Run Mode**: Preview rule impact before applying changes
