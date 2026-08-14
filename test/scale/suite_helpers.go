@@ -219,7 +219,7 @@ func setupPrometheusScraper() {
 		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%s/-/ready", cfg.PrometheusPort))
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	}).WithPolling(1 * time.Second).Should(Succeed(), "Prometheus is not ready")
+	}).WithPolling(1*time.Second).Should(Succeed(), "Prometheus is not ready")
 }
 
 func scaleKwokNodes(kwokctlPath string) {
@@ -233,7 +233,7 @@ func scaleKwokNodes(kwokctlPath string) {
 		count, err := countKwokNodes(context.Background(), "type=kwok")
 		g.Expect(err).NotTo(HaveOccurred())
 		return count
-	}).WithPolling(1 * time.Second).Should(Equal(cfg.NodeCount), "Nodes failed to scale")
+	}).WithPolling(1*time.Second).Should(Equal(cfg.NodeCount), "Nodes failed to scale")
 }
 
 func setupArtifacts() *os.File {
@@ -277,7 +277,7 @@ func startControllerDaemon(binPath string, logFile *os.File) *exec.Cmd {
 		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%s/metrics", cfg.MetricsPort))
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
-	}).WithPolling(500 * time.Millisecond).Should(Succeed(), fmt.Sprintf("Controller failed to start or bind to port %s", cfg.MetricsPort))
+	}).WithPolling(500*time.Millisecond).Should(Succeed(), fmt.Sprintf("Controller failed to start or bind to port %s", cfg.MetricsPort))
 
 	return cmd
 }
