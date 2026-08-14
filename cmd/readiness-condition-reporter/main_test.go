@@ -344,15 +344,15 @@ func TestUpdateNodeCondition(t *testing.T) {
 	}
 
 	tests := []struct {
-		name                    string
-		existingNode            *corev1.Node
-		health                  *HealthResponse
-		heartbeatPeriod         time.Duration
-		wantStatus              corev1.ConditionStatus
-		wantReason              string
-		wantUpdateCount         int
-		wantTransitionPreserved bool
-		wantNotFoundErr         bool
+		name                        string
+		existingNode                *corev1.Node
+		health                      *HealthResponse
+		heartbeatPeriod             time.Duration
+		wantStatus                  corev1.ConditionStatus
+		wantReason                  string
+		wantUpdateCount             int
+		wantTransitionTimePreserved bool
+		wantNotFoundErr             bool
 	}{
 		{
 			name: "New Condition Healthy",
@@ -364,11 +364,11 @@ func TestUpdateNodeCondition(t *testing.T) {
 				Reason:  "EndpointOK",
 				Message: "All good",
 			},
-			heartbeatPeriod:         5 * time.Minute,
-			wantStatus:              corev1.ConditionTrue,
-			wantReason:              "EndpointOK",
-			wantUpdateCount:         1,
-			wantTransitionPreserved: false,
+			heartbeatPeriod:             5 * time.Minute,
+			wantStatus:                  corev1.ConditionTrue,
+			wantReason:                  "EndpointOK",
+			wantUpdateCount:             1,
+			wantTransitionTimePreserved: false,
 		},
 		{
 			// A state change bypasses the heartbeat gate, so the update is written
@@ -390,11 +390,11 @@ func TestUpdateNodeCondition(t *testing.T) {
 				Reason:  "HealthCheckFailed",
 				Message: "Something failed",
 			},
-			heartbeatPeriod:         5 * time.Minute,
-			wantStatus:              corev1.ConditionFalse,
-			wantReason:              "HealthCheckFailed",
-			wantUpdateCount:         1,
-			wantTransitionPreserved: false,
+			heartbeatPeriod:             5 * time.Minute,
+			wantStatus:                  corev1.ConditionFalse,
+			wantReason:                  "HealthCheckFailed",
+			wantUpdateCount:             1,
+			wantTransitionTimePreserved: false,
 		},
 		{
 			name: "State unchanged: Fresh heartbeat (skip write)",
@@ -418,11 +418,11 @@ func TestUpdateNodeCondition(t *testing.T) {
 				Reason:  "EndpointOk",
 				Message: "All good",
 			},
-			heartbeatPeriod:         5 * time.Minute,
-			wantStatus:              corev1.ConditionTrue,
-			wantReason:              "EndpointOk",
-			wantUpdateCount:         0,
-			wantTransitionPreserved: true,
+			heartbeatPeriod:             5 * time.Minute,
+			wantStatus:                  corev1.ConditionTrue,
+			wantReason:                  "EndpointOk",
+			wantUpdateCount:             0,
+			wantTransitionTimePreserved: true,
 		},
 		{
 			name: "State unchanged: Stale heartbeat (force write)",
@@ -446,11 +446,11 @@ func TestUpdateNodeCondition(t *testing.T) {
 				Reason:  "EndpointOk",
 				Message: "All good",
 			},
-			heartbeatPeriod:         5 * time.Minute,
-			wantStatus:              corev1.ConditionTrue,
-			wantReason:              "EndpointOk",
-			wantUpdateCount:         1,
-			wantTransitionPreserved: true,
+			heartbeatPeriod:             5 * time.Minute,
+			wantStatus:                  corev1.ConditionTrue,
+			wantReason:                  "EndpointOk",
+			wantUpdateCount:             1,
+			wantTransitionTimePreserved: true,
 		},
 		{
 			name:         "Node not found",
@@ -534,7 +534,7 @@ func TestUpdateNodeCondition(t *testing.T) {
 				t.Errorf("Condition reason = %v, want %v", foundCondition.Reason, tt.wantReason)
 			}
 
-			if tt.wantTransitionPreserved {
+			if tt.wantTransitionTimePreserved {
 				if !foundCondition.LastTransitionTime.Equal(&previousTransition) {
 					t.Errorf("LastTransitionTime = %v, want it preserved as %v", foundCondition.LastTransitionTime, previousTransition)
 				}
