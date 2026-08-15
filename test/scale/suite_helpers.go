@@ -21,6 +21,7 @@ package scale
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -146,6 +147,9 @@ func readEnvConfig() {
 	}
 	if os.Getenv("SKIP_TEARDOWN") == "true" {
 		cfg.SkipTeardown = true
+	}
+	if os.Getenv("JUNIT_REPORT") == "true" {
+		cfg.JUnitReport = true
 	}
 }
 
@@ -326,6 +330,49 @@ func generateScalabilityReport() {
 	jsonReportPath := filepath.Join(cfg.ArtifactsDir, "scalability_report.json")
 	err = os.WriteFile(jsonReportPath, jsonBytes, 0600)
 	Expect(err).NotTo(HaveOccurred(), "Failed to write scalability report JSON file")
+
+	// Generate JUnit XML Report for Graph View in TestGrid
+	if cfg.JUnitReport {
+		testCases := make([]JUnitTestCase, 0, len(queryResults))
+		for _, q := range queryResults {
+			testcaseID := fmt.Sprintf("%s.%s.%d.%s", cfg.Runtime, cfg.EnforcementMode, cfg.NodeCount, q.Phase)
+			props := make([]JUnitProperty, 0, len(metricQueries))
+			for _, mq := range metricQueries {
+				if val, ok := q.Metrics[mq.Key]; ok && val != "" && val != "N/A" {
+					props = append(props, JUnitProperty{
+						Name:  mq.Key,
+						Value: val,
+					})
+				}
+			}
+
+			testCases = append(testCases, JUnitTestCase{
+				Name:       testcaseID,
+				ClassName:  "scalability",
+				Time:       fmt.Sprintf("%.3f", q.DurationSeconds),
+				Properties: props,
+			})
+		}
+
+		junitReport := JUnitTestSuites{
+			TestSuites: []JUnitTestSuite{
+				{
+					Name:      "sigs.k8s.io/node-readiness-controller/test/scale",
+					TestCases: testCases,
+				},
+			},
+		}
+
+		xmlBytes, err := xml.MarshalIndent(junitReport, "", "  ")
+		Expect(err).NotTo(HaveOccurred(), "Failed to marshal scalability report to XML")
+
+		fullXMLBytes := append([]byte(xml.Header), xmlBytes...)
+		fullXMLBytes = append(fullXMLBytes, '\n')
+
+		xmlReportPath := filepath.Join(cfg.ArtifactsDir, "junit_scalability_report.xml")
+		err = os.WriteFile(xmlReportPath, fullXMLBytes, 0600)
+		Expect(err).NotTo(HaveOccurred(), "Failed to write JUnit scalability report XML file")
+	}
 }
 
 func teardownKwokCluster(cmd *exec.Cmd, logFile *os.File, kwokctlPath string) {

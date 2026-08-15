@@ -49,6 +49,7 @@ type scaleConfig struct {
 	SkipTeardown             bool
 	EnforcementMode          string
 	Runtime                  string
+	JUnitReport              bool
 }
 
 var defaultScaleConfig = scaleConfig{

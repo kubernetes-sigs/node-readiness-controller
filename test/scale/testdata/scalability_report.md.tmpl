@@ -6,7 +6,7 @@
 
 ### Core Latencies & Durations
 
-| Metric | P50 | P90 | P99 |
+| Metric | P50 (s) | P90 (s) | P99 (s) |
 | :--- | :--- | :--- | :--- |
 | **Controller Reconcile Duration** | {{index .Metrics "reconcile_time_p50"}} | {{index .Metrics "reconcile_time_p90"}} | {{index .Metrics "reconcile_time_p99"}} |
 | **Reconciliation Latency** | {{index .Metrics "reconciliation_latency_p50"}} | {{index .Metrics "reconciliation_latency_p90"}} | {{index .Metrics "reconciliation_latency_p99"}} |
@@ -18,8 +18,8 @@
 
 | Resource | Average | Peak |
 | :--- | :--- | :--- |
-| **CPU Usage** | {{index .Metrics "cpu_cores_rate"}} | {{index .Metrics "cpu_cores_peak"}} |
-| **Resident Memory** | {{index .Metrics "resident_memory_avg"}} | {{index .Metrics "resident_memory_peak"}} |
+| **CPU Usage (cores)** | {{index .Metrics "cpu_cores_rate"}} | {{index .Metrics "cpu_cores_peak"}} |
+| **Resident Memory (MB)** | {{index .Metrics "resident_memory_avg"}} | {{index .Metrics "resident_memory_peak"}} |
 
 ### Workqueue Activity & Operational Counters
 
@@ -40,7 +40,7 @@
 | Metric | Value |
 | :--- | :--- |
 | **Kube API Requests (Total)** | {{index .Metrics "kube_api_requests_total"}} |
-| **Kube API Request Rate** | {{index .Metrics "kube_api_requests_rate"}} |
+| **Kube API Request Rate (req/s)** | {{index .Metrics "kube_api_requests_rate"}} |
 
 ---
 {{end}}

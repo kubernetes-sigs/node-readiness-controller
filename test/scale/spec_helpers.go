@@ -323,17 +323,14 @@ func formatMetricValue(val string, unit string) string {
 	}
 	if unit == "s" || unit == "cores" || unit == "req/s" {
 		if floatVal, err := strconv.ParseFloat(val, 64); err == nil {
-			return fmt.Sprintf("%.3f %s", floatVal, unit)
+			return fmt.Sprintf("%.3f", floatVal)
 		}
 	}
 	if unit == "bytes" {
 		if floatVal, err := strconv.ParseFloat(val, 64); err == nil {
 			mb := floatVal / (1024 * 1024)
-			return fmt.Sprintf("%.2f MB", mb)
+			return fmt.Sprintf("%.2f", mb)
 		}
-	}
-	if unit != "" {
-		return fmt.Sprintf("%s %s", val, unit)
 	}
 	return val
 }

@@ -18,6 +18,32 @@ limitations under the License.
 
 package scale
 
+import "encoding/xml"
+
+type JUnitTestSuites struct {
+	XMLName    xml.Name         `xml:"testsuites"`
+	TestSuites []JUnitTestSuite `xml:"testsuite"`
+}
+
+type JUnitTestSuite struct {
+	XMLName   xml.Name        `xml:"testsuite"`
+	Name      string          `xml:"name,attr"`
+	TestCases []JUnitTestCase `xml:"testcase"`
+}
+
+type JUnitTestCase struct {
+	XMLName    xml.Name        `xml:"testcase"`
+	Name       string          `xml:"name,attr"`
+	ClassName  string          `xml:"classname,attr"`
+	Time       string          `xml:"time,attr,omitempty"`
+	Properties []JUnitProperty `xml:"properties>property,omitempty"`
+}
+
+type JUnitProperty struct {
+	Name  string `xml:"name,attr"`
+	Value string `xml:"value,attr"`
+}
+
 type queryResult struct {
 	Phase           string             `json:"phase"`
 	PhaseTitle      string             `json:"phase_title"`
