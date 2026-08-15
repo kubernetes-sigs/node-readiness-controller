@@ -230,13 +230,13 @@ After installation, verify that the controller is running successfully.
 
 1.  **Check Pod Status**:
     ```sh
-    kubectl get pods -n ${NAMESPACE} -l control-plane=controller-manager
+    kubectl get pods -n ${NAMESPACE} -l component=node-readiness-controller
     ```
     You should see the controller pods in `Running` status.
 
 2.  **Check Logs**:
     ```sh
-    kubectl logs -n ${NAMESPACE} -l control-plane=controller-manager
+    kubectl logs -n ${NAMESPACE} -l component=node-readiness-controller
     ```
     Look for "Starting EventSource" or "Starting Controller" messages indicating the manager is active.
 
