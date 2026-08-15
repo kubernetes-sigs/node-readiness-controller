@@ -402,7 +402,12 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 	case shouldRemoveTaint && currentlyHasTaint:
 		log.Info("Removing taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
 
-		if err = r.removeTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name); err != nil {
+		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
+			err = r.removeTaintAndCompleteBootstrap(ctx, node, rule)
+		} else {
+			err = r.removeTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name)
+		}
+		if err != nil {
 			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonRemoveTaintError)).Inc()
 			return fmt.Errorf("failed to remove taint: %w", err)
 		}
@@ -411,10 +416,7 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		metrics.TaintOperations.WithLabelValues(rule.Name, string(metrics.TaintOperationRemove)).Inc()
 		recordLatency(string(metrics.ReconciliationOperationRemoveTaint))
 
-		// Mark bootstrap completed if bootstrap-only mode
 		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
-			r.markBootstrapCompleted(ctx, node.Name, rule.Name, rule.GetUID())
-
 			// Only record the bootstrap duration if the node was created AFTER the rule.
 			// This prevents legacy nodes from poisoning the histogram with massive outliers.
 			if !node.CreationTimestamp.Time.Before(rule.CreationTimestamp.Time) && !latestTransition.IsZero() {
@@ -434,14 +436,17 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 	case !shouldRemoveTaint && !currentlyHasTaint:
 		log.Info("Adding taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
 
-		if err = r.addTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name); err != nil {
+		var added bool
+		if added, err = r.addTaintBySpec(ctx, node, rule); err != nil {
 			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonAddTaintError)).Inc()
 			return fmt.Errorf("failed to add taint: %w", err)
 		}
 
-		// Record add taint latency and taint operation counter
-		metrics.TaintOperations.WithLabelValues(rule.Name, string(metrics.TaintOperationAdd)).Inc()
-		recordLatency(string(metrics.ReconciliationOperationAddTaint))
+		if added {
+			// Record add taint latency and taint operation counter
+			metrics.TaintOperations.WithLabelValues(rule.Name, string(metrics.TaintOperationAdd)).Inc()
+			recordLatency(string(metrics.ReconciliationOperationAddTaint))
+		}
 
 	case !shouldRemoveTaint && currentlyHasTaint:
 		if isFirstEvaluation {
@@ -454,9 +459,9 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 	default:
 		log.Info("No taint action needed", "node", node.Name, "rule", rule.Name,
 			"shouldRemove", shouldRemoveTaint, "hasTaint", currentlyHasTaint)
-		// Mark bootstrap completed if bootstrap-only mode
+		// Mark bootstrap completed in bootstrap-only mode when conditions satisfied even if taint is already absent.
 		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
-			r.markBootstrapCompleted(ctx, node.Name, rule.Name, rule.GetUID())
+			r.markBootstrapCompleted(ctx, node.Name, rule)
 		}
 	}
 

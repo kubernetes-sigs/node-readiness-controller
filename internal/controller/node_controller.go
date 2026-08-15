@@ -134,7 +134,7 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 		}
 
 		// Skip if bootstrap-only and already completed
-		if r.isBootstrapCompleted(ctx, node.Name, rule.Name, rule.GetUID()) && rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
+		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly && r.isBootstrapCompleted(ctx, node.Name, rule.Name, rule.GetUID()) {
 			log.Info("Skipping bootstrap-only rule - already completed",
 				"node", node.Name, "rule", rule.Name)
 			continue
@@ -271,14 +271,22 @@ func (r *RuleReadinessController) hasTaintBySpec(node *corev1.Node, taintSpec co
 	return false
 }
 
-// addTaintBySpec adds a taint to a node.
+// addTaintBySpec adds the rule's taint to a node. It returns whether the
+// taint was added. For bootstrap-only rule, if completion annotation is
+// already on the node, the add is refused.
 // We use client.MergeFromWithOptimisticLock because patching a list with a
 // JSON merge patch can cause races due to the fact that it fully replaces
 // the list on a change. Optimistic locking ensures the patch fails with a
 // conflict error if the node was modified concurrently, allowing the
 // controller to retry with fresh state.
-func (r *RuleReadinessController) addTaintBySpec(ctx context.Context, node *corev1.Node, taintSpec corev1.Taint, ruleName string) error {
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+func (r *RuleReadinessController) addTaintBySpec(ctx context.Context, node *corev1.Node, rule *readinessv1alpha1.NodeReadinessRule) (bool, error) {
+	log := ctrl.LoggerFrom(ctx)
+	taintSpec := rule.Spec.Taint
+	added := false
+
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		added = false
+
 		// Fetch latest node state
 		latestNode := &corev1.Node{}
 		if err := r.Get(ctx, client.ObjectKey{Name: node.Name}, latestNode); err != nil {
@@ -290,61 +298,132 @@ func (r *RuleReadinessController) addTaintBySpec(ctx context.Context, node *core
 			return nil
 		}
 
+		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly &&
+			nodeHasBootstrapAnnotation(latestNode, rule) {
+			log.Info("Skipping taint addition - bootstrap already completed",
+				"node", latestNode.Name, "rule", rule.Name, "taint", taintSpec.Key)
+			return nil
+		}
+
 		stored := latestNode.DeepCopy()
 		latestNode.Spec.Taints = append(latestNode.Spec.Taints, taintSpec)
 		if err := r.Patch(ctx, latestNode, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
 			return err
 		}
 
-		message := fmt.Sprintf("Taint '%s:%s' added by rule '%s'", taintSpec.Key, taintSpec.Effect, ruleName)
+		message := fmt.Sprintf("Taint '%s:%s' added by rule '%s'", taintSpec.Key, taintSpec.Effect, rule.Name)
 		r.EventRecorder.Eventf(latestNode, nil, corev1.EventTypeNormal, "TaintAdded", "AddTaint", "%s", message)
 
 		// Update the original node reference with the latest state
 		*node = *latestNode
 
+		added = true
 		return nil
 	})
+	if err != nil {
+		return false, err
+	}
+	return added, nil
 }
 
 // removeTaintBySpec removes a taint from a node.
+func (r *RuleReadinessController) removeTaintBySpec(ctx context.Context, node *corev1.Node, taintSpec corev1.Taint, ruleName string) error {
+	_, err := r.removeTaint(ctx, node, taintSpec, ruleName, nil)
+	return err
+}
+
+// removeTaintAndCompleteBootstrap removes the rule's taint and writes the
+// bootstrap completion annotation.
+func (r *RuleReadinessController) removeTaintAndCompleteBootstrap(ctx context.Context, node *corev1.Node, rule *readinessv1alpha1.NodeReadinessRule) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	annotations := map[string]string{
+		bootstrapAnnotationKey(rule.GetUID()): bootstrapAnnotationValue(rule.Name),
+	}
+	marked, err := r.removeTaint(ctx, node, rule.Spec.Taint, rule.Name, annotations)
+	if err != nil {
+		return err
+	}
+	if marked {
+		log.Info("Marked bootstrap completed", "node", node.Name, "rule", rule.Name, "uid", rule.GetUID())
+		metrics.BootstrapCompleted.WithLabelValues(rule.Name).Inc()
+	}
+	return nil
+}
+
+// removeTaint removes taintSpec from the node and sets any of the given
+// annotations if not already present atomically in the same patch
+// It returns whether any annotation was newly written.
 // We use client.MergeFromWithOptimisticLock because patching a list with a
 // JSON merge patch can cause races due to the fact that it fully replaces
 // the list on a change. Optimistic locking ensures the patch fails with a
 // conflict error if the node was modified concurrently, allowing the
 // controller to retry with fresh state.
-func (r *RuleReadinessController) removeTaintBySpec(ctx context.Context, node *corev1.Node, taintSpec corev1.Taint, ruleName string) error {
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+func (r *RuleReadinessController) removeTaint(ctx context.Context, node *corev1.Node, taintSpec corev1.Taint, ruleName string, annotations map[string]string) (bool, error) {
+	hasNewAnnotations := false
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		// Fetch latest node state
 		latestNode := &corev1.Node{}
 		if err := r.Get(ctx, client.ObjectKey{Name: node.Name}, latestNode); err != nil {
 			return err
 		}
 
-		// Check if taint is already absent
-		if !r.hasTaintBySpec(latestNode, taintSpec) {
+		hasTaint := r.hasTaintBySpec(latestNode, taintSpec)
+		var missing []string
+		for key := range annotations {
+			if _, exists := latestNode.Annotations[key]; !exists {
+				missing = append(missing, key)
+			}
+		}
+
+		hasNewAnnotations = len(missing) > 0
+		// Check if taint is already absent and no annotations to add
+		if !hasTaint && !hasNewAnnotations {
 			return nil
 		}
 
 		stored := latestNode.DeepCopy()
-		var newTaints []corev1.Taint
-		for _, taint := range latestNode.Spec.Taints {
-			if taint.Key != taintSpec.Key || taint.Effect != taintSpec.Effect {
-				newTaints = append(newTaints, taint)
+		if hasTaint {
+			var newTaints []corev1.Taint
+			for _, taint := range latestNode.Spec.Taints {
+				if taint.Key != taintSpec.Key || taint.Effect != taintSpec.Effect {
+					newTaints = append(newTaints, taint)
+				}
 			}
+			latestNode.Spec.Taints = newTaints
 		}
-		latestNode.Spec.Taints = newTaints
+		if latestNode.Annotations == nil && hasNewAnnotations {
+			latestNode.Annotations = make(map[string]string)
+		}
+		for _, key := range missing {
+			latestNode.Annotations[key] = annotations[key]
+		}
 		if err := r.Patch(ctx, latestNode, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
 			return err
 		}
 
-		message := fmt.Sprintf("Taint '%s:%s' removed by rule '%s'", taintSpec.Key, taintSpec.Effect, ruleName)
-		r.EventRecorder.Eventf(latestNode, nil, corev1.EventTypeNormal, "TaintRemoved", "RemoveTaint", "%s", message)
+		if hasTaint {
+			message := fmt.Sprintf("Taint '%s:%s' removed by rule '%s'", taintSpec.Key, taintSpec.Effect, ruleName)
+			r.EventRecorder.Eventf(latestNode, nil, corev1.EventTypeNormal, "TaintRemoved", "RemoveTaint", "%s", message)
+		}
 
 		// Update the original node reference with the latest state
 		*node = *latestNode
 
 		return nil
 	})
+	if err != nil {
+		return false, err
+	}
+	return hasNewAnnotations, nil
+}
+
+// nodeHasBootstrapAnnotation reports whether the given node object carries
+// the rule's bootstrap completion annotation (UID-based or legacy key).
+func nodeHasBootstrapAnnotation(node *corev1.Node, rule *readinessv1alpha1.NodeReadinessRule) bool {
+	_, existsNew := node.Annotations[bootstrapAnnotationKey(rule.GetUID())]
+	_, existsLegacy := node.Annotations[legacyBootstrapAnnotationKey(rule.Name)]
+	return existsNew || existsLegacy
 }
 
 func (r *RuleReadinessController) isBootstrapCompleted(ctx context.Context, nodeName string, ruleName string, ruleUID types.UID) bool {
@@ -357,10 +436,14 @@ func (r *RuleReadinessController) isBootstrapCompleted(ctx context.Context, node
 	return existsNew || existsLegacy
 }
 
-func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, nodeName, ruleName string, ruleUID types.UID) {
+// markBootstrapCompleted records bootstrap completion for a rule when a
+// node didnt have a taint remove action. For the nodes already carrying taint,
+// it is deferred and handled eventually by removeTaintAndCompleteBootstrap.
+func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, nodeName string, rule *readinessv1alpha1.NodeReadinessRule) {
 	log := ctrl.LoggerFrom(ctx)
 	marked := false
-	annotationKey := bootstrapAnnotationKey(ruleUID)
+	deferred := false
+	annotationKey := bootstrapAnnotationKey(rule.GetUID())
 
 	// retry to handle conflict with concurrent node updates
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -374,14 +457,20 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 			return nil
 		}
 
-		patch := client.MergeFrom(node.DeepCopy())
+		if r.hasTaintBySpec(node, rule.Spec.Taint) {
+			deferred = true
+			return nil
+		}
+		deferred = false
+
+		patch := client.MergeFromWithOptions(node.DeepCopy(), client.MergeFromWithOptimisticLock{})
 
 		// Initialize annotations map if nil.
 		if node.Annotations == nil {
 			node.Annotations = make(map[string]string)
 		}
 
-		node.Annotations[annotationKey] = bootstrapAnnotationValue(ruleName)
+		node.Annotations[annotationKey] = bootstrapAnnotationValue(rule.Name)
 		if err := r.Patch(ctx, node, patch); err != nil {
 			return err
 		}
@@ -392,12 +481,15 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 
 	switch {
 	case err != nil:
-		log.Error(err, "Failed to mark bootstrap completed", "node", nodeName, "rule", ruleName, "uid", ruleUID)
+		log.Error(err, "Failed to mark bootstrap completed", "node", nodeName, "rule", rule.Name, "uid", rule.GetUID())
+	case deferred:
+		log.Info("Deferring bootstrap completion - rule taint still present on node",
+			"node", nodeName, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
 	case marked:
-		log.Info("Marked bootstrap completed", "node", nodeName, "rule", ruleName, "uid", ruleUID)
-		metrics.BootstrapCompleted.WithLabelValues(ruleName).Inc()
+		log.Info("Marked bootstrap completed", "node", nodeName, "rule", rule.Name, "uid", rule.GetUID())
+		metrics.BootstrapCompleted.WithLabelValues(rule.Name).Inc()
 	default:
-		log.V(4).Info("Bootstrap already completed", "node", nodeName, "rule", ruleName, "uid", ruleUID)
+		log.V(4).Info("Bootstrap already completed", "node", nodeName, "rule", rule.Name, "uid", rule.GetUID())
 	}
 }
 

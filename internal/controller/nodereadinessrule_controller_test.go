@@ -1146,11 +1146,18 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 		It("should handle bootstrap completion tracking", func() {
 			nodeName := "bootstrap-test-node"
-			ruleName := "bootstrap-test-rule"
-			ruleUID := types.UID("11111111-1111-1111-1111-111111111111")
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "bootstrap-test-rule",
+					UID:  types.UID("11111111-1111-1111-1111-111111111111"),
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Taint: corev1.Taint{Key: "readiness.k8s.io/bootstrap-test", Effect: corev1.TaintEffectNoSchedule},
+				},
+			}
 
 			// Initially not completed
-			completed := readinessController.isBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)
+			completed := readinessController.isBootstrapCompleted(ctx, nodeName, rule.Name, rule.GetUID())
 			Expect(completed).To(BeFalse())
 
 			// Create a node for testing
@@ -1163,11 +1170,11 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			defer func() { _ = k8sClient.Delete(ctx, node) }()
 
 			// Mark as completed
-			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)
+			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
 
 			// Should now be completed
 			Eventually(func() bool {
-				return readinessController.isBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)
+				return readinessController.isBootstrapCompleted(ctx, nodeName, rule.Name, rule.GetUID())
 			}).Should(BeTrue())
 		})
 
@@ -1199,8 +1206,15 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 		It("should set bootstrap annotation via patch in markBootstrapCompleted", func() {
 			nodeName := "bootstrap-patch-test-node"
-			ruleName := "bootstrap-patch-test-rule"
-			ruleUID := types.UID("33333333-3333-3333-3333-333333333333")
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "bootstrap-patch-test-rule",
+					UID:  types.UID("33333333-3333-3333-3333-333333333333"),
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Taint: corev1.Taint{Key: "readiness.k8s.io/bootstrap-patch-test", Effect: corev1.TaintEffectNoSchedule},
+				},
+			}
 
 			// Create a node with existing annotations that should be preserved
 			node := &corev1.Node{
@@ -1215,16 +1229,16 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			defer func() { _ = k8sClient.Delete(ctx, node) }()
 
 			// Mark bootstrap completed
-			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)
+			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
 
 			// Verify UID-based annotation was added and existing annotation is preserved
 			Eventually(func(g Gomega) {
 				updatedNode := &corev1.Node{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, updatedNode)).To(Succeed())
 				g.Expect(updatedNode.Annotations).To(HaveKey(
-					bootstrapAnnotationKey(ruleUID)))
-				g.Expect(updatedNode.Annotations[bootstrapAnnotationKey(ruleUID)]).To(
-					ContainSubstring(ruleName))
+					bootstrapAnnotationKey(rule.GetUID())))
+				g.Expect(updatedNode.Annotations[bootstrapAnnotationKey(rule.GetUID())]).To(
+					ContainSubstring(rule.Name))
 				g.Expect(updatedNode.Annotations).To(HaveKeyWithValue(
 					"existing-annotation", "should-be-preserved"))
 			}).Should(Succeed())
@@ -1232,8 +1246,15 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 		It("should increment bootstrap completed metric only when newly marked", func() {
 			nodeName := "bootstrap-metric-test-node"
-			ruleName := "bootstrap-metric-test-rule"
-			ruleUID := types.UID("44444444-4444-4444-4444-444444444444")
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "bootstrap-metric-test-rule",
+					UID:  types.UID("44444444-4444-4444-4444-444444444444"),
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Taint: corev1.Taint{Key: "readiness.k8s.io/bootstrap-metric-test", Effect: corev1.TaintEffectNoSchedule},
+				},
+			}
 
 			node := &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1243,12 +1264,106 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
 			defer func() { _ = k8sClient.Delete(ctx, node) }()
 
-			counter := metrics.BootstrapCompleted.WithLabelValues(ruleName)
+			counter := metrics.BootstrapCompleted.WithLabelValues(rule.Name)
 			before := counterValue(counter)
 
-			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)
-			readinessController.markBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)
+			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
 
+			Expect(counterValue(counter)).To(Equal(before + 1))
+		})
+
+		It("should refuse to mark bootstrap completed while the rule's taint is on the node", func() {
+			nodeName := "bootstrap-defer-test-node"
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "bootstrap-defer-test-rule",
+					UID:  types.UID("55555555-5555-5555-5555-555555555555"),
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Taint: corev1.Taint{Key: "readiness.k8s.io/bootstrap-defer-test", Effect: corev1.TaintEffectNoSchedule},
+				},
+			}
+
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: "readiness.k8s.io/bootstrap-defer-test", Effect: corev1.TaintEffectNoSchedule},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			// Marking must be deferred: completion with the bootstrap taint still
+			// present would orphan the taint forever.
+			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+
+			updatedNode := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, updatedNode)).To(Succeed())
+			Expect(updatedNode.Annotations).NotTo(HaveKey(bootstrapAnnotationKey(rule.GetUID())))
+
+			// Once the taint is gone, marking succeeds.
+			updatedNode.Spec.Taints = nil
+			Expect(k8sClient.Update(ctx, updatedNode)).To(Succeed())
+
+			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+
+			Eventually(func() map[string]string {
+				recheckedNode := &corev1.Node{}
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, recheckedNode)
+				return recheckedNode.Annotations
+			}).Should(HaveKey(bootstrapAnnotationKey(rule.GetUID())))
+		})
+
+		It("should remove the taint and write the completion annotation in a single patch", func() {
+			nodeName := "bootstrap-atomic-test-node"
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "bootstrap-atomic-test-rule",
+					UID:  types.UID("66666666-6666-6666-6666-666666666666"),
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Taint: corev1.Taint{Key: "readiness.k8s.io/bootstrap-atomic-test", Effect: corev1.TaintEffectNoSchedule},
+				},
+			}
+
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: "readiness.k8s.io/bootstrap-atomic-test", Effect: corev1.TaintEffectNoSchedule},
+						{Key: "other-controller/taint", Effect: corev1.TaintEffectNoSchedule},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			counter := metrics.BootstrapCompleted.WithLabelValues(rule.Name)
+			before := counterValue(counter)
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)).To(Succeed())
+			Expect(readinessController.removeTaintAndCompleteBootstrap(ctx, node, rule)).To(Succeed())
+
+			// Taint gone, annotation present, unrelated taint preserved.
+			// (envtest's admission plugins may add taints of their own, e.g.
+			// node.kubernetes.io/not-ready, so assert by key.)
+			updatedNode := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, updatedNode)).To(Succeed())
+			Expect(readinessController.hasTaintBySpec(updatedNode, rule.Spec.Taint)).To(BeFalse())
+			Expect(updatedNode.Annotations).To(HaveKey(bootstrapAnnotationKey(rule.GetUID())))
+			taintKeys := make([]string, 0, len(updatedNode.Spec.Taints))
+			for _, t := range updatedNode.Spec.Taints {
+				taintKeys = append(taintKeys, t.Key)
+			}
+			Expect(taintKeys).To(ContainElement("other-controller/taint"))
+
+			Expect(counterValue(counter)).To(Equal(before + 1))
+
+			// A second call is a no-op and does not double-count the metric.
+			Expect(readinessController.removeTaintAndCompleteBootstrap(ctx, node, rule)).To(Succeed())
 			Expect(counterValue(counter)).To(Equal(before + 1))
 		})
 

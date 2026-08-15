@@ -313,6 +313,29 @@ var _ = Describe("Node Controller", func() {
 				}).Should(HaveKey(bootstrapAnnotationKey(rule.GetUID())))
 			})
 
+			It("should not re-add the taint to a completed node even when conditions are unsatisfied", func() {
+				By("Marking the node completed and removing the taint")
+				seededNode := &corev1.Node{}
+				Expect(k8sClient.Get(ctx, namespacedName, seededNode)).To(Succeed())
+				if seededNode.Annotations == nil {
+					seededNode.Annotations = map[string]string{}
+				}
+				seededNode.Annotations[bootstrapAnnotationKey(rule.GetUID())] = bootstrapAnnotationValue(rule.Name)
+				seededNode.Spec.Taints = nil
+				Expect(k8sClient.Update(ctx, seededNode)).To(Succeed())
+
+				By("Evaluating the rule directly as the rule reconciler")
+				Expect(k8sClient.Get(ctx, namespacedName, seededNode)).To(Succeed())
+				Expect(readinessController.evaluateRuleForNode(ctx, rule, seededNode)).To(Succeed())
+
+				By("Verifying no taint was added despite unsatisfied conditions")
+				Consistently(func() bool {
+					updatedNode := &corev1.Node{}
+					_ = k8sClient.Get(ctx, namespacedName, updatedNode)
+					return readinessController.hasTaintBySpec(updatedNode, rule.Spec.Taint)
+				}, time.Second*2).Should(BeFalse())
+			})
+
 			It("should not re-add the taint if conditions regress after completion", func() {
 				// Step 1: Meet conditions and remove taint
 				node.Status.Conditions[0].Status = corev1.ConditionTrue
@@ -904,13 +927,18 @@ var _ = Describe("Node Controller", func() {
 
 			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, node)).To(Succeed())
 
-			err := controller.addTaintBySpec(ctx, node, corev1.Taint{
-				Key:    "readiness.k8s.io/test",
-				Effect: corev1.TaintEffectNoSchedule,
-			}, "test-rule")
+			addRule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-rule"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/test", Effect: corev1.TaintEffectNoSchedule},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+			added, err := controller.addTaintBySpec(ctx, node, addRule)
 
 			// Should succeed after retry
 			Expect(err).NotTo(HaveOccurred())
+			Expect(added).To(BeTrue())
 
 			// Verify both taints are present (ours and the concurrent one)
 			updated := &corev1.Node{}
@@ -928,6 +956,122 @@ var _ = Describe("Node Controller", func() {
 
 			// Verify that the patch was attempted twice (first failed, second succeeded)
 			Expect(patchCount.Load()).To(BeNumerically(">=", 2))
+		})
+
+		It("should not mark bootstrap completed when the rule taints concurrently", func() {
+			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "race-mark-rule",
+					UID:  types.UID("77777777-7777-7777-7777-777777777777"),
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/race-test", Effect: corev1.TaintEffectNoSchedule},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "race-mark-node"},
+			}
+
+			var patchCount atomic.Int32
+
+			// simulate another writer adds rule taint between markBootstrapCompleted's Get and its Patch. The annotation patch must conflict
+			// due to optimistic lock and retry and must observe the taint.
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if obj.GetName() == "race-mark-node" && patchCount.Add(1) == 1 {
+							current := &corev1.Node{}
+							Expect(c.Get(ctx, types.NamespacedName{Name: obj.GetName()}, current)).To(Succeed())
+							current.Spec.Taints = append(current.Spec.Taints, rule.Spec.Taint)
+							Expect(c.Update(ctx, current)).To(Succeed())
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: events.NewFakeRecorder(10),
+			}
+
+			controller.markBootstrapCompleted(ctx, node.Name, rule)
+
+			updated := &corev1.Node{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, updated)).To(Succeed())
+			Expect(updated.Annotations).NotTo(HaveKey(bootstrapAnnotationKey(rule.GetUID())),
+				"completion must be deferred when the taint won the race")
+			Expect(controller.hasTaintBySpec(updated, rule.Spec.Taint)).To(BeTrue(),
+				"the concurrently added taint must survive")
+		})
+
+		It("should not add the taint when bootstrap completion annotated concurrently", func() {
+			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "race-add-rule",
+					UID:  types.UID("88888888-8888-8888-8888-888888888888"),
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/race-test", Effect: corev1.TaintEffectNoSchedule},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "race-add-node"},
+			}
+
+			var patchCount atomic.Int32
+
+			// another writer marks bootstrap completed Between addTaintBySpec Get and its Patch
+			// The taint patch must conflict due to optimistic lock and retry, but the retry must observe the annotation and abort the add.
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if obj.GetName() == "race-add-node" && patchCount.Add(1) == 1 {
+							current := &corev1.Node{}
+							Expect(c.Get(ctx, types.NamespacedName{Name: obj.GetName()}, current)).To(Succeed())
+							if current.Annotations == nil {
+								current.Annotations = map[string]string{}
+							}
+							current.Annotations[bootstrapAnnotationKey(rule.GetUID())] = bootstrapAnnotationValue(rule.Name)
+							Expect(c.Update(ctx, current)).To(Succeed())
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: events.NewFakeRecorder(10),
+			}
+
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, node)).To(Succeed())
+			added, err := controller.addTaintBySpec(ctx, node, rule)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(added).To(BeFalse(), "the add must yield when completion won the race")
+
+			updated := &corev1.Node{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, updated)).To(Succeed())
+			Expect(controller.hasTaintBySpec(updated, rule.Spec.Taint)).To(BeFalse(),
+				"a completed node must not end up tainted")
+			Expect(updated.Annotations).To(HaveKey(bootstrapAnnotationKey(rule.GetUID())),
+				"the concurrently written completion must survive")
 		})
 
 		It("should succeed when no concurrent modification occurs", func() {
