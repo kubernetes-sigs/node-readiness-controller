@@ -1,0 +1,26 @@
+changelog:
+  categories:
+    - title: "API Changes"
+      labels:
+        - kind/api-change
+        - kind/deprecation
+    - title: "New Features"
+      labels:
+        - kind/feature
+    - title: "Fixes"
+      labels:
+        - kind/bug
+        - kind/regression
+    - title: "Docs"
+      labels:
+        - kind/documentation
+        - documentation
+    - title: "Chores"
+      labels:
+        - area/dependency
+        - kind/flake
+        - kind/failing-test
+        - kind/cleanup
+    - title: "Other"
+      labels:
+        - "*"
