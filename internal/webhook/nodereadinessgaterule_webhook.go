@@ -98,6 +98,18 @@ func (w *NodeReadinessRuleWebhook) validateSpec(
 		))
 	}
 
+	// validate that when conditionPolicy is anyOf, no condition's defaultStatus equals its requiredStatus
+	if spec.GetConditionPolicy() == readinessv1alpha1.ConditionPolicyAnyOf {
+		for i, cond := range spec.Conditions {
+			if cond.GetDefaultStatus() == cond.RequiredStatus {
+				allErrs = append(allErrs, field.Forbidden(
+					field.NewPath("spec", "conditions").Index(i).Child("defaultStatus"),
+					"defaultStatus cannot be equal to requiredStatus when conditionPolicy is anyOf",
+				))
+			}
+		}
+	}
+
 	return allErrs
 }
 

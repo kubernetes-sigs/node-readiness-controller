@@ -36,6 +36,11 @@ When a rule specifies multiple conditions, the `conditionPolicy` determines how 
 >
 > `bootstrap-only` mode exists to verify that specific components have finished initializing. Using `anyOf` with `bootstrap-only` could lead to the node bootstrapping prematurely if just one component is ready, completely ignoring the initialization status of the others. The admission webhook enforces this restriction.
 
+> [!CAUTION]
+> **`anyOf` conditions cannot have `defaultStatus` equal to `requiredStatus`.**
+>
+> Because `anyOf` only requires a single condition to be satisfied, configuring a condition where `defaultStatus` is the same as its `requiredStatus` creates a logical short-circuit. The condition would be considered satisfied even if the node never reports it, silently bypassing the readiness check. The admission webhook actively rejects configurations with this vulnerability.
+
 
 ## Enforcement Modes
 
