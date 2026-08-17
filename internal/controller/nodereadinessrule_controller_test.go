@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -33,6 +34,8 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	nodereadinessiov1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
@@ -66,6 +69,15 @@ func (c *errorInjectingClient) Patch(ctx context.Context, obj client.Object, pat
 		return fmt.Errorf("patch failed for node %s", node.Name)
 	}
 	return c.Client.Patch(ctx, obj, patch, opts...)
+}
+
+func findNodeEvaluation(evals []nodereadinessiov1alpha1.NodeEvaluation, nodeName string) *nodereadinessiov1alpha1.NodeEvaluation {
+	for i := range evals {
+		if evals[i].NodeName == nodeName {
+			return &evals[i]
+		}
+	}
+	return nil
 }
 
 var _ = Describe("NodeReadinessRule Controller", func() {
@@ -2361,7 +2373,8 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			}
 
 			nodeList := &corev1.NodeList{Items: []corev1.Node{*failNode}}
-			Expect(failController.processAllNodesForRule(ctx, rule, nodeList)).To(Succeed())
+			_, err := failController.processAllNodesForRule(ctx, rule, nodeList)
+			Expect(err).NotTo(HaveOccurred())
 
 			Expect(rule.Status.AppliedNodes).NotTo(ContainElement("fail-path-node"))
 
@@ -2418,7 +2431,8 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			}
 
 			nodeList := &corev1.NodeList{Items: []corev1.Node{*successNode}}
-			Expect(successController.processAllNodesForRule(ctx, rule, nodeList)).To(Succeed())
+			_, err := successController.processAllNodesForRule(ctx, rule, nodeList)
+			Expect(err).NotTo(HaveOccurred())
 
 			Expect(rule.Status.AppliedNodes).To(ContainElement("stale-recovery-node"))
 
@@ -2533,6 +2547,145 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			// Taint should be removed because all conditions are satisfied
 			Expect(readinessController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeFalse())
+		})
+	})
+
+	Context("concurrent status writes between RuleReconciler and NodeReconciler", func() {
+		var testScheme *runtime.Scheme
+
+		BeforeEach(func() {
+			testScheme = runtime.NewScheme()
+			Expect(corev1.AddToScheme(testScheme)).To(Succeed())
+			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
+		})
+
+		It("should not discard a NodeReconciler-written evaluation for a node outside the RuleReconciler sweep", func() {
+			nodeA := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "concurrent-node-a", Labels: map[string]string{"role": "worker"}},
+				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: "Ready", Status: corev1.ConditionTrue}}},
+			}
+			nodeB := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "concurrent-node-b", Labels: map[string]string{"role": "worker"}},
+				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: "Ready", Status: corev1.ConditionTrue}}},
+			}
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "concurrent-status-rule"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/concurrent-test", Effect: corev1.TaintEffectNoSchedule},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"role": "worker"}},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(nodeA, nodeB, rule).
+				WithStatusSubresource(rule).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: events.NewFakeRecorder(10),
+			}
+			controller.updateRuleCache(ctx, rule)
+
+			// Simulate RuleReconciler starting a sweep from a nodeList snapshot that
+			// only knows about node-a (e.g. node-b joined after the snapshot was taken).
+			staleNodeList := &corev1.NodeList{Items: []corev1.Node{*nodeA}}
+			delta, err := controller.processAllNodesForRule(ctx, rule, staleNodeList)
+			Expect(err).NotTo(HaveOccurred())
+
+			// While that sweep is "in flight", NodeReconciler independently reconciles
+			// node-b and persists its own evaluation into the same rule's status.
+			Expect(controller.processNodeAgainstAllRules(ctx, nodeB)).To(Succeed())
+
+			afterConcurrentWrite := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: rule.Name}, afterConcurrentWrite)).To(Succeed())
+			Expect(findNodeEvaluation(afterConcurrentWrite.Status.NodeEvaluations, "concurrent-node-b")).
+				NotTo(BeNil(), "NodeReconciler should have persisted an evaluation for node-b")
+
+			// RuleReconciler now finishes its (stale) sweep and patches the rule status.
+			Expect(controller.updateRuleStatus(ctx, rule, delta)).To(Succeed())
+
+			final := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: rule.Name}, final)).To(Succeed())
+
+			Expect(findNodeEvaluation(final.Status.NodeEvaluations, "concurrent-node-a")).NotTo(BeNil(),
+				"node-a's freshly computed evaluation should be present")
+			Expect(findNodeEvaluation(final.Status.NodeEvaluations, "concurrent-node-b")).NotTo(BeNil(),
+				"node-b's evaluation, written concurrently by NodeReconciler outside this sweep, must not be discarded")
+		})
+
+		It("should retry updateRuleStatus on a genuine conflict instead of silently clobbering it", func() {
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "conflict-node", Labels: map[string]string{"role": "worker"}},
+				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: "Ready", Status: corev1.ConditionTrue}}},
+			}
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "conflict-rule"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/conflict-test", Effect: corev1.TaintEffectNoSchedule},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"role": "worker"}},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			var patchCount atomic.Int32
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node, rule).
+				WithStatusSubresource(rule).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						if r, ok := obj.(*nodereadinessiov1alpha1.NodeReadinessRule); ok && r.Name == "conflict-rule" && patchCount.Add(1) == 1 {
+							// Simulate a concurrent NodeReconciler write for a different
+							// node landing in between our Get and our Patch.
+							current := &nodereadinessiov1alpha1.NodeReadinessRule{}
+							Expect(c.Get(ctx, types.NamespacedName{Name: r.Name}, current)).To(Succeed())
+							current.Status.NodeEvaluations = append(current.Status.NodeEvaluations, nodereadinessiov1alpha1.NodeEvaluation{
+								NodeName:    "conflict-other-node",
+								TaintStatus: nodereadinessiov1alpha1.TaintStatusAbsent,
+							})
+							Expect(c.Status().Update(ctx, current)).To(Succeed())
+						}
+						return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: events.NewFakeRecorder(10),
+			}
+
+			nodeList := &corev1.NodeList{Items: []corev1.Node{*node}}
+			delta, err := controller.processAllNodesForRule(ctx, rule, nodeList)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(controller.updateRuleStatus(ctx, rule, delta)).To(Succeed())
+			Expect(patchCount.Load()).To(BeNumerically(">=", 2),
+				"the first patch attempt should hit a conflict and force a retry")
+
+			final := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: rule.Name}, final)).To(Succeed())
+			Expect(findNodeEvaluation(final.Status.NodeEvaluations, "conflict-node")).NotTo(BeNil())
+			Expect(findNodeEvaluation(final.Status.NodeEvaluations, "conflict-other-node")).NotTo(BeNil(),
+				"the concurrently-written evaluation must survive the retried patch")
 		})
 	})
 })

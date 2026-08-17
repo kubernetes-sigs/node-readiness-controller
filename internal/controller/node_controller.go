@@ -169,14 +169,7 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 
 		var successfullyPatchedRule *readinessv1alpha1.NodeReadinessRule
 
-		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			latestRule := &readinessv1alpha1.NodeReadinessRule{}
-			if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, latestRule); err != nil {
-				return err
-			}
-
-			patch := client.MergeFrom(latestRule.DeepCopy())
-
+		err := r.patchRuleStatusWithOptimisticLock(ctx, rule.Name, func(latestRule *readinessv1alpha1.NodeReadinessRule) bool {
 			// update only this specific node evaluation status
 			currEval := readinessv1alpha1.NodeEvaluation{}
 			for _, eval := range rule.Status.NodeEvaluations {
@@ -215,12 +208,8 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			}
 			latestRule.Status.FailedNodes = updatedFailedNodes
 
-			if err := r.Status().Patch(ctx, latestRule, patch); err != nil {
-				return err
-			}
-
 			successfullyPatchedRule = latestRule
-			return nil
+			return true
 		})
 
 		if err != nil {
@@ -464,7 +453,7 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 		}
 		deferred = false
 
-		patch := client.MergeFromWithOptions(node.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		stored := node.DeepCopy()
 
 		// Initialize annotations map if nil.
 		if node.Annotations == nil {
@@ -472,7 +461,7 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 		}
 
 		node.Annotations[annotationKey] = bootstrapAnnotationValue(rule.Name)
-		if err := r.Patch(ctx, node, patch); err != nil {
+		if err := r.Patch(ctx, node, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
 			return err
 		}
 
