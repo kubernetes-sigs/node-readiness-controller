@@ -51,7 +51,7 @@ tests:
     template: templates/deployment.yaml
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].ports[0].name
+          path: spec.template.spec.containers[0].ports[1].name
           value: webhook-server
 
   - it: does not pass concurrency args at defaults
