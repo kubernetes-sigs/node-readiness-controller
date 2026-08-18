@@ -6,7 +6,7 @@ metadata:
   labels:
     component: node-readiness-controller
     tier: control-plane
-  spec:
+spec:
   # Init container to prepare a readable kubeconfig for the non-root manager.
   # prepare-kubeconfig must run as root: /etc/kubernetes/admin.conf is
   # typically mode 600 root:root on kubeadm clusters, so a non-root UID
