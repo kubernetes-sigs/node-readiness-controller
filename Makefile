@@ -411,6 +411,12 @@ test-e2e-kind: $(KIND) manifests generate fmt vet ## Run e2e tests on a Kind clu
 	USE_EXISTING_CLUSTER=$(USE_EXISTING_CLUSTER) ARTIFACTS=$(ARTIFACTS) \
 	./hack/e2e-test.sh
 
+.PHONY: test-e2e-npd-kind
+test-e2e-npd-kind: $(KIND) manifests generate fmt vet ## Run NPD integration e2e tests on a Kind cluster.
+	E2E_KIND_VERSION=$(E2E_KIND_VERSION) KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) \
+	USE_EXISTING_CLUSTER=$(USE_EXISTING_CLUSTER) ARTIFACTS=$(ARTIFACTS) \
+	./hack/e2e-npd-test.sh
+
 KUBEBUILDER_ASSETS ?= $(shell $(SETUP_ENVTEST) use --use-env -p path $(KUBEBUILDER_ENVTEST_KUBERNETES_VERSION))
 
 .PHONY: setup-envtest

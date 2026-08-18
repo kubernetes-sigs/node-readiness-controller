@@ -1,0 +1,47 @@
+name: e2e-npd-integration
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  e2e-npd-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Install Kind
+        run: |
+          go install sigs.k8s.io/kind@v0.22.0
+
+      - name: Run E2E NPD Compatibility Suite
+        run: make test-e2e-npd-kind
+        env:
+          USE_EXISTING_CLUSTER: 'false'
+          ARTIFACTS: '${{ github.workspace }}/artifacts'
+
+      - name: Upload Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-npd-artifacts
+          path: ${{ github.workspace }}/artifacts
+          retention-days: 7
