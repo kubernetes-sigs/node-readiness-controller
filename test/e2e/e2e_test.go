@@ -558,6 +558,66 @@ status:
 			exec.Command("kubectl", "delete", "nodereadinessrule", "dryrun-test-rule").Run()
 		})
 
+		It("should pause rule evaluation when suspend is true", func() {
+			nodeName := "suspend-test-node"
+
+			By("creating a test node")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(fmt.Sprintf(`
+apiVersion: v1
+kind: Node
+metadata:
+  name: %s
+  labels:
+    e2e-test: "suspend"
+status:
+  conditions:
+    - type: SuspendTest
+      status: "False"
+      lastHeartbeatTime: %s
+      lastTransitionTime: %s
+`, nodeName, time.Now().Format(time.RFC3339), time.Now().Format(time.RFC3339)))
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("applying a suspended rule")
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(`
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: suspend-test-rule
+spec:
+  suspend: true
+  conditions:
+    - type: SuspendTest
+      requiredStatus: "True"
+  taint:
+    key: readiness.k8s.io/SuspendTest
+    effect: NoSchedule
+  nodeSelector:
+    matchLabels:
+      e2e-test: "suspend"
+  enforcementMode: continuous
+`)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying no taint is added because rule is suspended")
+			Consistently(func() bool {
+				cmd := exec.Command("kubectl", "get", "node", nodeName, "-o", "jsonpath={.spec.taints}")
+				output, err := utils.Run(cmd)
+				if err != nil {
+					return false
+				}
+				return !strings.Contains(output, "readiness.k8s.io/SuspendTest")
+			}, 10*time.Second, 2*time.Second).Should(BeTrue())
+
+			By("cleaning up test resources")
+			exec.Command("kubectl", "delete", "node", nodeName).Run()
+			exec.Command("kubectl", "delete", "nodereadinessrule", "suspend-test-rule").Run()
+		})
+
 		It("should emit events for taint operations", func() {
 			nodeName := "event-test-node"
 

@@ -140,6 +140,13 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			continue
 		}
 
+		// Skip if suspended
+		if rule.Spec.Suspend {
+			log.V(4).Info("Skipping suspended rule",
+				"node", node.Name, "rule", rule.Name)
+			continue
+		}
+
 		// Skip if dry run
 		if rule.Spec.DryRun {
 			log.Info("Skipping rule - dry run mode",

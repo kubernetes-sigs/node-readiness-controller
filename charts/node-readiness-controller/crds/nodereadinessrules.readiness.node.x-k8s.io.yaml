@@ -128,6 +128,11 @@ spec:
                 x-kubernetes-validations:
                 - message: conditions is immutable
                   rule: self == oldSelf
+              suspend:
+                description: |-
+                  suspend when set to true, temporarily pauses the evaluation of the rule.
+                  The controller will skip processing this rule and make no changes to node taints or rule status.
+                type: boolean
               dryRun:
                 description: |-
                   dryRun when set to true, The controller will evaluate Node conditions and log intended taint modifications

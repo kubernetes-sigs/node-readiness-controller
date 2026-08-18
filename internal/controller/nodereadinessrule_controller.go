@@ -138,6 +138,11 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// Update rule cache (after cleanup)
 	r.Controller.updateRuleCache(ctx, rule)
 
+	if rule.Spec.Suspend {
+		log.Info("Rule is suspended, skipping processing", "rule", rule.Name)
+		return ctrl.Result{}, nil
+	}
+
 	// Handle dry run
 	if rule.Spec.DryRun {
 		if err := r.Controller.processDryRun(ctx, rule, nodeList); err != nil {

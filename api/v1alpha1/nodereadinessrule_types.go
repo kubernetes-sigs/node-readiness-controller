@@ -128,6 +128,12 @@ type NodeReadinessRuleSpec struct {
 	// +optional
 	ConditionPolicy ConditionPolicy `json:"conditionPolicy,omitempty"` // Use GetConditionPolicy() for safe access; field may be empty even when allOf applies.
 
+	// suspend when set to true, temporarily pauses the evaluation of the rule.
+	// The controller will skip processing this rule and make no changes to node taints or rule status.
+	//
+	// +optional
+	Suspend bool `json:"suspend,omitempty"` //nolint:kubeapilinter
+
 	// dryRun when set to true, The controller will evaluate Node conditions and log intended taint modifications
 	// without persisting changes to the cluster. Proposed actions are reflected in the resource status.
 	//
