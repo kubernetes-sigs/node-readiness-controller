@@ -35,7 +35,7 @@ import (
 
 func TestReporterBuildInfo(t *testing.T) {
 	expected := `
-# HELP node_readiness_reporter_build_info Reporter binary version to track fleet version skew.
+# HELP node_readiness_reporter_build_info Reporter binary version.
 # TYPE node_readiness_reporter_build_info gauge
 node_readiness_reporter_build_info{version="` + info.GetVersion() + `"} 1
 `

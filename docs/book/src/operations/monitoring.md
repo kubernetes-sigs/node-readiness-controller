@@ -129,7 +129,7 @@ Duration of health probe checks.
 | --- | --- |
 | Type | `histogram` |
 | Labels | none |
-| Buckets | Prometheus default histogram buckets |
+| Buckets | `0.005, 0.1, 0.25, 0.5, 1, 2.5, 5, 10` seconds |
 | Recorded when | The reporter completes a health check request to `CHECK_ENDPOINT` |
 
 ### `node_readiness_reporter_checks_total`

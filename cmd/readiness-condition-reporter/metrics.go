@@ -30,7 +30,7 @@ var (
 	reporterBuildInfo = prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
 			Name: "node_readiness_reporter_build_info",
-			Help: "Reporter binary version to track fleet version skew.",
+			Help: "Reporter binary version.",
 			ConstLabels: prometheus.Labels{
 				"version": info.GetVersion(),
 			},
@@ -43,7 +43,7 @@ var (
 		prometheus.HistogramOpts{
 			Name:    "node_readiness_reporter_check_duration_seconds",
 			Help:    "Duration of health probe checks.",
-			Buckets: prometheus.DefBuckets,
+			Buckets: []float64{0.005, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}, // 5ms to 10s
 		},
 	)
 
@@ -60,7 +60,7 @@ var (
 	reporterConditionWritesTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "node_readiness_reporter_condition_writes_total",
-			Help: "Total Node condition updates, including skipped writes when the condition is unchanged.",
+			Help: "Total Node condition updates handled by the reporter.",
 		},
 		[]string{"result"}, // result: success, error, skipped
 	)
