@@ -247,5 +247,32 @@ spec:
 			Expect(err).To(HaveOccurred(), "Should fail with special characters")
 			Expect(string(output)).To(ContainSubstring("must consist of alphanumeric characters"))
 		})
+		It("should reject anyOf conditionPolicy when defaultStatus equals requiredStatus", func() {
+			manifest := `
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: test-anyof-default-status
+spec:
+  conditionPolicy: anyOf
+  conditions:
+    - type: "test.condition"
+      requiredStatus: "True"
+      defaultStatus: "True"
+  taint:
+    key: "readiness.k8s.io/anyof-test"
+    effect: "NoSchedule"
+  enforcementMode: "continuous"
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/os: linux
+`
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(manifest)
+			output, err := cmd.CombinedOutput()
+
+			Expect(err).To(HaveOccurred(), "Should fail when conditionPolicy is anyOf and defaultStatus equals requiredStatus")
+			Expect(string(output)).To(ContainSubstring("defaultStatus cannot equal requiredStatus when conditionPolicy is anyOf"))
+		})
 	})
 })

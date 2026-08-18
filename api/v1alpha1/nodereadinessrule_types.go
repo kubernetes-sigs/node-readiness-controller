@@ -66,6 +66,7 @@ const (
 // NodeReadinessRuleSpec defines the desired state of NodeReadinessRule.
 //
 // +kubebuilder:validation:XValidation:rule="(!has(oldSelf.conditionPolicy) ? 'allOf' : oldSelf.conditionPolicy) == (!has(self.conditionPolicy) ? 'allOf' : self.conditionPolicy)",message="conditionPolicy is immutable"
+// +kubebuilder:validation:XValidation:rule="!has(self.conditionPolicy) || self.conditionPolicy != 'anyOf' || !self.conditions.exists(c, has(c.defaultStatus) && c.defaultStatus == c.requiredStatus)",message="defaultStatus cannot equal requiredStatus when conditionPolicy is anyOf"
 type NodeReadinessRuleSpec struct {
 	// conditions contains a list of the Node conditions that defines the specific
 	// criteria that must be met for taints to be managed on the target Node.
