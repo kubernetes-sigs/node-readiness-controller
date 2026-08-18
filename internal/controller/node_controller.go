@@ -430,6 +430,7 @@ func nodeHasBootstrapAnnotation(node *corev1.Node, rule *readinessv1alpha1.NodeR
 func (r *RuleReadinessController) isBootstrapCompleted(ctx context.Context, nodeName string, ruleName string, ruleUID types.UID) bool {
 	node := &corev1.Node{}
 	if err := r.Get(ctx, client.ObjectKey{Name: nodeName}, node); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to get node to check bootstrap completion status", "node", nodeName, "rule", ruleName)
 		return false
 	}
 	_, existsNew := node.Annotations[bootstrapAnnotationKey(ruleUID)]
