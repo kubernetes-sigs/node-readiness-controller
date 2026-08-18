@@ -163,6 +163,8 @@ spec:
 				"readiness.k8s.io/with.dots",
 				"readiness.k8s.io/Mixed-Case_123.OK",
 				"readiness.k8s.io/security-agent-ready",
+				"startup-taint.cluster-autoscaler.kubernetes.io/gpu-ready",
+				"ignore-taint.cluster-autoscaler.kubernetes.io/legacy-ready",
 			}
 
 			for i, key := range validKeys {

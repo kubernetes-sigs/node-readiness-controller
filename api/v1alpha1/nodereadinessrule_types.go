@@ -101,7 +101,7 @@ type NodeReadinessRuleSpec struct {
 	// when combined with continuous enforcement mode. Prefer NoSchedule for most use cases.
 	//
 	// +required
-	// +kubebuilder:validation:XValidation:rule="self.key.startsWith('readiness.k8s.io/')",message="taint key must start with 'readiness.k8s.io/'"
+	// +kubebuilder:validation:XValidation:rule="self.key.startsWith('readiness.k8s.io/') || self.key.startsWith('startup-taint.cluster-autoscaler.kubernetes.io/') || self.key.startsWith('ignore-taint.cluster-autoscaler.kubernetes.io/')",message="taint key must start with 'readiness.k8s.io/', 'startup-taint.cluster-autoscaler.kubernetes.io/', or 'ignore-taint.cluster-autoscaler.kubernetes.io/'"
 	// +kubebuilder:validation:XValidation:rule="self.key.size() <= 253",message="taint key length must be at most 253 characters"
 	// +kubebuilder:validation:XValidation:rule="size(self.key.split('/')) == 2",message="taint key must have exactly one '/' separator (prefix/name format)"
 	// +kubebuilder:validation:XValidation:rule="size(self.key.split('/')[1]) > 0 && size(self.key.split('/')[1]) <= 63",message="taint key name part must be 1-63 characters"

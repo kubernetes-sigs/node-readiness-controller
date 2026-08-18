@@ -232,8 +232,8 @@ spec:
                 - key
                 type: object
                 x-kubernetes-validations:
-                - message: taint key must start with 'readiness.k8s.io/'
-                  rule: self.key.startsWith('readiness.k8s.io/')
+                - message: taint key must start with 'readiness.k8s.io/', 'startup-taint.cluster-autoscaler.kubernetes.io/', or 'ignore-taint.cluster-autoscaler.kubernetes.io/'
+                  rule: self.key.startsWith('readiness.k8s.io/') || self.key.startsWith('startup-taint.cluster-autoscaler.kubernetes.io/') || self.key.startsWith('ignore-taint.cluster-autoscaler.kubernetes.io/')
                 - message: taint key length must be at most 253 characters
                   rule: self.key.size() <= 253
                 - message: taint key must have exactly one '/' separator (prefix/name
