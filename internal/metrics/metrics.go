@@ -175,15 +175,6 @@ var (
 		},
 		func() float64 { return 1 },
 	)
-
-	// RuleMatchedNodes tracks how many nodes match each rule's selector.
-	RuleMatchedNodes = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "node_readiness_rule_matched_nodes",
-			Help: "Number of nodes matched by a rule's NodeSelector",
-		},
-		[]string{"rule"},
-	)
 )
 
 func init() {
@@ -199,5 +190,4 @@ func init() {
 	metrics.Registry.MustRegister(ConditionEvaluationFailures)
 	metrics.Registry.MustRegister(RuleLastReconciliationTime)
 	metrics.Registry.MustRegister(BuildInfo)
-	metrics.Registry.MustRegister(RuleMatchedNodes)
 }

@@ -31,6 +31,9 @@ import (
 type stubLister struct {
 	counts map[string]RuleNodeCounts
 	err    error
+
+	matched    map[string]float64
+	matchedErr error
 }
 
 func (s *stubLister) ListRuleNodeStates(_ context.Context) (map[string]RuleNodeCounts, error) {
@@ -38,6 +41,13 @@ func (s *stubLister) ListRuleNodeStates(_ context.Context) (map[string]RuleNodeC
 		return nil, s.err
 	}
 	return s.counts, nil
+}
+
+func (s *stubLister) ListRuleMatchedNodes(_ context.Context) (map[string]float64, error) {
+	if s.matchedErr != nil {
+		return nil, s.matchedErr
+	}
+	return s.matched, nil
 }
 
 func TestReadinessCollector_NoRules(t *testing.T) {
@@ -105,6 +115,66 @@ func TestReadinessCollector_ListError(t *testing.T) {
 
 	expected := ``
 	if err := testutil.CollectAndCompare(c, strings.NewReader(expected), "node_readiness_rule_nodes"); err != nil {
+		t.Fatalf("unexpected collect mismatch: %v", err)
+	}
+}
+
+func TestReadinessCollector_MatchedNodes(t *testing.T) {
+	c := NewReadinessCollector(&stubLister{
+		counts:  map[string]RuleNodeCounts{},
+		matched: map[string]float64{"gpu-ready": 3, "dry-run-rule": 5},
+	})
+
+	expected := `
+		# HELP node_readiness_rule_matched_nodes Number of nodes matched by a rule's NodeSelector.
+		# TYPE node_readiness_rule_matched_nodes gauge
+		node_readiness_rule_matched_nodes{rule="gpu-ready"} 3
+		node_readiness_rule_matched_nodes{rule="dry-run-rule"} 5
+	`
+	if err := testutil.CollectAndCompare(c, strings.NewReader(expected), "node_readiness_rule_matched_nodes"); err != nil {
+		t.Fatalf("unexpected collect mismatch: %v", err)
+	}
+}
+
+func TestReadinessCollector_MatchedNodesListError_DoesNotBlockRuleNodes(t *testing.T) {
+	c := NewReadinessCollector(&stubLister{
+		counts:     map[string]RuleNodeCounts{"gpu-ready": {Held: 1, Released: 2}},
+		matchedErr: errors.New("cache not synced"),
+	})
+
+	expected := `
+		# HELP node_readiness_rule_nodes Number of nodes currently gated or released by the rule.
+		# TYPE node_readiness_rule_nodes gauge
+		node_readiness_rule_nodes{rule="gpu-ready",state="held"} 1
+		node_readiness_rule_nodes{rule="gpu-ready",state="released"} 2
+	`
+	if err := testutil.CollectAndCompare(c, strings.NewReader(expected), "node_readiness_rule_nodes"); err != nil {
+		t.Fatalf("unexpected collect mismatch: %v", err)
+	}
+
+	expectedMatched := ``
+	if err := testutil.CollectAndCompare(c, strings.NewReader(expectedMatched), "node_readiness_rule_matched_nodes"); err != nil {
+		t.Fatalf("unexpected collect mismatch: %v", err)
+	}
+}
+
+func TestReadinessCollector_RuleNodesListError_DoesNotBlockMatchedNodes(t *testing.T) {
+	c := NewReadinessCollector(&stubLister{
+		err:     errors.New("cache not synced"),
+		matched: map[string]float64{"gpu-ready": 4},
+	})
+
+	expected := ``
+	if err := testutil.CollectAndCompare(c, strings.NewReader(expected), "node_readiness_rule_nodes"); err != nil {
+		t.Fatalf("unexpected collect mismatch: %v", err)
+	}
+
+	expectedMatched := `
+		# HELP node_readiness_rule_matched_nodes Number of nodes matched by a rule's NodeSelector.
+		# TYPE node_readiness_rule_matched_nodes gauge
+		node_readiness_rule_matched_nodes{rule="gpu-ready"} 4
+	`
+	if err := testutil.CollectAndCompare(c, strings.NewReader(expectedMatched), "node_readiness_rule_matched_nodes"); err != nil {
 		t.Fatalf("unexpected collect mismatch: %v", err)
 	}
 }

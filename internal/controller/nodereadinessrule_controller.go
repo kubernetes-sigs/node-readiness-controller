@@ -138,19 +138,9 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// Update rule cache (after cleanup)
 	r.Controller.updateRuleCache(ctx, rule)
 
-	// Filter nodes once and update node_readiness_rule_matched_nodes.
-	var matchedNodes []corev1.Node
-	for i := range nodeList.Items {
-		if r.Controller.ruleAppliesTo(ctx, rule, &nodeList.Items[i]) {
-			matchedNodes = append(matchedNodes, nodeList.Items[i])
-		}
-	}
-	metrics.RuleMatchedNodes.WithLabelValues(rule.Name).Set(float64(len(matchedNodes)))
-	filteredList := &corev1.NodeList{Items: matchedNodes}
-
 	// Handle dry run
 	if rule.Spec.DryRun {
-		if err := r.Controller.processDryRun(ctx, rule, filteredList); err != nil {
+		if err := r.Controller.processDryRun(ctx, rule, nodeList); err != nil {
 			log.Error(err, "Failed to process dry run", "rule", rule.Name)
 			return ctrl.Result{RequeueAfter: time.Minute}, err
 		}
@@ -159,7 +149,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		rule.Status.DryRunResults = readinessv1alpha1.DryRunResults{}
 
 		// Process all applicable nodes for this rule
-		if err := r.Controller.processAllNodesForRule(ctx, rule, filteredList); err != nil {
+		if err := r.Controller.processAllNodesForRule(ctx, rule, nodeList); err != nil {
 			log.Error(err, "Failed to process nodes for rule", "rule", rule.Name)
 			return ctrl.Result{RequeueAfter: time.Minute}, err
 		}
@@ -223,7 +213,6 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	metrics.BootstrapCompleted.DeleteLabelValues(rule.Name)
 	metrics.BootstrapDuration.DeleteLabelValues(rule.Name)
 	metrics.EvaluationDuration.DeleteLabelValues(rule.Name)
-	metrics.RuleMatchedNodes.DeleteLabelValues(rule.Name)
 
 	// For multi-label metrics, use DeletePartialMatch to wipe all combinations
 	metrics.NodesByState.DeletePartialMatch(ruleLabel)
@@ -293,7 +282,7 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	log.Info("Processing all nodes for rule", "rule", rule.Name, "matchedNodes", len(nodeList.Items))
+	log.Info("Processing all nodes for rule", "rule", rule.Name, "totalNodes", len(nodeList.Items))
 
 	var appliedNodes []string
 	for _, node := range nodeList.Items {
@@ -590,6 +579,43 @@ func (r *RuleReadinessController) ListRuleNodeStates(ctx context.Context) (map[s
 	return counts, nil
 }
 
+// ListRuleMatchedNodes returns the number of nodes matching each rule's NodeSelector.
+func (r *RuleReadinessController) ListRuleMatchedNodes(ctx context.Context) (map[string]float64, error) {
+	ruleList := &readinessv1alpha1.NodeReadinessRuleList{}
+	if err := r.List(ctx, ruleList); err != nil {
+		return nil, err
+	}
+
+	nodeList := &corev1.NodeList{}
+	if err := r.List(ctx, nodeList); err != nil {
+		return nil, err
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+
+	counts := make(map[string]float64, len(ruleList.Items))
+	for i := range ruleList.Items {
+		rule := &ruleList.Items[i]
+
+		// Parse the selector once per rule.
+		selector, err := metav1.LabelSelectorAsSelector(&rule.Spec.NodeSelector)
+		if err != nil {
+			log.V(2).Info("Invalid node selector for rule", "rule", rule.Name, "error", err)
+			continue
+		}
+
+		var matched float64
+		for i := range nodeList.Items {
+			if selector.Matches(labels.Set(nodeList.Items[i].Labels)) {
+				matched++
+			}
+		}
+		counts[rule.Name] = matched
+	}
+
+	return counts, nil
+}
+
 // ruleAppliesTo checks if a rule applies to a node.
 func (r *RuleReadinessController) ruleAppliesTo(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, node *corev1.Node) bool {
 	log := ctrl.LoggerFrom(ctx)
@@ -672,6 +698,10 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 	var summaryParts []string
 
 	for _, node := range nodeList.Items {
+		if !r.ruleAppliesTo(ctx, rule, &node) {
+			continue
+		}
+
 		affectedNodes++
 
 		// Simulate rule evaluation using the rule's conditionPolicy
