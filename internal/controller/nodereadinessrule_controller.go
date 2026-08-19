@@ -531,15 +531,19 @@ func (r *RuleReadinessController) getApplicableRulesForNode(ctx context.Context,
 	return applicableRules
 }
 
-// ListRuleNodeStates returns the number of held and released nodes for each rule.
-func (r *RuleReadinessController) ListRuleNodeStates(ctx context.Context) (map[string]metrics.RuleNodeCounts, error) {
-	ruleList := &readinessv1alpha1.NodeReadinessRuleList{}
-	if err := r.List(ctx, ruleList); err != nil {
-		return nil, err
-	}
-
+// ListNodes returns the current list of Nodes.
+func (r *RuleReadinessController) ListNodes(ctx context.Context) ([]corev1.Node, error) {
 	nodeList := &corev1.NodeList{}
 	if err := r.List(ctx, nodeList); err != nil {
+		return nil, err
+	}
+	return nodeList.Items, nil
+}
+
+// ListRuleNodeStates returns the number of held and released nodes for each rule.
+func (r *RuleReadinessController) ListRuleNodeStates(ctx context.Context, nodes []corev1.Node) (map[string]metrics.RuleNodeCounts, error) {
+	ruleList := &readinessv1alpha1.NodeReadinessRuleList{}
+	if err := r.List(ctx, ruleList); err != nil {
 		return nil, err
 	}
 
@@ -560,8 +564,8 @@ func (r *RuleReadinessController) ListRuleNodeStates(ctx context.Context) (map[s
 		}
 
 		rc := metrics.RuleNodeCounts{}
-		for i := range nodeList.Items {
-			node := &nodeList.Items[i]
+		for i := range nodes {
+			node := &nodes[i]
 			if !selector.Matches(labels.Set(node.Labels)) {
 				continue
 			}
@@ -575,6 +579,52 @@ func (r *RuleReadinessController) ListRuleNodeStates(ctx context.Context) (map[s
 	}
 
 	return counts, nil
+}
+
+// ListBlockedNodes returns the number of blocked nodes for each rule and unsatisfied condition.
+func (r *RuleReadinessController) ListBlockedNodes(ctx context.Context, nodes []corev1.Node) (map[string]metrics.RuleBlockedConditions, error) {
+	ruleList := &readinessv1alpha1.NodeReadinessRuleList{}
+	if err := r.List(ctx, ruleList); err != nil {
+		return nil, err
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+
+	result := make(map[string]metrics.RuleBlockedConditions, len(ruleList.Items))
+	for i := range ruleList.Items {
+		rule := &ruleList.Items[i]
+		if rule.Spec.DryRun {
+			continue
+		}
+
+		selector, err := metav1.LabelSelectorAsSelector(&rule.Spec.NodeSelector)
+		if err != nil {
+			log.V(2).Info("Invalid node selector for rule", "rule", rule.Name, "error", err)
+			continue
+		}
+
+		counts := make(metrics.RuleBlockedConditions, len(rule.Spec.Conditions))
+		for _, cond := range rule.Spec.Conditions {
+			counts[cond.Type] = 0
+		}
+
+		for i := range nodes {
+			node := &nodes[i]
+			if !selector.Matches(labels.Set(node.Labels)) || !r.hasTaintBySpec(node, rule.Spec.Taint) {
+				continue
+			}
+			for _, cond := range rule.Spec.Conditions {
+				effectiveStatus, _ := r.getConditionStatus(node, cond.Type, cond.GetDefaultStatus())
+				if effectiveStatus != cond.RequiredStatus {
+					counts[cond.Type]++
+				}
+			}
+		}
+
+		result[rule.Name] = counts
+	}
+
+	return result, nil
 }
 
 // ruleAppliesTo checks if a rule applies to a node.
