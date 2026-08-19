@@ -152,12 +152,13 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			"rule", rule.Name,
 			"ruleResourceVersion", rule.ResourceVersion)
 
-		if err := r.evaluateRuleForNode(ctx, rule, node); err != nil {
-			log.Error(err, "Failed to evaluate rule for node",
+		evalErr := r.evaluateRuleForNode(ctx, rule, node)
+		if evalErr != nil {
+			log.Error(evalErr, "Failed to evaluate rule for node",
 				"node", node.Name, "rule", rule.Name)
 			// Continue with other rules even if one fails
-			r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
-			errs = append(errs, err)
+			r.recordNodeFailure(rule, node.Name, "EvaluationError", evalErr.Error())
+			errs = append(errs, evalErr)
 			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonEvaluationError)).Inc()
 		}
 
@@ -201,16 +202,23 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 				)
 			}
 
-			// handle status.FailedNodes for this node
+			// Rebuild FailedNodes for this node. Drop any existing entry from
+			// what the API server currently holds.
 			var updatedFailedNodes []readinessv1alpha1.NodeFailure
 			for _, failure := range latestRule.Status.FailedNodes {
 				if failure.NodeName != node.Name {
 					updatedFailedNodes = append(updatedFailedNodes, failure)
 				}
 			}
-			for _, failure := range rule.Status.FailedNodes {
-				if failure.NodeName == node.Name {
-					updatedFailedNodes = append(updatedFailedNodes, failure)
+			// Re-add this node's failure entry only when evaluation just
+			// failed. On success we leave it absent so that a stale error
+			// recorded by a previous transient failure is cleared.
+			if evalErr != nil {
+				for _, failure := range rule.Status.FailedNodes {
+					if failure.NodeName == node.Name {
+						updatedFailedNodes = append(updatedFailedNodes, failure)
+						break
+					}
 				}
 			}
 			latestRule.Status.FailedNodes = updatedFailedNodes

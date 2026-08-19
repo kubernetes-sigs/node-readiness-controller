@@ -1298,5 +1298,91 @@ var _ = Describe("Node Controller", func() {
 			Expect(after).To(BeNumerically(">", before),
 				"metrics.Failures{rule, EvaluationError} must increment when the node reconciler hits an evaluation error")
 		})
+
+		// Regression test for: processNodeAgainstAllRules permanently leaks
+		// transient evaluation errors into Status.FailedNodes
+		// https://github.com/kubernetes-sigs/node-readiness-controller/issues/376
+		It("should clear a stale FailedNodes entry when the node subsequently evaluates successfully", func() {
+			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
+
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "stale-failed-nodes-node",
+				},
+				Spec: corev1.NodeSpec{
+					Taints: []corev1.Taint{
+						{Key: "readiness.k8s.io/stale-test", Effect: corev1.TaintEffectNoSchedule},
+					},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						// Condition is already True: evaluation will succeed and remove the taint.
+						{Type: "StaleTestCondition", Status: corev1.ConditionTrue},
+					},
+				},
+			}
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "stale-failed-nodes-rule"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					NodeSelector: metav1.LabelSelector{}, // matches all nodes
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "StaleTestCondition", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/stale-test",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node, rule).
+				// WithStatusSubresource ensures Status().Patch() roundtrips
+				// through the fake so that the updated FailedNodes is readable.
+				WithStatusSubresource(rule).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     map[string]*nodereadinessiov1alpha1.NodeReadinessRule{rule.Name: rule},
+				EventRecorder: events.NewFakeRecorder(10),
+			}
+
+			// Seed a stale FailedNodes entry to simulate a previous transient error.
+			seededRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: rule.Name}, seededRule)).To(Succeed())
+			seededRule.Status.FailedNodes = []nodereadinessiov1alpha1.NodeFailure{
+				{
+					NodeName:           node.Name,
+					Reason:             "EvaluationError",
+					Message:            "simulated transient error from a previous reconcile",
+					LastEvaluationTime: metav1.Now(),
+				},
+			}
+			Expect(fc.Status().Update(ctx, seededRule)).To(Succeed())
+
+			// Refresh the cached rule so it carries the seeded stale failure.
+			cachedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: rule.Name}, cachedRule)).To(Succeed())
+			controller.ruleCache[rule.Name] = cachedRule
+
+			// Run reconcile. The node satisfies the condition so
+			// evaluateRuleForNode will succeed.
+			err := controller.processNodeAgainstAllRules(ctx, node)
+			Expect(err).NotTo(HaveOccurred())
+
+			// The stale entry must be gone: a successful evaluation should
+			// clear any prior FailedNodes record for that node.
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: rule.Name}, updatedRule)).To(Succeed())
+			for _, f := range updatedRule.Status.FailedNodes {
+				Expect(f.NodeName).NotTo(Equal(node.Name),
+					"stale FailedNodes entry must be cleared after successful evaluation")
+			}
+		})
 	})
 })
