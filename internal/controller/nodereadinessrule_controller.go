@@ -139,20 +139,10 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// Update rule cache (after cleanup)
 	r.Controller.updateRuleCache(ctx, rule)
 
-	// Filter nodes once and update node_readiness_rule_matched_nodes.
-	var matchedNodes []corev1.Node
-	for i := range nodeList.Items {
-		if r.Controller.ruleAppliesTo(ctx, rule, &nodeList.Items[i]) {
-			matchedNodes = append(matchedNodes, nodeList.Items[i])
-		}
-	}
-	metrics.RuleMatchedNodes.WithLabelValues(rule.Name).Set(float64(len(matchedNodes)))
-	filteredList := &corev1.NodeList{Items: matchedNodes}
-
 	// Handle dry run
 	var delta nodeStatusDelta
 	if rule.Spec.DryRun {
-		if err := r.Controller.processDryRun(ctx, rule, filteredList); err != nil {
+		if err := r.Controller.processDryRun(ctx, rule, nodeList); err != nil {
 			log.Error(err, "Failed to process dry run", "rule", rule.Name)
 			return ctrl.Result{}, err
 		}
@@ -162,7 +152,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 		// Process all applicable nodes for this rule
 		var err error
-		delta, err = r.Controller.processAllNodesForRule(ctx, rule, filteredList)
+		delta, err = r.Controller.processAllNodesForRule(ctx, rule, nodeList)
 		if err != nil {
 			log.Error(err, "Failed to process nodes for rule", "rule", rule.Name)
 			return ctrl.Result{}, err
@@ -237,7 +227,6 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	metrics.BootstrapCompleted.DeleteLabelValues(rule.Name)
 	metrics.BootstrapDuration.DeleteLabelValues(rule.Name)
 	metrics.EvaluationDuration.DeleteLabelValues(rule.Name)
-	metrics.RuleMatchedNodes.DeleteLabelValues(rule.Name)
 
 	// For multi-label metrics, use DeletePartialMatch to wipe all combinations
 	metrics.NodesByState.DeletePartialMatch(ruleLabel)
@@ -300,7 +289,7 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) (nodeStatusDelta, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	log.Info("Processing all nodes for rule", "rule", rule.Name, "matchedNodes", len(nodeList.Items))
+	log.Info("Processing all nodes for rule", "rule", rule.Name, "totalNodes", len(nodeList.Items))
 
 	delta := nodeStatusDelta{
 		evaluations: make(map[string]readinessv1alpha1.NodeEvaluation),
@@ -714,6 +703,31 @@ func (r *RuleReadinessController) ListRuleInventory(_ context.Context, rules []*
 	return counts, nil
 }
 
+// ListRuleMatchedNodes returns the number of nodes matching each rule's NodeSelector.
+func (r *RuleReadinessController) ListRuleMatchedNodes(ctx context.Context, nodes []corev1.Node, rules []*readinessv1alpha1.NodeReadinessRule) (map[string]float64, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	counts := make(map[string]float64, len(rules))
+	for _, rule := range rules {
+		// Parse the selector once per rule.
+		selector, err := parseNodeSelector(rule)
+		if err != nil {
+			log.V(2).Info("Invalid node selector for rule", "rule", rule.Name, "error", err)
+			continue
+		}
+
+		var matched float64
+		for i := range nodes {
+			if selector.Matches(labels.Set(nodes[i].Labels)) {
+				matched++
+			}
+		}
+		counts[rule.Name] = matched
+	}
+
+	return counts, nil
+}
+
 // parseNodeSelector parses a rule's NodeSelector into a labels.Selector.
 func parseNodeSelector(rule *readinessv1alpha1.NodeReadinessRule) (labels.Selector, error) {
 	return metav1.LabelSelectorAsSelector(&rule.Spec.NodeSelector)
@@ -825,6 +839,10 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 	var summaryParts []string
 
 	for _, node := range nodeList.Items {
+		if !r.ruleAppliesTo(ctx, rule, &node) {
+			continue
+		}
+
 		affectedNodes++
 
 		// Simulate rule evaluation using the rule's conditionPolicy
