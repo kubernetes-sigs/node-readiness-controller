@@ -948,5 +948,103 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			Expect(allErrs[0].Field).To(Equal("spec.conditionPolicy"))
 			Expect(allErrs[0].Type).To(Equal(field.ErrorTypeForbidden))
 		})
+
+		It("should allow a dry-run rule with the same taint key as an enforcement rule on overlapping nodes", func() {
+			// Seed an enforcement rule that already manages readiness.k8s.io/existing-key.
+			enforcementRule := &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "enforcement-existing"},
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"node-role.kubernetes.io/worker": ""},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/existing-key",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(enforcementRule).
+				Build()
+			webhook = NewNodeReadinessRuleWebhook(fakeClient)
+
+			// A dry-run rule with the same taint key and overlapping selector must
+			// not be rejected: dry-run rules never write taints, so no real conflict exists.
+			dryRunRule := &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "dryrun-preview"},
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "DiskPressure", RequiredStatus: corev1.ConditionFalse},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"node-role.kubernetes.io/worker": ""},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/existing-key",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
+					DryRun:          true,
+				},
+			}
+
+			allErrs := webhook.validateNodeReadinessRule(ctx, dryRunRule, false)
+			Expect(allErrs).To(BeEmpty(), "dry-run rules must not be rejected for taint key conflicts")
+		})
+
+		It("should allow an enforcement rule when an overlapping dry-run rule already holds the same taint key", func() {
+			// Seed a dry-run rule with readiness.k8s.io/preview-key.
+			dryRunExisting := &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "dryrun-existing"},
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"node-role.kubernetes.io/worker": ""},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/preview-key",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
+					DryRun:          true,
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(dryRunExisting).
+				Build()
+			webhook = NewNodeReadinessRuleWebhook(fakeClient)
+
+			// Creating a real enforcement rule for the same taint key must succeed:
+			// the existing dry-run rule does not write taints, so there is no conflict.
+			enforcementRule := &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "enforcement-new"},
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"node-role.kubernetes.io/worker": ""},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/preview-key",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			allErrs := webhook.validateNodeReadinessRule(ctx, enforcementRule, false)
+			Expect(allErrs).To(BeEmpty(), "existing dry-run rules must not block creation of enforcement rules")
+		})
 	})
 })
