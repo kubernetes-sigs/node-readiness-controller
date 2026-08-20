@@ -266,6 +266,9 @@ spec:
             - message: conditionPolicy is immutable
               rule: '(!has(oldSelf.conditionPolicy) ? ''allOf'' : oldSelf.conditionPolicy)
                 == (!has(self.conditionPolicy) ? ''allOf'' : self.conditionPolicy)'
+            - message: defaultStatus is not supported when conditionPolicy is anyOf
+              rule: '!has(self.conditionPolicy) || self.conditionPolicy != ''anyOf''
+                || self.conditions.all(c, !has(c.defaultStatus))'
           status:
             description: status defines the observed state of NodeReadinessRule
             minProperties: 1
