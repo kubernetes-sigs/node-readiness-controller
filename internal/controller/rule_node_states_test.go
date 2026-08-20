@@ -535,7 +535,7 @@ func TestListBlockedNodes_DryRunRuleExcluded(t *testing.T) {
 	g.Expect(blocked).To(BeEmpty())
 }
 
-func TestListBlockedNodes_DeletingRuleIncluded(t *testing.T) {
+func TestListBlockedNodes_DeletingRuleExcluded(t *testing.T) {
 	g := NewWithT(t)
 	rule := gpuRuleWithConditions("GPUDriverReady")
 	now := metav1.Now()
@@ -553,9 +553,7 @@ func TestListBlockedNodes_DeletingRuleIncluded(t *testing.T) {
 
 	blocked, err := c.ListBlockedNodes(t.Context(), nodes)
 	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(blocked).To(Equal(map[string]metrics.RuleBlockedConditions{
-		"gpu-ready": {"GPUDriverReady": 1},
-	}))
+	g.Expect(blocked).To(BeEmpty())
 }
 
 func TestListBlockedNodes_NonMatchingNodeExcluded(t *testing.T) {

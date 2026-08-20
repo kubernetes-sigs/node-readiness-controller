@@ -112,12 +112,11 @@ func (c *ReadinessCollector) Collect(ch chan<- prometheus.Metric) {
 	blocked, err := c.lister.ListBlockedNodes(ctx, nodes)
 	if err != nil {
 		ctrl.Log.V(2).Info("Failed to list blocked nodes", "error", err)
-		return
-	}
-
-	for rule, conditions := range blocked {
-		for condition, count := range conditions {
-			ch <- prometheus.MustNewConstMetric(blockedNodesDesc, prometheus.GaugeValue, count, rule, condition)
+	} else {
+		for rule, conditions := range blocked {
+			for condition, count := range conditions {
+				ch <- prometheus.MustNewConstMetric(blockedNodesDesc, prometheus.GaugeValue, count, rule, condition)
+			}
 		}
 	}
 }
