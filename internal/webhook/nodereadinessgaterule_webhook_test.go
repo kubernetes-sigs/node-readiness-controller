@@ -203,83 +203,10 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			})
 		})
 
-		Context("anyOf conditionPolicy defaultStatus validation", func() {
-
-			It("should reject when conditionPolicy is anyOf and defaultStatus equals requiredStatus", func() {
-				spec := readinessv1alpha1.NodeReadinessRuleSpec{
-					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"foo": "bar"}},
-					ConditionPolicy: readinessv1alpha1.ConditionPolicyAnyOf,
-					Conditions: []readinessv1alpha1.ConditionRequirement{
-						{
-							Type:           "HardwareDriverReady",
-							RequiredStatus: corev1.ConditionTrue,
-							DefaultStatus:  corev1.ConditionTrue,
-						},
-					},
-				}
-
-				allErrs := webhook.validateSpec(spec, false)
-				Expect(allErrs).To(HaveLen(1))
-				Expect(allErrs[0].Field).To(Equal("spec.conditions[0].defaultStatus"))
-				Expect(allErrs[0].Type).To(Equal(field.ErrorTypeForbidden))
-			})
-
-			It("should pass validation when conditionPolicy is anyOf and defaultStatus does not equal requiredStatus", func() {
-				spec := readinessv1alpha1.NodeReadinessRuleSpec{
-					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"foo": "bar"}},
-					ConditionPolicy: readinessv1alpha1.ConditionPolicyAnyOf,
-					Conditions: []readinessv1alpha1.ConditionRequirement{
-						{
-							Type:           "HardwareDriverReady",
-							RequiredStatus: corev1.ConditionTrue,
-							DefaultStatus:  corev1.ConditionFalse,
-						},
-					},
-				}
-
-				allErrs := webhook.validateSpec(spec, false)
-				Expect(allErrs).To(BeEmpty())
-			})
-
-			It("should skip validation on update (early return)", func() {
-				spec := readinessv1alpha1.NodeReadinessRuleSpec{
-					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"foo": "bar"}},
-					ConditionPolicy: readinessv1alpha1.ConditionPolicyAnyOf,
-					Conditions: []readinessv1alpha1.ConditionRequirement{
-						{
-							Type:           "HardwareDriverReady",
-							RequiredStatus: corev1.ConditionTrue,
-							DefaultStatus:  corev1.ConditionTrue,
-						},
-					},
-				}
-
-				allErrs := webhook.validateSpec(spec, true)
-				Expect(allErrs).To(BeEmpty())
-			})
-
-			It("should pass validation when conditionPolicy is not anyOf and defaultStatus equals requiredStatus", func() {
-				spec := readinessv1alpha1.NodeReadinessRuleSpec{
-					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"foo": "bar"}},
-					ConditionPolicy: readinessv1alpha1.ConditionPolicyAllOf,
-					Conditions: []readinessv1alpha1.ConditionRequirement{
-						{
-							Type:           "HardwareDriverReady",
-							RequiredStatus: corev1.ConditionTrue,
-							DefaultStatus:  corev1.ConditionTrue,
-						},
-					},
-				}
-
-				allErrs := webhook.validateSpec(spec, false)
-				Expect(allErrs).To(BeEmpty())
-			})
-		})
-
 		It("should accumulate errors across nodeSelector, defaultStatus, and conditionPolicy violations", func() {
 			spec := readinessv1alpha1.NodeReadinessRuleSpec{
-				NodeSelector:    metav1.LabelSelector{},                 // empty â†’ ErrorTypeRequired
-				ConditionPolicy: readinessv1alpha1.ConditionPolicyAnyOf, // anyOf + bootstrap-only â†’ ErrorTypeForbidden
+				NodeSelector:    metav1.LabelSelector{},                 // empty → ErrorTypeRequired
+				ConditionPolicy: readinessv1alpha1.ConditionPolicyAnyOf, // anyOf + bootstrap-only → ErrorTypeForbidden
 				Conditions: []readinessv1alpha1.ConditionRequirement{
 					{
 						Type:           "Ready",
@@ -295,12 +222,11 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			}
 
 			allErrs := webhook.validateSpec(spec, false)
-			Expect(allErrs).To(HaveLen(5))
+			Expect(allErrs).To(HaveLen(4))
 			Expect(allErrs[0].Field).To(Equal("spec.nodeSelector"))
 			Expect(allErrs[1].Field).To(Equal("spec.conditions[0].defaultStatus"))
 			Expect(allErrs[2].Field).To(Equal("spec.conditions[1].defaultStatus"))
 			Expect(allErrs[3].Field).To(Equal("spec.conditionPolicy"))
-			Expect(allErrs[4].Field).To(Equal("spec.conditions[1].defaultStatus"))
 		})
 
 		It("should pass validation for valid spec", func() {

@@ -32,14 +32,14 @@ When a rule specifies multiple conditions, the `conditionPolicy` determines how 
 - **`anyOf`**: At least ONE condition must match its `requiredStatus`. If no conditions match, the node is tainted. This is particularly useful for hardware that may be satisfied by multiple drivers, or systems with active/passive fallbacks.
 
 > [!IMPORTANT]
-> **`anyOf` is not supported with `bootstrap-only` rules.**
->
-> `bootstrap-only` mode exists to verify that specific components have finished initializing. Using `anyOf` with `bootstrap-only` could lead to the node bootstrapping prematurely if just one component is ready, completely ignoring the initialization status of the others. The admission webhook enforces this restriction.
+> **API Constraints for `anyOf`**
+> 
+> The API will actively reject `anyOf` configurations in the following scenarios:
+> - **Combined with `bootstrap-only` enforcement**: This mode verifies that specific components have finished initializing. Using `anyOf` could lead to the node bootstrapping prematurely if just one condition is met.
+> - **Combined with `defaultStatus`**: This creates a logical short-circuit when the condition is missing and `defaultStatus` is set to match `requiredStatus`. The condition would be considered satisfied even if the node never reports it, silently bypassing the readiness check.
 
-> [!CAUTION]
-> **`anyOf` conditions cannot have `defaultStatus` equal to `requiredStatus`.**
->
-> Because `anyOf` only requires a single condition to be satisfied, configuring a condition where `defaultStatus` is the same as its `requiredStatus` creates a logical short-circuit. The condition would be considered satisfied even if the node never reports it, silently bypassing the readiness check. The admission webhook actively rejects configurations with this vulnerability.
+
+
 
 
 ## Enforcement Modes
