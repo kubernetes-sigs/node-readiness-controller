@@ -485,7 +485,7 @@ func TestUpdateNodeCondition(t *testing.T) {
 				}
 			}
 			if previousTransition.IsZero() {
-				previousTransition = metav1.NewTime(time.Now())
+				previousTransition = metav1.NewTime(staleTime)
 			}
 
 			err := updateNodeCondition(context.Background(), client, nodeName, conditionType, tt.health, tt.heartbeatPeriod)
