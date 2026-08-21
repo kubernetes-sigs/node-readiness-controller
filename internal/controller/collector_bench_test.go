@@ -99,3 +99,25 @@ func BenchmarkListRuleNodeStates(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkListRuleMatchedNodes(b *testing.B) {
+	nodeCounts := []int{100, 1000, 5000, 15000}
+	ruleCounts := []int{5, 20, 50}
+
+	for _, nodeCount := range nodeCounts {
+		for _, ruleCount := range ruleCounts {
+			b.Run(fmt.Sprintf("nodes=%d/rules=%d", nodeCount, ruleCount), func(b *testing.B) {
+				c := buildBenchController(b, nodeCount, ruleCount)
+				ctx := b.Context()
+
+				b.ResetTimer()
+				b.ReportAllocs()
+				for range b.N {
+					if _, err := c.ListRuleMatchedNodes(ctx); err != nil {
+						b.Fatalf("ListRuleMatchedNodes failed: %v", err)
+					}
+				}
+			})
+		}
+	}
+}

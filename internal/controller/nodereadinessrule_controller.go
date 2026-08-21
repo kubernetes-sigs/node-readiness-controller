@@ -290,16 +290,18 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 			log.Info("Processing node for rule", "rule", rule.Name, "node", node.Name)
 			if err := r.evaluateRuleForNode(ctx, rule, &node); err != nil {
 				log.Error(err, "Failed to evaluate node for rule", "rule", rule.Name, "node", node.Name)
-				r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
+				r.recordNodeFailure(rule, node.Name, string(metrics.FailureReasonEvaluationError), err.Error())
 				metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonEvaluationError)).Inc()
 			} else {
 				appliedNodes = append(appliedNodes, node.Name)
+
 				var updatedFailedNodes []readinessv1alpha1.NodeFailure
 				for _, f := range rule.Status.FailedNodes {
 					if f.NodeName != node.Name {
 						updatedFailedNodes = append(updatedFailedNodes, f)
 					}
 				}
+
 				rule.Status.FailedNodes = updatedFailedNodes
 			}
 		}
@@ -572,6 +574,43 @@ func (r *RuleReadinessController) ListRuleNodeStates(ctx context.Context) (map[s
 			}
 		}
 		counts[rule.Name] = rc
+	}
+
+	return counts, nil
+}
+
+// ListRuleMatchedNodes returns the number of nodes matching each rule's NodeSelector.
+func (r *RuleReadinessController) ListRuleMatchedNodes(ctx context.Context) (map[string]float64, error) {
+	ruleList := &readinessv1alpha1.NodeReadinessRuleList{}
+	if err := r.List(ctx, ruleList); err != nil {
+		return nil, err
+	}
+
+	nodeList := &corev1.NodeList{}
+	if err := r.List(ctx, nodeList); err != nil {
+		return nil, err
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+
+	counts := make(map[string]float64, len(ruleList.Items))
+	for i := range ruleList.Items {
+		rule := &ruleList.Items[i]
+
+		// Parse the selector once per rule.
+		selector, err := metav1.LabelSelectorAsSelector(&rule.Spec.NodeSelector)
+		if err != nil {
+			log.V(2).Info("Invalid node selector for rule", "rule", rule.Name, "error", err)
+			continue
+		}
+
+		var matched float64
+		for i := range nodeList.Items {
+			if selector.Matches(labels.Set(nodeList.Items[i].Labels)) {
+				matched++
+			}
+		}
+		counts[rule.Name] = matched
 	}
 
 	return counts, nil

@@ -38,6 +38,17 @@ type RuleNodeStateLister interface {
 	ListRuleNodeStates(ctx context.Context) (map[string]RuleNodeCounts, error)
 }
 
+// RuleMatchedNodesLister lists the number of nodes matching each rule's NodeSelector.
+type RuleMatchedNodesLister interface {
+	ListRuleMatchedNodes(ctx context.Context) (map[string]float64, error)
+}
+
+// ReadinessLister aggregates the scrape-time lookups the collector needs.
+type ReadinessLister interface {
+	RuleNodeStateLister
+	RuleMatchedNodesLister
+}
+
 var ruleNodesDesc = prometheus.NewDesc(
 	"node_readiness_rule_nodes",
 	"Number of nodes currently gated or released by the rule.",
@@ -45,18 +56,26 @@ var ruleNodesDesc = prometheus.NewDesc(
 	nil,
 )
 
+var ruleMatchedNodesDesc = prometheus.NewDesc(
+	"node_readiness_rule_matched_nodes",
+	"Number of nodes matched by a rule's NodeSelector.",
+	[]string{"rule"},
+	nil,
+)
+
 // ReadinessCollector is a prometheus.Collector that reads at scrape time.
 type ReadinessCollector struct {
-	lister RuleNodeStateLister
+	lister ReadinessLister
 }
 
-func NewReadinessCollector(lister RuleNodeStateLister) *ReadinessCollector {
+func NewReadinessCollector(lister ReadinessLister) *ReadinessCollector {
 	return &ReadinessCollector{lister: lister}
 }
 
 // Describe implements prometheus.Collector.
 func (c *ReadinessCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- ruleNodesDesc
+	ch <- ruleMatchedNodesDesc
 }
 
 // Collect implements prometheus.Collector.
@@ -67,11 +86,19 @@ func (c *ReadinessCollector) Collect(ch chan<- prometheus.Metric) {
 	counts, err := c.lister.ListRuleNodeStates(ctx)
 	if err != nil {
 		ctrl.Log.V(2).Info("Failed to list rule node states", "error", err)
-		return
+	} else {
+		for rule, rc := range counts {
+			ch <- prometheus.MustNewConstMetric(ruleNodesDesc, prometheus.GaugeValue, rc.Held, rule, string(RuleNodeStateHeld))
+			ch <- prometheus.MustNewConstMetric(ruleNodesDesc, prometheus.GaugeValue, rc.Released, rule, string(RuleNodeStateReleased))
+		}
 	}
 
-	for rule, rc := range counts {
-		ch <- prometheus.MustNewConstMetric(ruleNodesDesc, prometheus.GaugeValue, rc.Held, rule, string(RuleNodeStateHeld))
-		ch <- prometheus.MustNewConstMetric(ruleNodesDesc, prometheus.GaugeValue, rc.Released, rule, string(RuleNodeStateReleased))
+	matched, err := c.lister.ListRuleMatchedNodes(ctx)
+	if err != nil {
+		ctrl.Log.V(2).Info("Failed to list rule matched nodes", "error", err)
+		return
+	}
+	for rule, count := range matched {
+		ch <- prometheus.MustNewConstMetric(ruleMatchedNodesDesc, prometheus.GaugeValue, count, rule)
 	}
 }

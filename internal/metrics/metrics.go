@@ -27,9 +27,10 @@ import (
 type FailureReason string
 
 const (
-	FailureReasonEvaluationError  FailureReason = "EvaluationError"
-	FailureReasonAddTaintError    FailureReason = "AddTaintError"
-	FailureReasonRemoveTaintError FailureReason = "RemoveTaintError"
+	FailureReasonEvaluationError       FailureReason = "EvaluationError"
+	FailureReasonAddTaintError         FailureReason = "AddTaintError"
+	FailureReasonRemoveTaintError      FailureReason = "RemoveTaintError"
+	FailureReasonAnnotationPatchFailed FailureReason = "AnnotationPatchFailed"
 )
 
 // TaintOperation represents a taint operation.

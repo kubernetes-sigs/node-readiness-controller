@@ -2535,4 +2535,37 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(readinessController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeFalse())
 		})
 	})
+
+	Context("Metric: failures_total (reason=AnnotationPatchFailed)", func() {
+		It("should increment counter when annotation write fails", func() {
+			ruleName := "bce-error-rule"
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: ruleName, UID: types.UID("33333333-3333-3333-3333-333333333333")},
+			}
+
+			before := counterValue(metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)))
+
+			readinessController.markBootstrapCompleted(ctx, "nonexistent-node-for-bce-test", rule)
+
+			Expect(counterValue(metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)))).To(Equal(before + 1))
+		})
+
+		It("should not increment counter on successful annotation write", func() {
+			nodeName := "bce-success-node"
+			ruleName := "bce-success-rule"
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: ruleName, UID: types.UID("44444444-4444-4444-4444-444444444444")},
+			}
+
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			before := counterValue(metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)))
+
+			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+
+			Expect(counterValue(metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)))).To(Equal(before))
+		})
+	})
 })
