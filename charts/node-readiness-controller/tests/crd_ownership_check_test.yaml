@@ -1,0 +1,35 @@
+suite: Test CRD ownership pre-install check
+
+templates:
+  - "*.yaml"
+
+release:
+  name: node-readiness-controller
+
+tests:
+  # The guard calls lookup, which returns nothing outside a live cluster. These
+  # specs therefore cover rendering only: that the template is well formed, that
+  # it emits no manifests of its own, and that toggling the value does not break
+  # the chart. Whether the guard actually refuses a second install is covered in
+  # the Helm CI workflow, which installs against a real cluster.
+  - it: emits no manifests when the check passes
+    template: templates/crd-ownership-check.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: emits no manifests when the check is disabled
+    template: templates/crd-ownership-check.yaml
+    set:
+      crds.preInstallCheck: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not affect the rest of the chart when disabled
+    template: templates/deployment.yaml
+    set:
+      crds.preInstallCheck: false
+    asserts:
+      - isKind:
+          of: Deployment

@@ -99,6 +99,71 @@ example on deploying the controller as a static pod in a kind cluster.
     This is typically handled via a bootstrap script or post-install job in a `kubeadm` setup.
 
 ---
+## Avoiding a Duplicate Installation
+
+The controller manages node taints, so only one installation should run in a cluster.
+Two installations reconciling the same `NodeReadinessRule` resources will both act on
+the same nodes.
+
+This is easy to do by accident on a managed cluster. Where the control plane is hosted,
+the provider may already run the controller as part of it, and that installation is not
+visible to you in the usual places.
+
+### Finding the existing installation
+
+The CRD is cluster-scoped and singleton, so it is the one artifact every installation
+shares. It carries a label naming the installation that owns it:
+
+```sh
+kubectl get crd nodereadinessrules.readiness.node.x-k8s.io \
+  -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}'
+```
+
+```console
+node-readiness-controller
+```
+
+If the CRD is not present, the controller is not installed.
+
+### For providers
+
+Providers installing the controller should override the label value so it identifies
+them rather than the upstream default, which makes the hosted installation
+self-describing to users:
+
+```yaml
+# kustomize patch
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: nodereadinessrules.readiness.node.x-k8s.io
+  labels:
+    app.kubernetes.io/managed-by: example-provider
+```
+
+### Helm guardrail
+
+A fresh `helm install` refuses to proceed when the CRD already exists, and names its
+manager in the error:
+
+```console
+$ helm install nrc ./charts/node-readiness-controller
+Error: node-readiness-controller is already installed in this cluster.
+
+The nodereadinessrules.readiness.node.x-k8s.io CRD exists and is managed by
+"example-provider".
+...
+```
+
+`helm upgrade` is unaffected. To install anyway, set `crds.preInstallCheck=false`.
+
+> [!NOTE]
+> The check only runs during a real install. It is skipped by `helm template` and
+> `helm install --dry-run`, which do not query the cluster.
+
+The other install paths -- `kubectl apply` of the release manifests, or Kustomize --
+do not have an equivalent guard. Check the label above before installing.
+
 ## Verification
 
 After installation, verify that the controller is running successfully. 

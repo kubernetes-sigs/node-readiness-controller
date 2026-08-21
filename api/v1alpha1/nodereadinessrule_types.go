@@ -347,6 +347,12 @@ type DryRunResults struct {
 }
 
 // +kubebuilder:object:root=true
+// Stamp the CRD with a managed-by label so the controlling installation is visible
+// in clusters where the control plane is hosted and the controller itself is
+// not. Providers should override the value in their own install pipeline; see
+// docs/book/src/user-guide/installation.md.
+//
+// +kubebuilder:metadata:labels=app.kubernetes.io/managed-by=node-readiness-controller
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=nrr
 // +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.enforcementMode`,description="The enforcement mode of the rule: bootstrap-only or continuous."
