@@ -20,9 +20,6 @@ kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/re
 kubectl wait --for condition=established --timeout=30s crd/nodereadinessrules.readiness.node.x-k8s.io
 ```
 
-> [!NOTE]
-> `install-full.yaml` is only published from `v0.2.0` onwards. Older releases ship `crds.yaml` and `install.yaml` only.
-
 #### 2. Install the Controller
 
 Choose one of the two following manifests based on your requirements:
