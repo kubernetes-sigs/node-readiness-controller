@@ -59,6 +59,10 @@ type RuleReadinessController struct {
 	// Cache for efficient rule lookup
 	ruleCacheMutex sync.RWMutex
 	ruleCache      map[string]*readinessv1alpha1.NodeReadinessRule // ruleName -> rule
+
+	// taintAnchorRecoveryMutex guards taintAnchorRecoveryAttempts.
+	taintAnchorRecoveryMutex    sync.Mutex
+	taintAnchorRecoveryAttempts map[string]int
 }
 
 // RuleReconciler handles NodeReadinessRule reconciliation.
@@ -215,6 +219,7 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	metrics.EvaluationDuration.DeleteLabelValues(rule.Name)
 
 	// For multi-label metrics, use DeletePartialMatch to wipe all combinations
+	metrics.BootstrapHoldDuration.DeletePartialMatch(ruleLabel)
 	metrics.NodesByState.DeletePartialMatch(ruleLabel)
 	metrics.Failures.DeletePartialMatch(ruleLabel)
 	metrics.ConditionEvaluationFailures.DeletePartialMatch(ruleLabel)
@@ -233,7 +238,14 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 		existingNodes[node.Name] = true
 	}
 
-	// Filter out deleted nodes
+	// Clear recovery tracking for deleted nodes.
+	for _, evaluation := range rule.Status.NodeEvaluations {
+		if !existingNodes[evaluation.NodeName] {
+			r.clearTaintAppliedAtRecoveryForNode(rule.Name, evaluation.NodeName)
+		}
+	}
+
+	// Filter out deleted nodes from both node evaluations and failed nodes.
 	newNodeEvaluations, newFailedNodes := filterStatusForExistingNodes(
 		existingNodes,
 		rule.Status.NodeEvaluations,
@@ -248,14 +260,23 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 
 	log.V(4).Info("Cleaning up deleted nodes from rule status",
 		"rule", rule.Name,
-		"before", len(rule.Status.NodeEvaluations),
-		"after", len(newNodeEvaluations))
+		"beforeNodeEvaluations", len(rule.Status.NodeEvaluations),
+		"afterNodeEvaluations", len(newNodeEvaluations),
+		"beforeFailedNodes", len(rule.Status.FailedNodes),
+		"afterFailedNodes", len(newFailedNodes))
 
-	// Use retry on conflict to update status to avoid race conditions from node updates
+	// Use retry on conflict to update status to avoid race conditions from node updates.
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		fresh := &readinessv1alpha1.NodeReadinessRule{}
 		if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, fresh); err != nil {
 			return err
+		}
+
+		// Clear recovery tracking for any newly deleted nodes seen during the retry.
+		for _, evaluation := range fresh.Status.NodeEvaluations {
+			if !existingNodes[evaluation.NodeName] {
+				r.clearTaintAppliedAtRecoveryForNode(rule.Name, evaluation.NodeName)
+			}
 		}
 
 		freshNodeEvaluations, freshFailedNodes := filterStatusForExistingNodes(
@@ -409,7 +430,11 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 	case shouldRemoveTaint && currentlyHasTaint:
 		log.Info("Removing taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
 
+		// Bootstrap-only: capture completion state before it flips, so the hold-duration
+		// metric below can be gated on "first completion only" (mirrors BootstrapDuration's guard).
+		var wasAlreadyCompleted bool
 		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
+			wasAlreadyCompleted = r.isBootstrapCompleted(ctx, node.Name, rule.Name, rule.GetUID())
 			err = r.removeTaintAndCompleteBootstrap(ctx, node, rule)
 		} else {
 			err = r.removeTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name)
@@ -424,6 +449,37 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		recordLatency(string(metrics.ReconciliationOperationRemoveTaint))
 
 		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
+			// Observe NRC-attributable hold time only on the first bootstrap completion.
+			// Skip repeated completions.
+			//
+			// Match BootstrapDuration's guard conditions.
+			if !wasAlreadyCompleted &&
+				!node.CreationTimestamp.Time.Before(rule.CreationTimestamp.Time) && !latestTransition.IsZero() {
+				if prevEval := r.getPreviousNodeEvaluation(rule, node.Name); prevEval != nil {
+					var anchor metav1.Time
+					var taintOriginLabel string
+					switch {
+					case !prevEval.TaintAppliedAt.IsZero():
+						anchor = prevEval.TaintAppliedAt
+						taintOriginLabel = "controller"
+					case !prevEval.TaintObservedAt.IsZero():
+						anchor = prevEval.TaintObservedAt
+						taintOriginLabel = "adopted"
+					}
+
+					if !anchor.IsZero() {
+						duration := latestTransition.Time.Sub(anchor.Time).Seconds()
+
+						if duration < 0 {
+							log.Info("Skipping bootstrap hold duration metric due to negative duration",
+								"node", node.Name, "rule", rule.Name, "duration", duration)
+						} else {
+							metrics.BootstrapHoldDuration.WithLabelValues(rule.Name, taintOriginLabel).Observe(duration)
+						}
+					}
+				}
+			}
+
 			// Only record the bootstrap duration if the node was created AFTER the rule.
 			// This prevents legacy nodes from poisoning the histogram with massive outliers.
 			if !node.CreationTimestamp.Time.Before(rule.CreationTimestamp.Time) && !latestTransition.IsZero() {
@@ -450,6 +506,17 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		}
 
 		if added {
+			// Bootstrap-only: record TaintAppliedAt/TaintObservedAt for hold duration tracking.
+			// Preserve the initial timestamps across repeated evaluations.
+			if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
+				nodeEval := r.getOrCreateNodeEvaluation(rule, node.Name)
+				if nodeEval.TaintAppliedAt.IsZero() {
+					now := metav1.Now()
+					nodeEval.TaintAppliedAt = now
+					nodeEval.TaintObservedAt = now
+				}
+			}
+
 			// Record add taint latency and taint operation counter
 			metrics.TaintOperations.WithLabelValues(rule.Name, string(metrics.TaintOperationAdd)).Inc()
 			recordLatency(string(metrics.ReconciliationOperationAddTaint))
@@ -461,6 +528,16 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 
 			message := fmt.Sprintf("Taint '%s:%s' is now managed by rule '%s'", rule.Spec.Taint.Key, rule.Spec.Taint.Effect, rule.Name)
 			r.EventRecorder.Eventf(node, nil, corev1.EventTypeNormal, "TaintAdopted", "AdoptTaint", "%s", message)
+		}
+
+		// Record TaintObservedAt for adopted taints in bootstrap-only mode.
+		// TaintAppliedAt stays unset since NRC did not apply the taint.
+		// This also handles taints added externally after the first evaluation.
+		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
+			nodeEval := r.getOrCreateNodeEvaluation(rule, node.Name)
+			if nodeEval.TaintObservedAt.IsZero() {
+				nodeEval.TaintObservedAt = metav1.Now()
+			}
 		}
 
 	default:
@@ -486,6 +563,24 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 	return nil
 }
 
+// getOrCreateNodeEvaluation returns the existing NodeEvaluation for nodeName,
+// creating and appending a new one if none exists yet.
+func (r *RuleReadinessController) getOrCreateNodeEvaluation(
+	rule *readinessv1alpha1.NodeReadinessRule,
+	nodeName string,
+) *readinessv1alpha1.NodeEvaluation {
+	for i := range rule.Status.NodeEvaluations {
+		if rule.Status.NodeEvaluations[i].NodeName == nodeName {
+			return &rule.Status.NodeEvaluations[i]
+		}
+	}
+
+	rule.Status.NodeEvaluations = append(rule.Status.NodeEvaluations, readinessv1alpha1.NodeEvaluation{
+		NodeName: nodeName,
+	})
+	return &rule.Status.NodeEvaluations[len(rule.Status.NodeEvaluations)-1]
+}
+
 // updateNodeEvaluationStatus updates the evaluation status for a specific node.
 func (r *RuleReadinessController) updateNodeEvaluationStatus(
 	rule *readinessv1alpha1.NodeReadinessRule,
@@ -493,23 +588,8 @@ func (r *RuleReadinessController) updateNodeEvaluationStatus(
 	conditionResults []readinessv1alpha1.ConditionEvaluationResult,
 	taintStatus readinessv1alpha1.TaintStatus,
 ) {
-	// Find existing evaluation or create new
-	var nodeEval *readinessv1alpha1.NodeEvaluation
-	for i := range rule.Status.NodeEvaluations {
-		if rule.Status.NodeEvaluations[i].NodeName == nodeName {
-			nodeEval = &rule.Status.NodeEvaluations[i]
-			break
-		}
-	}
+	nodeEval := r.getOrCreateNodeEvaluation(rule, nodeName)
 
-	if nodeEval == nil {
-		rule.Status.NodeEvaluations = append(rule.Status.NodeEvaluations, readinessv1alpha1.NodeEvaluation{
-			NodeName: nodeName,
-		})
-		nodeEval = &rule.Status.NodeEvaluations[len(rule.Status.NodeEvaluations)-1]
-	}
-
-	// Update evaluation
 	nodeEval.ConditionResults = conditionResults
 	nodeEval.TaintStatus = taintStatus
 	nodeEval.LastEvaluationTime = metav1.Now()
@@ -614,6 +694,8 @@ func (r *RuleReadinessController) removeRuleFromCache(ctx context.Context, ruleN
 	delete(r.ruleCache, ruleName)
 	metrics.RulesTotal.Set(float64(len(r.ruleCache)))
 	log.Info("Removed rule from cache", "rule", ruleName, "totalRules", len(r.ruleCache))
+
+	r.clearTaintAppliedAtRecoveryForRule(ruleName)
 }
 
 // updateRuleStatus updates the status of a NodeReadinessRule.
