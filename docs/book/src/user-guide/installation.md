@@ -14,7 +14,7 @@ First, to install the CRDs, apply the `crds.yaml` manifest:
 
 ```sh
 # Replace with the desired version
-VERSION=v0.4.1
+VERSION={{#include ../../../../VERSION}}
 
 kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${VERSION}/crds.yaml
 kubectl wait --for condition=established --timeout=30s crd/nodereadinessrules.readiness.node.x-k8s.io

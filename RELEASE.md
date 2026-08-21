@@ -15,7 +15,6 @@ Instead of manually creating branches and tags, the release is triggered by a pu
 - In this PR:
   - Update the `VERSION` file at the repository root to the new semantic version (e.g., `v0.2.0`).
   - Update `docs/book/src/releases.md` with the release notes.
-  - Update the pinned `VERSION` in `docs/book/src/user-guide/installation.md` so the install guide points at the new release.
   - Update any other documentation, examples, or manifests as needed for the release.
 - Ensure all tests are passing.
 - Once the PR is merged, the Release Automation GitHub Action will trigger.
