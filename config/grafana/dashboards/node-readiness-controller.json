@@ -1,0 +1,208 @@
+{
+	"title": "Node Readiness Controller",
+	"uid": "node-readiness-controller",
+	"schemaVersion": 39,
+	"version": 1,
+	"editable": true,
+	"graphTooltip": 1,
+	"time": {
+		"from": "now-6h",
+		"to": "now"
+	},
+	"timezone": "browser",
+	"tags": ["node-readiness-controller"],
+	"panels": [
+		{
+			"id": 1,
+			"type": "row",
+			"title": "Fleet Overview",
+			"collapsed": false,
+			"gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+			"panels": []
+		},
+		{
+			"id": 2,
+			"type": "stat",
+			"title": "Total Managed Nodes",
+			"description": "Total nodes managed by NodeReadiness rules. If a node matches multiple rules, it is counted once for each matching rule.",
+			"gridPos": { "h": 8, "w": 6, "x": 0, "y": 1 },
+			"datasource": { "type": "prometheus", "uid": "${datasource}" },
+			"targets": [
+				{
+					"datasource": { "type": "prometheus", "uid": "${datasource}" },
+					"expr": "sum(node_readiness_nodes_by_state)",
+					"legendFormat": "Total",
+					"refId": "A"
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"unit": "short",
+					"decimals": 0,
+					"mappings": [],
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [{ "color": "text", "value": null }]
+					}
+				},
+				"overrides": []
+			},
+			"options": {
+				"reduceOptions": {
+					"calcs": ["lastNotNull"],
+					"fields": "",
+					"values": false
+				},
+				"orientation": "auto",
+				"textMode": "auto",
+				"colorMode": "value",
+				"graphMode": "area",
+				"justifyMode": "auto"
+			}
+		},
+		{
+			"id": 3,
+			"type": "stat",
+			"title": "Blocked Nodes",
+			"description": "Nodes that are currently unavailable for scheduling because they are still bootstrapping or not yet ready.",
+			"gridPos": { "h": 8, "w": 6, "x": 6, "y": 1 },
+			"datasource": { "type": "prometheus", "uid": "${datasource}" },
+			"targets": [
+				{
+					"datasource": { "type": "prometheus", "uid": "${datasource}" },
+					"expr": "sum(node_readiness_nodes_by_state{state=~\"not_ready|bootstrapping\"})",
+					"legendFormat": "Blocked",
+					"refId": "A"
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"unit": "short",
+					"decimals": 0,
+					"mappings": [],
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{ "color": "green", "value": null },
+							{ "color": "red", "value": 1 }
+						]
+					}
+				},
+				"overrides": []
+			},
+			"options": {
+				"reduceOptions": {
+					"calcs": ["lastNotNull"],
+					"fields": "",
+					"values": false
+				},
+				"orientation": "auto",
+				"textMode": "auto",
+				"colorMode": "value",
+				"graphMode": "area",
+				"justifyMode": "auto"
+			}
+		},
+		{
+			"id": 4,
+			"type": "stat",
+			"title": "Fleet Availability %",
+			"description": "The percentage of managed nodes that are ready and available to run workloads.",
+			"gridPos": { "h": 8, "w": 6, "x": 12, "y": 1 },
+			"datasource": { "type": "prometheus", "uid": "${datasource}" },
+			"targets": [
+				{
+					"datasource": { "type": "prometheus", "uid": "${datasource}" },
+					"expr": "sum(node_readiness_nodes_by_state{state=\"ready\"}) / sum(node_readiness_nodes_by_state) * 100",
+					"legendFormat": "Availability",
+					"refId": "A"
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"unit": "percent",
+					"decimals": 1,
+					"min": 0,
+					"max": 100,
+					"mappings": [],
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{ "color": "red", "value": null },
+							{ "color": "yellow", "value": 80 },
+							{ "color": "green", "value": 99 }
+						]
+					}
+				},
+				"overrides": []
+			},
+			"options": {
+				"reduceOptions": {
+					"calcs": ["lastNotNull"],
+					"fields": "",
+					"values": false
+				},
+				"orientation": "auto",
+				"textMode": "auto",
+				"colorMode": "value",
+				"graphMode": "area",
+				"justifyMode": "auto"
+			}
+		},
+		{
+			"id": 5,
+			"type": "stat",
+			"title": "Rules Without Nodes",
+			"description": "Rules whose node selector currently doesn't match any nodes. This may mean the selector is incorrect or the expected labels are missing.",
+			"gridPos": { "h": 8, "w": 6, "x": 18, "y": 1 },
+			"datasource": { "type": "prometheus", "uid": "${datasource}" },
+			"targets": [
+				{
+					"datasource": { "type": "prometheus", "uid": "${datasource}" },
+					"expr": "count(sum by (rule) (node_readiness_nodes_by_state) == 0) or vector(0)",
+					"legendFormat": "Rules Without Nodes",
+					"refId": "A"
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"unit": "short",
+					"decimals": 0,
+					"mappings": [],
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{ "color": "green", "value": null },
+							{ "color": "red", "value": 1 }
+						]
+					}
+				},
+				"overrides": []
+			},
+			"options": {
+				"reduceOptions": {
+					"calcs": ["lastNotNull"],
+					"fields": "",
+					"values": false
+				},
+				"orientation": "auto",
+				"textMode": "auto",
+				"colorMode": "value",
+				"graphMode": "area",
+				"justifyMode": "auto"
+			}
+		}
+	],
+	"templating": {
+		"list": [
+			{
+				"name": "datasource",
+				"type": "datasource",
+				"query": "prometheus",
+				"current": {},
+				"hide": 0,
+				"refresh": 1
+			}
+		]
+	}
+}
