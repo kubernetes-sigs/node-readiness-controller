@@ -14,7 +14,8 @@ Instead of manually creating branches and tags, the release is triggered by a pu
 - The Release Shepherd creates a new PR targeting the `main` branch (for minor/major releases) or a `release-*` branch (for patch releases).
 - In this PR:
   - Update the `VERSION` file at the repository root to the new semantic version (e.g., `v0.2.0`).
-  - Update any documentation (like `docs/book/src/releases.md`), examples, or manifests as needed for the release.
+  - Update `docs/book/src/releases.md` with the release notes.
+  - Update any other documentation, examples, or manifests as needed for the release.
 - Ensure all tests are passing.
 - Once the PR is merged, the Release Automation GitHub Action will trigger.
 
