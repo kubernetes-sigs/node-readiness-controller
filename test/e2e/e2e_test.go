@@ -543,15 +543,22 @@ status:
 			}, 10*time.Second, 2*time.Second).Should(BeTrue())
 
 			By("verifying rule has dry-run results showing what would happen")
-			Eventually(func() bool {
-				cmd := exec.Command("kubectl", "get", "nodereadinessrule", "dryrun-test-rule", "-o", "jsonpath={.status.dryRunResults}")
-				output, err := utils.Run(cmd)
-				if err != nil {
-					return false
-				}
-				// Check that dry run results exist and contain the node
-				return len(output) > 0
-			}, 30*time.Second, 2*time.Second).Should(BeTrue())
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "nodereadinessrule", "dryrun-test-rule", "-o", "jsonpath={.status.dryRunResults.taintsToAdd}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, 2*time.Second).Should(Equal("1"))
+
+			By("updating node condition to True")
+			err = patchNodeCondition(nodeName, "TestReady", "True")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying rule dry-run results update to reflect the change")
+			Eventually(func() string {
+				cmd := exec.Command("kubectl", "get", "nodereadinessrule", "dryrun-test-rule", "-o", "jsonpath={.status.dryRunResults.taintsToAdd}")
+				output, _ := utils.Run(cmd)
+				return output
+			}, 30*time.Second, 2*time.Second).Should(BeEmpty())
 
 			By("cleaning up test resources")
 			exec.Command("kubectl", "delete", "node", nodeName).Run()
