@@ -22,7 +22,6 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -299,9 +298,6 @@ func (r *RuleReadinessController) addTaintBySpec(ctx context.Context, node *core
 		stored := latestNode.DeepCopy()
 		latestNode.Spec.Taints = append(latestNode.Spec.Taints, taintSpec)
 		if err := r.Patch(ctx, latestNode, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
-			if apierrors.IsConflict(err) {
-				metrics.StatusPatchConflicts.WithLabelValues("node_taint", "add").Inc()
-			}
 			return err
 		}
 
@@ -393,9 +389,6 @@ func (r *RuleReadinessController) removeTaint(ctx context.Context, node *corev1.
 			latestNode.Annotations[key] = annotations[key]
 		}
 		if err := r.Patch(ctx, latestNode, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
-			if apierrors.IsConflict(err) {
-				metrics.StatusPatchConflicts.WithLabelValues("node_taint", "remove").Inc()
-			}
 			return err
 		}
 
@@ -474,9 +467,6 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 
 		node.Annotations[annotationKey] = bootstrapAnnotationValue(rule.Name)
 		if err := r.Patch(ctx, node, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
-			if apierrors.IsConflict(err) {
-				metrics.StatusPatchConflicts.WithLabelValues("node_bootstrap_annotation", "patch").Inc()
-			}
 			return err
 		}
 

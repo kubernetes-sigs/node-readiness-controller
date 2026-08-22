@@ -212,11 +212,7 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 
 		stored := latest.DeepCopy()
 		controllerutil.RemoveFinalizer(latest, finalizerName)
-		err := r.Patch(ctx, latest, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{}))
-		if apierrors.IsConflict(err) {
-			metrics.StatusPatchConflicts.WithLabelValues("rule_finalizer", "remove").Inc()
-		}
-		return err
+		return r.Patch(ctx, latest, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{}))
 	})
 	if err != nil {
 		return ctrl.Result{}, err
@@ -633,11 +629,7 @@ func (r *RuleReadinessController) patchRuleStatusWithOptimisticLock(
 			return nil
 		}
 
-		err := r.Status().Patch(ctx, latestRule, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{}))
-		if apierrors.IsConflict(err) {
-			metrics.StatusPatchConflicts.WithLabelValues("rule_status", "patch").Inc()
-		}
-		return err
+		return r.Status().Patch(ctx, latestRule, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{}))
 	})
 }
 
@@ -803,9 +795,6 @@ func (r *RuleReconciler) ensureFinalizer(ctx context.Context, rule *readinessv1a
 		stored := latest.DeepCopy()
 		controllerutil.AddFinalizer(latest, finalizer)
 		if err := r.Patch(ctx, latest, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
-			if apierrors.IsConflict(err) {
-				metrics.StatusPatchConflicts.WithLabelValues("rule_finalizer", "add").Inc()
-			}
 			return err
 		}
 

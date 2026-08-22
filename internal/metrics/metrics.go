@@ -145,17 +145,6 @@ var (
 		[]string{"rule", "condition"},
 	)
 
-	// StatusPatchConflicts tracks optimistic-lock conflicts on status/annotation patches.
-	// A rising rate here means concurrent writers are contending for the same object; it may
-	// show up as increased reconcile latency before it shows up as visible errors.
-	StatusPatchConflicts = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "node_readiness_status_patch_conflicts_total",
-			Help: "Total number of optimistic-lock conflicts (HTTP 409) encountered while patching rule status or node annotations",
-		},
-		[]string{"resource", "operation"},
-	)
-
 	// RuleLastReconciliationTime tracks when a rule was last reconciled.
 	// This provides rule-level visibility for admins to detect stuck rules.
 	RuleLastReconciliationTime = prometheus.NewGaugeVec(
@@ -190,7 +179,6 @@ func init() {
 	metrics.Registry.MustRegister(ReconciliationLatency)
 	metrics.Registry.MustRegister(NodesByState)
 	metrics.Registry.MustRegister(ConditionEvaluationFailures)
-	metrics.Registry.MustRegister(StatusPatchConflicts)
 	metrics.Registry.MustRegister(RuleLastReconciliationTime)
 	metrics.Registry.MustRegister(BuildInfo)
 }
