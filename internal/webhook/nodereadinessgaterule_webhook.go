@@ -125,6 +125,12 @@ func (w *NodeReadinessRuleWebhook) validateTaintConflicts(ctx context.Context, r
 			continue
 		}
 
+		// Dry-run rules never write taints, so they cannot produce a real
+		// conflict regardless of taint key or selector overlap.
+		if rule.Spec.DryRun || existingRule.Spec.DryRun {
+			continue
+		}
+
 		// Check for same taint key and effect
 		if existingRule.Spec.Taint.Key == rule.Spec.Taint.Key &&
 			existingRule.Spec.Taint.Effect == rule.Spec.Taint.Effect {
