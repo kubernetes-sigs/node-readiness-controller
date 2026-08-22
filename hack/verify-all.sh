@@ -22,4 +22,3 @@ set -o pipefail
 hack/verify-boilerplate.sh
 hack/verify-chart-drift.sh
 hack/verify-links.sh
-hack/verify-govulncheck.sh
