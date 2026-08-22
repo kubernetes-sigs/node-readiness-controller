@@ -2,6 +2,104 @@
 
 This page details the official releases of the Node Readiness Controller.
 
+## v0.5.0
+
+**Date:** 2026-08-16
+
+This release introduces an official Helm chart for installing the Node Readiness Controller, published as an OCI artifact on `registry.k8s.io`, along with a scale-test suite for validating behavior on large clusters. It also fixes a status leak where `failedNodes` entries lingered for deleted nodes, makes bootstrap completion and taint writes mutually exclusive; adds a `node_readiness_build_info` metric and per-rule labels on evaluation duration, and supports querying rules by field selectors. The client-side QPS throttling is now disabled by default and will rely on server-side APF for better scaling. Dependencies are bumped to Go 1.26 and controller-runtime v0.24.
+
+### Release Notes
+
+#### Features & Enhancements
+- Add Helm chart for installing the controller ([#163](https://github.com/kubernetes-sigs/node-readiness-controller/pull/163))
+- Expose controller tuning flags (concurrency, QPS, burst) in Helm values ([#392](https://github.com/kubernetes-sigs/node-readiness-controller/pull/392))
+- Rename Helm chart from `nrr-controller` to `node-readiness-controller` ([#407](https://github.com/kubernetes-sigs/node-readiness-controller/pull/407))
+- Publish Helm chart as an OCI artifact to `registry.k8s.io` ([#402](https://github.com/kubernetes-sigs/node-readiness-controller/pull/402))
+- Support querying `NodeReadinessRule` objects by field selectors ([#312](https://github.com/kubernetes-sigs/node-readiness-controller/pull/312))
+- Add `node_readiness_build_info` metric ([#406](https://github.com/kubernetes-sigs/node-readiness-controller/pull/406))
+- Add `rule` label to `node_readiness_evaluation_duration_seconds` metric ([#244](https://github.com/kubernetes-sigs/node-readiness-controller/pull/244))
+- Add `--pprof-bind-address` flag to the controller ([#322](https://github.com/kubernetes-sigs/node-readiness-controller/pull/322))
+- Disable client-side QPS throttling as the default behavior ([#316](https://github.com/kubernetes-sigs/node-readiness-controller/pull/316))
+- Add scale test suite ([#284](https://github.com/kubernetes-sigs/node-readiness-controller/pull/284))
+- Emit JUnit XML report from the scale test ([#415](https://github.com/kubernetes-sigs/node-readiness-controller/pull/415))
+- Add demo environment for local testing ([#326](https://github.com/kubernetes-sigs/node-readiness-controller/pull/326))
+
+#### Bug Fixes
+- Make bootstrap completion and taint writes mutually exclusive ([#417](https://github.com/kubernetes-sigs/node-readiness-controller/pull/417))
+- Remove stale `failedNodes` entries for deleted nodes ([#204](https://github.com/kubernetes-sigs/node-readiness-controller/pull/204))
+- Isolate rule status cache per rule-reconcile worker ([#332](https://github.com/kubernetes-sigs/node-readiness-controller/pull/332))
+- Compare node labels in both directions in the update predicate ([#348](https://github.com/kubernetes-sigs/node-readiness-controller/pull/348))
+- Increment `metrics.Failures` counter on node reconciler evaluation error ([#219](https://github.com/kubernetes-sigs/node-readiness-controller/pull/219))
+- Clean up evaluation duration metric on rule deletion ([#330](https://github.com/kubernetes-sigs/node-readiness-controller/pull/330))
+- Reporter: reject non-positive `CHECK_INTERVAL` and `HEARTBEAT_PERIOD` ([#367](https://github.com/kubernetes-sigs/node-readiness-controller/pull/367))
+- Reporter: limit response body read to prevent unbounded memory consumption ([#370](https://github.com/kubernetes-sigs/node-readiness-controller/pull/370))
+- Reporter: call `flag.Parse` to activate klog flags ([#337](https://github.com/kubernetes-sigs/node-readiness-controller/pull/337))
+- Helm: add `events.k8s.io` to the manager ClusterRole ([#351](https://github.com/kubernetes-sigs/node-readiness-controller/pull/351))
+- Helm: stop the chart suggesting an empty `nodeSelector` ([#404](https://github.com/kubernetes-sigs/node-readiness-controller/pull/404))
+- Fix gcloud image tag ([#303](https://github.com/kubernetes-sigs/node-readiness-controller/pull/303))
+
+#### Code Cleanup & Maintenance
+- Bump controller-runtime to v0.24 and Go to 1.26 ([#319](https://github.com/kubernetes-sigs/node-readiness-controller/pull/319))
+- Align reporter builder with Go 1.26 ([#355](https://github.com/kubernetes-sigs/node-readiness-controller/pull/355))
+- Replace metric label literals with constants ([#353](https://github.com/kubernetes-sigs/node-readiness-controller/pull/353))
+- Run helm via `go run` so it works without a preinstalled binary ([#405](https://github.com/kubernetes-sigs/node-readiness-controller/pull/405))
+- Add kind to hack tools ([#300](https://github.com/kubernetes-sigs/node-readiness-controller/pull/300))
+- Remove test-e2e GitHub Actions workflow ([#307](https://github.com/kubernetes-sigs/node-readiness-controller/pull/307))
+- verify-govulncheck: handle Prow's shallow checkout and non-main base branches ([#305](https://github.com/kubernetes-sigs/node-readiness-controller/pull/305))
+- Fix lint failure ([#328](https://github.com/kubernetes-sigs/node-readiness-controller/pull/328))
+
+#### Documentation & Examples
+- Add Problem-gate (NPD) example using `defaultStatus` ([#317](https://github.com/kubernetes-sigs/node-readiness-controller/pull/317))
+- Add reporter configuration reference and document `HEARTBEAT_PERIOD` behaviour ([#314](https://github.com/kubernetes-sigs/node-readiness-controller/pull/314))
+- Document rule field selectors ([#324](https://github.com/kubernetes-sigs/node-readiness-controller/pull/324))
+- Add `rule` label docs for `node_readiness_evaluation_duration_seconds` ([#329](https://github.com/kubernetes-sigs/node-readiness-controller/pull/329))
+- Note inotify limits for the scale test ([#360](https://github.com/kubernetes-sigs/node-readiness-controller/pull/360))
+- Sync netlify Go version with Makefile ([#361](https://github.com/kubernetes-sigs/node-readiness-controller/pull/361))
+- Update v0.4.1 release notes ([#309](https://github.com/kubernetes-sigs/node-readiness-controller/pull/309))
+
+### Images
+
+The following container images are published as part of this release.
+
+```
+// Node readiness controller
+registry.k8s.io/node-readiness-controller/node-readiness-controller:v0.5.0
+
+// Report component readiness condition from the node
+registry.k8s.io/node-readiness-controller/node-readiness-reporter:v0.5.0
+```
+
+### Helm Chart
+
+The Helm chart is published as an OCI artifact.
+
+```
+helm install node-readiness-controller \
+  oci://registry.k8s.io/node-readiness-controller/charts/node-readiness-controller \
+  --version 0.5.0 --namespace nrr-system --create-namespace
+```
+
+### Contributors
+
+- ajaysundar.k
+- Alan Huang
+- Arnab Nandi
+- Arunit Chakraborty
+- Bhuvan Somisetty
+- Daniel Mungai Chege
+- Dasmat Hansda
+- Divyansh Rawat
+- Hong Hai
+- Mohana Katari
+- Priyanka Saggu
+- Rawad Hossain
+- Shaurya Srivastava
+- Shreya2005-2005
+- Tejas Singh Bhati
+- Vishnu Kothakapu
+- Vitor Floriano
+
+
 ## v0.4.1
 
 **Date:** 2026-07-12
