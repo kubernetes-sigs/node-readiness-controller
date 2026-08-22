@@ -106,6 +106,25 @@ Number of nodes currently held or released by each `NodeReadinessRule`, collecte
 | `rule` | `NodeReadinessRule` name | Any non-dry-run rule name with a valid selector |
 | `state` | Whether matching nodes are still tainted by the rule or have had the taint removed | `held`, `released` |
 
+### `node_readiness_blocked_nodes`
+
+*Available starting from the v0.6.0 release.*
+
+Number of currently-held nodes blocked by each unsatisfied condition, per `NodeReadinessRule`, collected at scrape time from the controller cache.
+
+| Property | Value |
+| --- | --- |
+| Type | `gauge` |
+| Labels | `rule`, `condition` |
+| Recorded when | Computed on each Prometheus scrape from the cached node list |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `rule` | `NodeReadinessRule` name | Any non-dry-run rule name with a valid selector |
+| `condition` | Condition type declared in `spec.conditions` | Any condition type declared by the rule |
+
 ### `node_readiness_bootstrap_completed_total`
 
 Total number of nodes that have completed bootstrap.
