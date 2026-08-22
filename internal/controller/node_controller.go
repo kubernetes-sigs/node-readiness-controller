@@ -154,15 +154,8 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			"ruleResourceVersion", rule.ResourceVersion)
 
 		if err := r.evaluateRuleForNode(ctx, rule, node); err != nil {
-			operation := "unknown"
-			switch {
-			case errors.Is(err, errAddTaintFailed):
-				operation = "add_taint"
-			case errors.Is(err, errRemoveTaintFailed):
-				operation = "remove_taint"
-			}
 			log.Error(err, "Failed to evaluate rule for node",
-				"node", node.Name, "rule", rule.Name, "operation", operation)
+				"node", node.Name, "rule", rule.Name)
 			// Continue with other rules even if one fails
 			r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
 			errs = append(errs, err)
@@ -325,6 +318,9 @@ func (r *RuleReadinessController) addTaintBySpec(ctx context.Context, node *core
 		stored := latestNode.DeepCopy()
 		latestNode.Spec.Taints = append(latestNode.Spec.Taints, taintSpec)
 		if err := r.Patch(ctx, latestNode, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
+			if apierrors.IsConflict(err) {
+				log.V(1).Info("Conflict adding taint to node", "rule", rule.Name, "operation", "add_taint")
+			}
 			return err
 		}
 
@@ -377,6 +373,7 @@ func (r *RuleReadinessController) removeTaintAndCompleteBootstrap(ctx context.Co
 // conflict error if the node was modified concurrently, allowing the
 // controller to retry with fresh state.
 func (r *RuleReadinessController) removeTaint(ctx context.Context, node *corev1.Node, taintSpec corev1.Taint, ruleName string, annotations map[string]string) (bool, error) {
+	log := ctrl.LoggerFrom(ctx)
 	hasNewAnnotations := false
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		// Fetch latest node state
@@ -416,6 +413,9 @@ func (r *RuleReadinessController) removeTaint(ctx context.Context, node *corev1.
 			latestNode.Annotations[key] = annotations[key]
 		}
 		if err := r.Patch(ctx, latestNode, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
+			if apierrors.IsConflict(err) {
+				log.V(1).Info("Conflict removing taint from node", "rule", ruleName, "operation", "remove_taint")
+			}
 			return err
 		}
 
