@@ -107,6 +107,46 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 	})
 
 	Context("Rule Reconciliation", func() {
+		It("should skip reconciliation when rule is suspended", func() {
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-rule-suspend",
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Suspend: true,
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/test-taint",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+
+			res, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "test-rule-suspend"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(res).To(Equal(reconcile.Result{}))
+
+			// Verify finalizer is NOT added to the rule
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "test-rule-suspend"}, updatedRule)).To(Succeed())
+			Expect(updatedRule.Finalizers).To(BeEmpty())
+
+			// Cleanup
+			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
+		})
+
 		It("should handle rule creation and add the finalizer to the rule", func() {
 			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{
