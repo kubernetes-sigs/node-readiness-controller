@@ -10,3 +10,4 @@ This example demonstrates how to use the Node Readiness Controller to ensure nod
 3. The `NodeReadinessRule` (`network-readiness-rule.yaml`) instructs the controller to remove the startup taint once the `projectcalico.org/CalicoReady` condition becomes `True`.
 4. The reporter is deployed with `hostNetwork: true` to reach Calico's local health endpoint.
 5. The reporter needs a dedicated ServiceAccount (`cni-reporter`) with permissions to patch node status.
+6. The reporter exposes Prometheus metrics on port `9445` (`/metrics`). An optional `PodMonitor` (`cni-reporter-podmonitor.yaml`) is included for prometheus-operator users and can be applied separately with `kubectl apply -f cni-reporter-podmonitor.yaml`. Since the DaemonSet runs with `hostNetwork: true`, the metrics endpoint is exposed on the host network, not just inside the cluster.

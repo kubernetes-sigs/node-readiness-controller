@@ -1,0 +1,18 @@
+# Optional: enables Prometheus Operator to scrape metrics from the Reporter.
+# Requires prometheus-operator and a Prometheus instance configured to watch this PodMonitor.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: constrained-impersonation-reporter
+  namespace: kube-system
+  labels:
+    app: cni-reporter
+spec:
+  selector:
+    matchLabels:
+      app: cni-reporter
+      example: constrained-impersonation
+  podMetricsEndpoints:
+  - port: metrics
+    path: /metrics
+    interval: 60s
