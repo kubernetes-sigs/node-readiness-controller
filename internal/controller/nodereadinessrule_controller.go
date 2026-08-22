@@ -139,6 +139,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	r.Controller.updateRuleCache(ctx, rule)
 
 	// Handle dry run
+	var delta nodeStatusDelta
 	if rule.Spec.DryRun {
 		if err := r.Controller.processDryRun(ctx, rule, nodeList); err != nil {
 			log.Error(err, "Failed to process dry run", "rule", rule.Name)
@@ -149,14 +150,16 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		rule.Status.DryRunResults = readinessv1alpha1.DryRunResults{}
 
 		// Process all applicable nodes for this rule
-		if err := r.Controller.processAllNodesForRule(ctx, rule, nodeList); err != nil {
+		var err error
+		delta, err = r.Controller.processAllNodesForRule(ctx, rule, nodeList)
+		if err != nil {
 			log.Error(err, "Failed to process nodes for rule", "rule", rule.Name)
 			return ctrl.Result{RequeueAfter: time.Minute}, err
 		}
 	}
 
 	// Update rule status
-	if err := r.Controller.updateRuleStatus(ctx, rule); err != nil {
+	if err := r.Controller.updateRuleStatus(ctx, rule, delta); err != nil {
 		log.Error(err, "Failed to update rule status", "rule", rule.Name)
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
@@ -198,9 +201,19 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	r.Controller.removeRuleFromCache(ctx, rule.Name)
 
 	log.V(3).Info("Removing the finalizer from the rule")
-	patch := client.MergeFrom(rule.DeepCopy())
-	controllerutil.RemoveFinalizer(rule, finalizerName)
-	err := r.Patch(ctx, rule, patch)
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &readinessv1alpha1.NodeReadinessRule{}
+		if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, latest); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		if !controllerutil.ContainsFinalizer(latest, finalizerName) {
+			return nil
+		}
+
+		stored := latest.DeepCopy()
+		controllerutil.RemoveFinalizer(latest, finalizerName)
+		return r.Patch(ctx, latest, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{}))
+	})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -251,13 +264,8 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 		"before", len(rule.Status.NodeEvaluations),
 		"after", len(newNodeEvaluations))
 
-	// Use retry on conflict to update status to avoid race conditions from node updates
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		fresh := &readinessv1alpha1.NodeReadinessRule{}
-		if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, fresh); err != nil {
-			return err
-		}
-
+	// Use an optimistic-locked patch to avoid race conditions from concurrent node updates.
+	return r.patchRuleStatusWithOptimisticLock(ctx, rule.Name, func(fresh *readinessv1alpha1.NodeReadinessRule) bool {
 		freshNodeEvaluations, freshFailedNodes := filterStatusForExistingNodes(
 			existingNodes,
 			fresh.Status.NodeEvaluations,
@@ -266,41 +274,66 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 
 		if len(freshNodeEvaluations) == len(fresh.Status.NodeEvaluations) &&
 			len(freshFailedNodes) == len(fresh.Status.FailedNodes) {
-			return nil
+			return false
 		}
 
-		patch := client.MergeFrom(fresh.DeepCopy())
 		fresh.Status.NodeEvaluations = freshNodeEvaluations
 		fresh.Status.FailedNodes = freshFailedNodes
-		return r.Status().Patch(ctx, fresh, patch)
+		return true
 	})
 }
 
-// processAllNodesForRule processes all nodes when a rule changes.
+// processAllNodesForRule processes all nodes when a rule changes. It mutates rule.Status in place
+// (as before) and additionally returns a nodeStatusDelta describing exactly which nodes' status
+// this sweep changed, so updateRuleStatus can merge those changes into the latest stored status
+// instead of replacing NodeEvaluations/FailedNodes wholesale.
 //
 //nolint:unparam // Keep error return for future extensibility and API stability.
-func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) error {
+func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) (nodeStatusDelta, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	log.Info("Processing all nodes for rule", "rule", rule.Name, "totalNodes", len(nodeList.Items))
 
+	delta := nodeStatusDelta{
+		evaluations: make(map[string]readinessv1alpha1.NodeEvaluation),
+		failures:    make(map[string]*readinessv1alpha1.NodeFailure),
+	}
+
 	var appliedNodes []string
 	for _, node := range nodeList.Items {
-		if r.ruleAppliesTo(ctx, rule, &node) {
-			log.Info("Processing node for rule", "rule", rule.Name, "node", node.Name)
-			if err := r.evaluateRuleForNode(ctx, rule, &node); err != nil {
-				log.Error(err, "Failed to evaluate node for rule", "rule", rule.Name, "node", node.Name)
-				r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
-				metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonEvaluationError)).Inc()
-			} else {
-				appliedNodes = append(appliedNodes, node.Name)
-				var updatedFailedNodes []readinessv1alpha1.NodeFailure
-				for _, f := range rule.Status.FailedNodes {
-					if f.NodeName != node.Name {
-						updatedFailedNodes = append(updatedFailedNodes, f)
-					}
+		if !r.ruleAppliesTo(ctx, rule, &node) {
+			continue
+		}
+
+		log.Info("Processing node for rule", "rule", rule.Name, "node", node.Name)
+		if err := r.evaluateRuleForNode(ctx, rule, &node); err != nil {
+			log.Error(err, "Failed to evaluate node for rule", "rule", rule.Name, "node", node.Name)
+			r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
+			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonEvaluationError)).Inc()
+
+			for _, f := range rule.Status.FailedNodes {
+				if f.NodeName == node.Name {
+					failure := f
+					delta.failures[node.Name] = &failure
+					break
 				}
-				rule.Status.FailedNodes = updatedFailedNodes
+			}
+		} else {
+			appliedNodes = append(appliedNodes, node.Name)
+			var updatedFailedNodes []readinessv1alpha1.NodeFailure
+			for _, f := range rule.Status.FailedNodes {
+				if f.NodeName != node.Name {
+					updatedFailedNodes = append(updatedFailedNodes, f)
+				}
+			}
+			rule.Status.FailedNodes = updatedFailedNodes
+			delta.failures[node.Name] = nil // clear any previously-recorded failure
+
+			for _, eval := range rule.Status.NodeEvaluations {
+				if eval.NodeName == node.Name {
+					delta.evaluations[node.Name] = eval
+					break
+				}
 			}
 		}
 	}
@@ -314,7 +347,7 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 	}
 
 	log.Info("Completed processing nodes for rule", "rule", rule.Name, "processedCount", len(appliedNodes))
-	return nil
+	return delta, nil
 }
 
 // evaluateRuleForNode evaluates a single rule against a single node.
@@ -616,8 +649,42 @@ func (r *RuleReadinessController) removeRuleFromCache(ctx context.Context, ruleN
 	log.Info("Removed rule from cache", "rule", ruleName, "totalRules", len(r.ruleCache))
 }
 
-// updateRuleStatus updates the status of a NodeReadinessRule.
-func (r *RuleReadinessController) updateRuleStatus(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
+// patchRuleStatusWithOptimisticLock fetches the latest NodeReadinessRule, lets mutate apply status
+// changes to it, and patches the result back with an optimistic-locked JSON merge patch. mutate
+// should return false if it made no changes, to skip an unnecessary Patch call.
+//
+// We use client.MergeFromWithOptimisticLock here for the same reason addTaintBySpec/
+// removeTaintBySpec do (see node_controller.go): a JSON merge patch replaces slice fields
+// (NodeEvaluations, AppliedNodes, FailedNodes) wholesale rather than merging them, so without a
+// resourceVersion precondition retry.RetryOnConflict can never observe a genuine conflict and a
+// concurrent status write from the other reconciler (RuleReconciler and NodeReconciler both patch
+// NodeReadinessRule.Status independently) can be silently overwritten.
+func (r *RuleReadinessController) patchRuleStatusWithOptimisticLock(
+	ctx context.Context,
+	ruleName string,
+	mutate func(latest *readinessv1alpha1.NodeReadinessRule) (changed bool),
+) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latestRule := &readinessv1alpha1.NodeReadinessRule{}
+		if err := r.Get(ctx, client.ObjectKey{Name: ruleName}, latestRule); err != nil {
+			return err
+		}
+
+		stored := latestRule.DeepCopy()
+		if !mutate(latestRule) {
+			return nil
+		}
+
+		return r.Status().Patch(ctx, latestRule, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{}))
+	})
+}
+
+// updateRuleStatus updates the status of a NodeReadinessRule. delta carries the per-node
+// NodeEvaluations/FailedNodes changes processAllNodesForRule actually produced this reconcile;
+// it is merged into the latest stored status by node name (see applyNodeStatusDelta) rather than
+// replacing those fields wholesale, so a concurrent per-node update from NodeReconciler
+// (processNodeAgainstAllRules) for a node outside this sweep isn't silently discarded.
+func (r *RuleReadinessController) updateRuleStatus(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, delta nodeStatusDelta) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	log.V(1).Info("Updating rule status",
@@ -625,30 +692,20 @@ func (r *RuleReadinessController) updateRuleStatus(ctx context.Context, rule *re
 		"nodeEvaluations", len(rule.Status.NodeEvaluations),
 		"appliedNodes", len(rule.Status.AppliedNodes))
 
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		latestRule := &readinessv1alpha1.NodeReadinessRule{}
-		if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, latestRule); err != nil {
-			return err
-		}
-
-		patch := client.MergeFrom(latestRule.DeepCopy())
-
-		latestRule.Status.NodeEvaluations = rule.Status.NodeEvaluations
+	err := r.patchRuleStatusWithOptimisticLock(ctx, rule.Name, func(latestRule *readinessv1alpha1.NodeReadinessRule) bool {
+		applyNodeStatusDelta(latestRule, delta)
 		latestRule.Status.AppliedNodes = rule.Status.AppliedNodes
-		latestRule.Status.FailedNodes = rule.Status.FailedNodes
 		latestRule.Status.ObservedGeneration = rule.Status.ObservedGeneration
 		latestRule.Status.DryRunResults = rule.Status.DryRunResults
-
-		if err := r.Status().Patch(ctx, latestRule, patch); err != nil {
-			log.V(1).Info("Status patch conflict, will retry",
-				"rule", rule.Name,
-				"error", err.Error())
-			return err
-		}
-
-		log.V(1).Info("Successfully patched rule status", "rule", rule.Name)
-		return nil
+		return true
 	})
+	if err != nil {
+		log.V(1).Info("Failed to patch rule status", "rule", rule.Name, "error", err.Error())
+		return err
+	}
+
+	log.V(1).Info("Successfully patched rule status", "rule", rule.Name)
+	return nil
 }
 
 // processDryRun processes dry run for a rule.
@@ -771,13 +828,30 @@ func (r *RuleReconciler) ensureFinalizer(ctx context.Context, rule *readinessv1a
 		return false, nil
 	}
 
-	patch := client.MergeFrom(rule.DeepCopy())
-	controllerutil.AddFinalizer(rule, finalizer)
-	err = r.Patch(ctx, rule, patch)
+	added := false
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &readinessv1alpha1.NodeReadinessRule{}
+		if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, latest); err != nil {
+			return err
+		}
+		if controllerutil.ContainsFinalizer(latest, finalizer) {
+			return nil
+		}
+
+		stored := latest.DeepCopy()
+		controllerutil.AddFinalizer(latest, finalizer)
+		if err := r.Patch(ctx, latest, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
+			return err
+		}
+
+		*rule = *latest
+		added = true
+		return nil
+	})
 	if err != nil {
 		return false, err
 	}
-	return true, nil
+	return added, nil
 }
 
 // getPreviousNodeEvaluation retrieves the previous evaluation result for a specific node from the rule status.

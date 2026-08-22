@@ -19,9 +19,11 @@ package controller
 import (
 	"encoding/json"
 	"maps"
+	"sort"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+
 	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 )
 
@@ -132,4 +134,49 @@ func filterStatusForExistingNodes(
 // labelsEqual checks if two label maps are equal.
 func labelsEqual(a, b map[string]string) bool {
 	return maps.Equal(a, b)
+}
+
+// nodeStatusDelta captures the per-node NodeEvaluation/NodeFailure changes produced by a single
+// processAllNodesForRule sweep, keyed by node name. It excludes AppliedNodes, ObservedGeneration,
+// and DryRunResults, which have a single writer and are safe to overwrite directly.
+//
+// A nil value in failures clears any failure recorded for that node. evaluations only holds
+// entries for nodes freshly (re-)evaluated this sweep.
+type nodeStatusDelta struct {
+	evaluations map[string]readinessv1alpha1.NodeEvaluation
+	failures    map[string]*readinessv1alpha1.NodeFailure
+}
+
+// applyNodeStatusDelta merges delta into rule's NodeEvaluations/FailedNodes, replacing only the
+// entries for nodes present in delta and leaving every other node's entry untouched.
+func applyNodeStatusDelta(rule *readinessv1alpha1.NodeReadinessRule, delta nodeStatusDelta) {
+	if len(delta.evaluations) > 0 {
+		merged := make([]readinessv1alpha1.NodeEvaluation, 0, len(rule.Status.NodeEvaluations)+len(delta.evaluations))
+		for _, eval := range rule.Status.NodeEvaluations {
+			if _, changed := delta.evaluations[eval.NodeName]; !changed {
+				merged = append(merged, eval)
+			}
+		}
+		for _, eval := range delta.evaluations {
+			merged = append(merged, eval)
+		}
+		sort.Slice(merged, func(i, j int) bool { return merged[i].NodeName < merged[j].NodeName })
+		rule.Status.NodeEvaluations = merged
+	}
+
+	if len(delta.failures) > 0 {
+		merged := make([]readinessv1alpha1.NodeFailure, 0, len(rule.Status.FailedNodes)+len(delta.failures))
+		for _, failure := range rule.Status.FailedNodes {
+			if _, changed := delta.failures[failure.NodeName]; !changed {
+				merged = append(merged, failure)
+			}
+		}
+		for _, failure := range delta.failures {
+			if failure != nil {
+				merged = append(merged, *failure)
+			}
+		}
+		sort.Slice(merged, func(i, j int) bool { return merged[i].NodeName < merged[j].NodeName })
+		rule.Status.FailedNodes = merged
+	}
 }
