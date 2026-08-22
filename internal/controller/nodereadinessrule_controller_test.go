@@ -2428,6 +2428,43 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			}
 			Expect(failedNames).NotTo(ContainElement("stale-recovery-node"))
 		})
+
+		It("should emit Warning events on failure paths for taint operations and node evaluation", func() {
+			fakeRecorder := events.NewFakeRecorder(100)
+			c := &RuleReadinessController{
+				Client:        k8sClient,
+				Scheme:        scheme,
+				clientset:     fakeClientset,
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: fakeRecorder,
+			}
+
+			nonExistentNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "non-existent-node-for-events"},
+			}
+			testRule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "event-test-rule"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{Key: "readiness.k8s.io/event-test", Effect: corev1.TaintEffectNoSchedule},
+				},
+			}
+
+			// Trigger evaluation failure on non-existent node.
+			err := c.evaluateRuleForNode(ctx, testRule, nonExistentNode)
+			Expect(err).To(HaveOccurred())
+
+			var eventList []string
+			for len(fakeRecorder.Events) > 0 {
+				eventList = append(eventList, <-fakeRecorder.Events)
+			}
+
+			Expect(eventList).To(HaveLen(1))
+			Expect(eventList[0]).To(ContainSubstring("AddTaintError"))
+			Expect(eventList[0]).To(ContainSubstring("Warning"))
+		})
 	})
 
 	Context("ConditionPolicy", func() {

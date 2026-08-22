@@ -117,6 +117,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	// Add finalizer first if not set to avoid the race condition between init and delete.
 	if finalizerAdded, err := r.ensureFinalizer(ctx, rule, finalizerName); err != nil {
+		r.Controller.EventRecorder.Eventf(rule, nil, corev1.EventTypeWarning, "FinalizerError", "EnsureFinalizer", "Failed to ensure finalizer: %v", err)
 		return ctrl.Result{}, err
 	} else if finalizerAdded {
 		// Adding a finalizer modifies Metadata, not Spec, so the Generation is unchanged.
@@ -127,6 +128,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	nodeList := &corev1.NodeList{}
 	if err := r.List(ctx, nodeList); err != nil {
+		r.Controller.EventRecorder.Eventf(rule, nil, corev1.EventTypeWarning, "ListNodesError", "ListNodes", "Failed to list nodes: %v", err)
 		return ctrl.Result{}, err
 	}
 
@@ -142,6 +144,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	if rule.Spec.DryRun {
 		if err := r.Controller.processDryRun(ctx, rule, nodeList); err != nil {
 			log.Error(err, "Failed to process dry run", "rule", rule.Name)
+			r.Controller.EventRecorder.Eventf(rule, nil, corev1.EventTypeWarning, "DryRunError", "ProcessDryRun", "Failed to process dry run: %v", err)
 			return ctrl.Result{RequeueAfter: time.Minute}, err
 		}
 	} else {
@@ -151,6 +154,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		// Process all applicable nodes for this rule
 		if err := r.Controller.processAllNodesForRule(ctx, rule, nodeList); err != nil {
 			log.Error(err, "Failed to process nodes for rule", "rule", rule.Name)
+			r.Controller.EventRecorder.Eventf(rule, nil, corev1.EventTypeWarning, "ProcessNodesError", "ProcessNodes", "Failed to process nodes: %v", err)
 			return ctrl.Result{RequeueAfter: time.Minute}, err
 		}
 	}
@@ -158,12 +162,14 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// Update rule status
 	if err := r.Controller.updateRuleStatus(ctx, rule); err != nil {
 		log.Error(err, "Failed to update rule status", "rule", rule.Name)
+		r.Controller.EventRecorder.Eventf(rule, nil, corev1.EventTypeWarning, "StatusUpdateError", "UpdateStatus", "Failed to update rule status: %v", err)
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
 	// Clean up status for deleted nodes
 	if err := r.Controller.cleanupDeletedNodes(ctx, rule, nodeList); err != nil {
 		log.Error(err, "Failed to clean up deleted nodes", "rule", rule.Name)
+		r.Controller.EventRecorder.Eventf(rule, nil, corev1.EventTypeWarning, "CleanupNodesError", "CleanupDeletedNodes", "Failed to clean up deleted nodes status: %v", err)
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
@@ -191,6 +197,7 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	log.Info("Cleaning up taints for deleted rule", "rule", rule.Name)
 	if err := r.Controller.cleanupTaintsForRule(ctx, rule, nodeList); err != nil {
 		log.Error(err, "Failed to cleanup taints for rule", "rule", rule.Name)
+		r.Controller.EventRecorder.Eventf(rule, nil, corev1.EventTypeWarning, "CleanupTaintsError", "CleanupTaints", "Failed to cleanup taints: %v", err)
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
@@ -202,6 +209,7 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	controllerutil.RemoveFinalizer(rule, finalizerName)
 	err := r.Patch(ctx, rule, patch)
 	if err != nil {
+		r.Controller.EventRecorder.Eventf(rule, nil, corev1.EventTypeWarning, "FinalizerError", "RemoveFinalizer", "Failed to remove finalizer: %v", err)
 		return ctrl.Result{}, err
 	}
 
@@ -416,6 +424,7 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		}
 		if err != nil {
 			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonRemoveTaintError)).Inc()
+			r.EventRecorder.Eventf(node, rule, corev1.EventTypeWarning, "RemoveTaintError", "RemoveTaint", "Failed to remove taint '%s:%s' by rule %q: %v", rule.Spec.Taint.Key, rule.Spec.Taint.Effect, rule.Name, err)
 			return fmt.Errorf("failed to remove taint: %w", err)
 		}
 
@@ -446,6 +455,7 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		var added bool
 		if added, err = r.addTaintBySpec(ctx, node, rule); err != nil {
 			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonAddTaintError)).Inc()
+			r.EventRecorder.Eventf(node, rule, corev1.EventTypeWarning, "AddTaintError", "AddTaint", "Failed to add taint '%s:%s' by rule %q: %v", rule.Spec.Taint.Key, rule.Spec.Taint.Effect, rule.Name, err)
 			return fmt.Errorf("failed to add taint: %w", err)
 		}
 
@@ -751,6 +761,7 @@ func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule
 
 			if err := r.removeTaintBySpec(ctx, &node, rule.Spec.Taint, rule.Name); err != nil {
 				errors = append(errors, fmt.Sprintf("node %s: %v", node.Name, err))
+				r.EventRecorder.Eventf(&node, rule, corev1.EventTypeWarning, "RemoveTaintError", "RemoveTaint", "Failed to remove taint '%s:%s' by rule %q during cleanup: %v", rule.Spec.Taint.Key, rule.Spec.Taint.Effect, rule.Name, err)
 			}
 		}
 	}
