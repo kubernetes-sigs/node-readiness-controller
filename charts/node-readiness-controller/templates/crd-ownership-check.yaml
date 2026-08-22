@@ -1,0 +1,33 @@
+{{- /*
+Refuse to install a second node-readiness-controller into a cluster that already
+has one.
+
+Two controllers reconciling the same NodeReadinessRules compete over the same node
+taints. That is easy to do by accident where the control plane is hosted: the
+provider's installation is not visible to the user, so nothing signals that the
+controller is already running.
+
+The CRD is the thing both installations contend over -- it is cluster scoped and
+singleton -- so its presence is the signal.
+
+The check is deliberately keyed on the CRD existing during a fresh install rather
+than on the value of its owner label. Both installations may be carrying the
+default label value, and the accident this guards against is exactly the case where
+nobody has customised anything.
+
+Note that lookup returns nothing during "helm template" and "--dry-run", so this
+only fires on a real install.
+*/ -}}
+{{- if and .Values.crds.preInstallCheck .Release.IsInstall }}
+{{- $crdName := "nodereadinessrules.readiness.node.x-k8s.io" }}
+{{- $existing := lookup "apiextensions.k8s.io/v1" "CustomResourceDefinition" "" $crdName }}
+{{- if $existing }}
+{{- $owner := "an unknown installation" }}
+{{- with $existing.metadata.labels }}
+{{- with index . "app.kubernetes.io/managed-by" }}
+{{- $owner = printf "%q" . }}
+{{- end }}
+{{- end }}
+{{- fail (printf "node-readiness-controller is already installed in this cluster.\n\nThe %s CRD exists and is managed by %s.\n\nInstalling a second controller will make both of them manage the same node taints.\nIf this is a managed cluster, your provider may have installed the controller as\npart of the control plane, where it is not visible to you.\n\nTo upgrade the existing installation, run 'helm upgrade' against its release.\nTo install anyway, set crds.preInstallCheck=false." $crdName $owner) }}
+{{- end }}
+{{- end }}

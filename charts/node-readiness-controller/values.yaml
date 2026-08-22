@@ -79,6 +79,17 @@ controller:
   # -- Bind address for the pprof endpoint. Leave empty to disable.
   pprofBindAddress: ""
 
+# CustomResourceDefinition handling.
+#
+# The CRD is installed from the chart's crds/ directory, which Helm does not
+# template and does not upgrade. See the chart README for upgrade guidance.
+crds:
+  # -- Fail a fresh install when the NodeReadinessRule CRD already exists.
+  # Two controllers reconciling the same rules compete over the same node taints,
+  # which is easy to do by accident on a managed cluster where the provider's
+  # installation is not visible. Has no effect on `helm upgrade`.
+  preInstallCheck: true
+
 rbac:
   create: true
 

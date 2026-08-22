@@ -79,3 +79,40 @@ jobs:
       
       - name: Run chart-testing (install)
         run: ct install --config=.github/ci/ct.yaml
+
+      # The pre-install guard calls Helm's lookup, which returns nothing during
+      # `helm template` and `--dry-run`, so the chart unit tests cannot cover it.
+      # Exercise it against the live kind cluster instead.
+      #
+      # The CRD is applied explicitly rather than relying on `ct install` having
+      # left one behind: ct only installs charts it sees as changed, so its
+      # leftovers are not guaranteed.
+      - name: Verify the CRD ownership pre-install check
+        run: |
+          set -euo pipefail
+          CHART=charts/node-readiness-controller
+          kubectl apply -f "$CHART/crds/"
+
+          echo "::group::install is refused while the CRD exists"
+          if helm install nrc-guard "$CHART" \
+               --namespace nrc-guard --create-namespace 2>guard.err; then
+            echo "expected the install to be refused, but it succeeded"
+            exit 1
+          fi
+          cat guard.err
+          grep -q "already installed in this cluster" guard.err
+          echo "::endgroup::"
+
+          echo "::group::escape hatch allows it"
+          helm install nrc-guard "$CHART" \
+            --namespace nrc-guard --create-namespace \
+            --set crds.preInstallCheck=false --wait --timeout 5m
+          echo "::endgroup::"
+
+          echo "::group::upgrade is not blocked, with the guard enabled"
+          helm upgrade nrc-guard "$CHART" \
+            --namespace nrc-guard --wait --timeout 5m
+          echo "::endgroup::"
+
+          helm uninstall nrc-guard --namespace nrc-guard
+          kubectl delete namespace nrc-guard

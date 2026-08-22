@@ -36,6 +36,31 @@ The command deploys the _node-readiness-controller_ on the Kubernetes cluster in
 
 Helm installs CRDs from the chart `crds/` directory during initial install, but Helm does not upgrade or delete CRDs from that directory during `helm upgrade` or `helm uninstall`. Before upgrading to a chart version that changes the `NodeReadinessRule` schema, apply the updated CRD from the release artifacts or from `charts/node-readiness-controller/crds`.
 
+## Avoiding a duplicate installation
+
+The controller manages node taints. Two installations reconciling the same
+`NodeReadinessRule` resources will both act on the same nodes, so only one should run
+in a cluster.
+
+This is easy to do by accident on a managed cluster: the provider may run the
+controller as part of a hosted control plane, where it is not visible to you.
+
+To make the existing installation visible, the CRD carries a label naming who manages
+it. The CRD is cluster scoped and shared by every install flow:
+
+```console
+$ kubectl get crd nodereadinessrules.readiness.node.x-k8s.io \
+    -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}'
+node-readiness-controller
+```
+
+A fresh `helm install` refuses to proceed when that CRD already exists, and names the
+manager in the error. `helm upgrade` is unaffected. Set `crds.preInstallCheck=false` to
+install anyway.
+
+Providers installing the controller should override the label value in their own
+pipeline, so the manager shown above identifies them rather than the upstream default.
+
 ## Uninstalling the Chart
 
 To uninstall/delete the `my-release` deployment:
@@ -72,6 +97,7 @@ The following table lists the configurable parameters of the _node-readiness-con
 | `leaderElection.enabled`                 | Enable leader election to support multiple replicas                                                                             | `true`                                                            |
 | `leaderElection.namespace`               | Namespace for the leader election lease. Defaults to the release namespace when empty.                                          | `""`                                                              |
 | `priorityClassName`                      | The name of the priority class to add to pods                                                                                    | `system-cluster-critical`                                         |
+| `crds.preInstallCheck`                   | Fail a fresh install when the `NodeReadinessRule` CRD already exists, so a second controller cannot be installed alongside one you cannot see. No effect on `helm upgrade`. | `true`                                                            |
 | `rbac.create`                            | If `true`, create & use RBAC resources                                                                                          | `true`                                                            |
 | `resources`                              | Node Readiness Controller container CPU and memory requests/limits                                                              | _see values.yaml_                                                 |
 | `serviceAccount.create`                  | If `true`, create a service account                                                                                             | `true`                                                            |

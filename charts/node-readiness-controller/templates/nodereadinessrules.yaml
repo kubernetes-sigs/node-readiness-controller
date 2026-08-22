@@ -9,6 +9,8 @@ apiVersion: readiness.node.x-k8s.io/v1alpha1
 kind: NodeReadinessRule
 metadata:
   name: {{ required "nodeReadinessRules[]: name is required" $rule.name | quote }}
+  labels:
+    {{- include "node-readiness-controller.labels" $ | nindent 4 }}
 spec:
 {{- toYaml $spec | nindent 2 }}
 {{- end }}
