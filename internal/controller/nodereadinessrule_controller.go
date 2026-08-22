@@ -415,7 +415,11 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 			err = r.removeTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name)
 		}
 		if err != nil {
-			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonRemoveTaintError)).Inc()
+			reason := string(metrics.FailureReasonRemoveTaintError)
+			if apierrors.IsConflict(err) {
+				reason = "RemoveTaintConflictExhausted"
+			}
+			metrics.Failures.WithLabelValues(rule.Name, reason).Inc()
 			return fmt.Errorf("failed to remove taint: %w", err)
 		}
 
@@ -445,7 +449,11 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 
 		var added bool
 		if added, err = r.addTaintBySpec(ctx, node, rule); err != nil {
-			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonAddTaintError)).Inc()
+			reason := string(metrics.FailureReasonAddTaintError)
+			if apierrors.IsConflict(err) {
+				reason = "AddTaintConflictExhausted"
+			}
+			metrics.Failures.WithLabelValues(rule.Name, reason).Inc()
 			return fmt.Errorf("failed to add taint: %w", err)
 		}
 

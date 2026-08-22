@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -227,6 +228,11 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 		})
 
 		if err != nil {
+			reason := "StatusPatchError"
+			if apierrors.IsConflict(err) {
+				reason = "StatusPatchConflictExhausted"
+			}
+			metrics.Failures.WithLabelValues(rule.Name, reason).Inc()
 			log.Error(err, "Failed to update rule status after node evaluation",
 				"node", node.Name,
 				"rule", rule.Name,
@@ -312,6 +318,9 @@ func (r *RuleReadinessController) addTaintBySpec(ctx context.Context, node *core
 		stored := latestNode.DeepCopy()
 		latestNode.Spec.Taints = append(latestNode.Spec.Taints, taintSpec)
 		if err := r.Patch(ctx, latestNode, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
+			if apierrors.IsConflict(err) {
+				log.V(1).Info("Conflict adding taint to node", "rule", rule.Name, "operation", "add_taint")
+			}
 			return err
 		}
 
@@ -364,6 +373,7 @@ func (r *RuleReadinessController) removeTaintAndCompleteBootstrap(ctx context.Co
 // conflict error if the node was modified concurrently, allowing the
 // controller to retry with fresh state.
 func (r *RuleReadinessController) removeTaint(ctx context.Context, node *corev1.Node, taintSpec corev1.Taint, ruleName string, annotations map[string]string) (bool, error) {
+	log := ctrl.LoggerFrom(ctx)
 	hasNewAnnotations := false
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		// Fetch latest node state
@@ -403,6 +413,9 @@ func (r *RuleReadinessController) removeTaint(ctx context.Context, node *corev1.
 			latestNode.Annotations[key] = annotations[key]
 		}
 		if err := r.Patch(ctx, latestNode, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
+			if apierrors.IsConflict(err) {
+				log.V(1).Info("Conflict removing taint from node", "rule", ruleName, "operation", "remove_taint")
+			}
 			return err
 		}
 

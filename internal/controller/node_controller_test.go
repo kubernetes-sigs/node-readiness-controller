@@ -19,9 +19,11 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	dto "github.com/prometheus/client_model/go"
@@ -35,11 +37,61 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	nodereadinessiov1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 	"sigs.k8s.io/node-readiness-controller/internal/metrics"
 )
+
+type capturedLogEntry struct {
+	level         int
+	msg           string
+	keysAndValues []any
+}
+
+type capturingLogSink struct {
+	mu      *sync.Mutex
+	entries *[]capturedLogEntry
+}
+
+func newCapturingLogger() (logr.Logger, *[]capturedLogEntry) {
+	entries := &[]capturedLogEntry{}
+	sink := &capturingLogSink{mu: &sync.Mutex{}, entries: entries}
+	return logr.New(sink), entries
+}
+
+func (s *capturingLogSink) Init(_ logr.RuntimeInfo) {}
+
+func (s *capturingLogSink) Enabled(_ int) bool { return true }
+
+func (s *capturingLogSink) Info(level int, msg string, keysAndValues ...any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	*s.entries = append(*s.entries, capturedLogEntry{level: level, msg: msg, keysAndValues: keysAndValues})
+}
+
+func (s *capturingLogSink) Error(_ error, msg string, keysAndValues ...any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	*s.entries = append(*s.entries, capturedLogEntry{level: -1, msg: msg, keysAndValues: keysAndValues})
+}
+
+func (s *capturingLogSink) WithValues(_ ...any) logr.LogSink { return s }
+
+func (s *capturingLogSink) WithName(_ string) logr.LogSink { return s }
+
+func fieldsOf(kvs []any) map[string]any {
+	fields := make(map[string]any, len(kvs)/2)
+	for i := 0; i+1 < len(kvs); i += 2 {
+		key, ok := kvs[i].(string)
+		if !ok {
+			continue
+		}
+		fields[key] = kvs[i+1]
+	}
+	return fields
+}
 
 var _ = Describe("Node Controller", func() {
 	const (
@@ -859,7 +911,10 @@ var _ = Describe("Node Controller", func() {
 
 			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, node)).To(Succeed())
 
-			err := controller.removeTaintBySpec(ctx, node, corev1.Taint{
+			logger, logEntries := newCapturingLogger()
+			loggedCtx := logf.IntoContext(ctx, logger)
+
+			err := controller.removeTaintBySpec(loggedCtx, node, corev1.Taint{
 				Key:    "readiness.k8s.io/test",
 				Effect: corev1.TaintEffectNoSchedule,
 			}, "test-rule")
@@ -883,6 +938,19 @@ var _ = Describe("Node Controller", func() {
 
 			// Verify that the patch was attempted twice (first failed, second succeeded)
 			Expect(patchCount.Load()).To(BeNumerically(">=", 2))
+
+			var conflictLogs []capturedLogEntry
+			for _, e := range *logEntries {
+				if e.msg == "Conflict removing taint from node" {
+					conflictLogs = append(conflictLogs, e)
+				}
+			}
+
+			Expect(conflictLogs).To(HaveLen(1))
+			Expect(conflictLogs[0].level).To(Equal(1))
+			fields := fieldsOf(conflictLogs[0].keysAndValues)
+			Expect(fields).To(HaveKeyWithValue("rule", "test-rule"))
+			Expect(fields).To(HaveKeyWithValue("operation", "remove_taint"))
 		})
 
 		It("should retry and succeed when addTaintBySpec encounters a conflict", func() {
@@ -934,7 +1002,11 @@ var _ = Describe("Node Controller", func() {
 					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
 				},
 			}
-			added, err := controller.addTaintBySpec(ctx, node, addRule)
+
+			logger, logEntries := newCapturingLogger()
+			loggedCtx := logf.IntoContext(ctx, logger)
+
+			added, err := controller.addTaintBySpec(loggedCtx, node, addRule)
 
 			// Should succeed after retry
 			Expect(err).NotTo(HaveOccurred())
@@ -956,6 +1028,19 @@ var _ = Describe("Node Controller", func() {
 
 			// Verify that the patch was attempted twice (first failed, second succeeded)
 			Expect(patchCount.Load()).To(BeNumerically(">=", 2))
+
+			var conflictLogs []capturedLogEntry
+			for _, e := range *logEntries {
+				if e.msg == "Conflict adding taint to node" {
+					conflictLogs = append(conflictLogs, e)
+				}
+			}
+
+			Expect(conflictLogs).To(HaveLen(1))
+			Expect(conflictLogs[0].level).To(Equal(1))
+			fields := fieldsOf(conflictLogs[0].keysAndValues)
+			Expect(fields).To(HaveKeyWithValue("rule", "test-rule"))
+			Expect(fields).To(HaveKeyWithValue("operation", "add_taint"))
 		})
 
 		It("should not mark bootstrap completed when the rule taints concurrently", func() {
