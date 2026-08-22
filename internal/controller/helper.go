@@ -136,14 +136,12 @@ func labelsEqual(a, b map[string]string) bool {
 	return maps.Equal(a, b)
 }
 
-// nodeStatusDelta captures the per-node NodeEvaluation/NodeFailure changes a single
-// processAllNodesForRule sweep actually produced, keyed by node name. It intentionally does not
-// carry AppliedNodes/ObservedGeneration/DryRunResults: those fields only ever have one writer
-// (RuleReconciler), so a plain overwrite of them is safe.
+// nodeStatusDelta captures the per-node NodeEvaluation/NodeFailure changes produced by a single
+// processAllNodesForRule sweep, keyed by node name. It excludes AppliedNodes, ObservedGeneration,
+// and DryRunResults, which have a single writer and are safe to overwrite directly.
 //
-// A nil value in failures means "clear any failure recorded for this node" (the node evaluated
-// successfully). evaluations only ever holds entries for nodes that were freshly (re-)evaluated
-// this sweep; a failed evaluation leaves the node's prior NodeEvaluation untouched.
+// A nil value in failures clears any failure recorded for that node. evaluations only holds
+// entries for nodes freshly (re-)evaluated this sweep.
 type nodeStatusDelta struct {
 	evaluations map[string]readinessv1alpha1.NodeEvaluation
 	failures    map[string]*readinessv1alpha1.NodeFailure
@@ -151,12 +149,6 @@ type nodeStatusDelta struct {
 
 // applyNodeStatusDelta merges delta into rule's NodeEvaluations/FailedNodes, replacing only the
 // entries for nodes present in delta and leaving every other node's entry untouched.
-//
-// This is the crux of fixing the lost-update bug described in #341: a naive full-slice
-// replacement of NodeEvaluations/FailedNodes (computed from a nodeList snapshot taken at the
-// start of a RuleReconciler sweep) would silently discard any per-node status update written
-// concurrently by NodeReconciler for a node this particular sweep didn't touch. Merging by node
-// name instead means each writer only ever overwrites the entries it just recomputed.
 func applyNodeStatusDelta(rule *readinessv1alpha1.NodeReadinessRule, delta nodeStatusDelta) {
 	if len(delta.evaluations) > 0 {
 		merged := make([]readinessv1alpha1.NodeEvaluation, 0, len(rule.Status.NodeEvaluations)+len(delta.evaluations))
