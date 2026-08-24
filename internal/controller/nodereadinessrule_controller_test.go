@@ -2114,6 +2114,43 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		})
 	})
 
+	Context("CEL Validation for bootstrap-only constraints", func() {
+		It("should reject rule creation when enforcementMode is bootstrap-only and defaultStatus is set", func() {
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "cel-test-reject-bootstrap-defaultstatus"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/cel-test", Effect: corev1.TaintEffectNoSchedule},
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"foo": "bar"}},
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "TestReady", RequiredStatus: corev1.ConditionTrue, DefaultStatus: corev1.ConditionFalse},
+					},
+				},
+			}
+			err := k8sClient.Create(ctx, rule)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("defaultStatus should not be used with bootstrap-only enforcementMode"))
+		})
+
+		It("should reject rule creation when enforcementMode is bootstrap-only and conditionPolicy is anyOf", func() {
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "cel-test-reject-bootstrap-anyof"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/cel-test", Effect: corev1.TaintEffectNoSchedule},
+					ConditionPolicy: nodereadinessiov1alpha1.ConditionPolicyAnyOf,
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"foo": "bar"}},
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "TestReady", RequiredStatus: corev1.ConditionTrue},
+					},
+				},
+			}
+			err := k8sClient.Create(ctx, rule)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("anyOf conditionPolicy is not supported with bootstrap-only enforcementMode"))
+		})
+	})
+
 	Context("when existing rule is updated", func() {
 		var rule *nodereadinessiov1alpha1.NodeReadinessRule
 		var node *corev1.Node

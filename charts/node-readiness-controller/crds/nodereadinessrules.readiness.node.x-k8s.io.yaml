@@ -269,6 +269,13 @@ spec:
             - message: defaultStatus is not supported when conditionPolicy is anyOf
               rule: '!has(self.conditionPolicy) || self.conditionPolicy != ''anyOf''
                 || self.conditions.all(c, !has(c.defaultStatus))'
+            - message: anyOf conditionPolicy is not supported with bootstrap-only
+                enforcementMode
+              rule: '!has(self.enforcementMode) || self.enforcementMode != ''bootstrap-only''
+                || !has(self.conditionPolicy) || self.conditionPolicy != ''anyOf'''
+            - message: defaultStatus should not be used with bootstrap-only enforcementMode
+              rule: '!has(self.enforcementMode) || self.enforcementMode != ''bootstrap-only''
+                || !has(self.conditions) || self.conditions.all(c, !has(c.defaultStatus))'
           status:
             description: status defines the observed state of NodeReadinessRule
             minProperties: 1

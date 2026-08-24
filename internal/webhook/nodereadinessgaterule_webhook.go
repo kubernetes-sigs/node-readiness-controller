@@ -47,7 +47,7 @@ func (w *NodeReadinessRuleWebhook) validateNodeReadinessRule(ctx context.Context
 	allErrs := make(field.ErrorList, 0, 4)
 
 	// Validate basic fields
-	allErrs = append(allErrs, w.validateSpec(rule.Spec, isUpdate)...)
+	allErrs = append(allErrs, w.validateSpec(rule.Spec)...)
 
 	// Check for conflicting rules (same taint key)
 	allErrs = append(allErrs, w.validateTaintConflicts(ctx, rule, isUpdate)...)
@@ -58,7 +58,6 @@ func (w *NodeReadinessRuleWebhook) validateNodeReadinessRule(ctx context.Context
 // validateSpec validates the spec fields that CRD CEL based XValidation cannot handle.
 func (w *NodeReadinessRuleWebhook) validateSpec(
 	spec readinessv1alpha1.NodeReadinessRuleSpec,
-	isUpdate bool,
 ) field.ErrorList {
 	var allErrs field.ErrorList
 
@@ -69,33 +68,6 @@ func (w *NodeReadinessRuleWebhook) validateSpec(
 	}
 	if selector != nil && selector.Empty() {
 		allErrs = append(allErrs, field.Required(field.NewPath("spec", "nodeSelector"), "nodeSelector must not be empty"))
-	}
-
-	// skip below checks for update because `enforcementMode`, `conditions`,
-	// and `conditionPolicy` are immutable as constrained by CEL XValidation rules.
-	if isUpdate {
-		return allErrs
-	}
-
-	// validate defaultStatus is not used in bootstrap-only mode
-	if spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
-		for i, cond := range spec.Conditions {
-			if cond.DefaultStatus != "" {
-				allErrs = append(allErrs, field.Forbidden(
-					field.NewPath("spec", "conditions").Index(i).Child("defaultStatus"),
-					"defaultStatus should not be used with bootstrap-only enforcementMode",
-				))
-			}
-		}
-	}
-
-	// validate anyOf conditionPolicy is not combined with bootstrap-only mode.
-	if spec.ConditionPolicy == readinessv1alpha1.ConditionPolicyAnyOf &&
-		spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
-		allErrs = append(allErrs, field.Forbidden(
-			field.NewPath("spec", "conditionPolicy"),
-			"anyOf conditionPolicy is not supported with bootstrap-only enforcementMode",
-		))
 	}
 
 	return allErrs

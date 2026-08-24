@@ -67,6 +67,8 @@ const (
 //
 // +kubebuilder:validation:XValidation:rule="(!has(oldSelf.conditionPolicy) ? 'allOf' : oldSelf.conditionPolicy) == (!has(self.conditionPolicy) ? 'allOf' : self.conditionPolicy)",message="conditionPolicy is immutable"
 // +kubebuilder:validation:XValidation:rule="!has(self.conditionPolicy) || self.conditionPolicy != 'anyOf' || self.conditions.all(c, !has(c.defaultStatus))",message="defaultStatus is not supported when conditionPolicy is anyOf"
+// +kubebuilder:validation:XValidation:rule="!has(self.enforcementMode) || self.enforcementMode != 'bootstrap-only' || !has(self.conditionPolicy) || self.conditionPolicy != 'anyOf'",message="anyOf conditionPolicy is not supported with bootstrap-only enforcementMode"
+// +kubebuilder:validation:XValidation:rule="!has(self.enforcementMode) || self.enforcementMode != 'bootstrap-only' || !has(self.conditions) || self.conditions.all(c, !has(c.defaultStatus))",message="defaultStatus should not be used with bootstrap-only enforcementMode"
 type NodeReadinessRuleSpec struct {
 	// conditions contains a list of the Node conditions that defines the specific
 	// criteria that must be met for taints to be managed on the target Node.

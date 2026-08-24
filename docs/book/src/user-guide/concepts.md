@@ -86,7 +86,7 @@ The choice of `defaultStatus` has critical interaction with the rule's `enforcem
 >
 > `defaultStatus` is useful when a condition may never appear on a node in its healthy state, effectively treating its absence as a known-good signal. However, `bootstrap-only` mode exists precisely to *wait* for conditions to be explicitly reported before completing the bootstrap gate.
 >
- > Because these two features serve opposing purposes, using them together can lead to unintended behavior, such as completing the bootstrap phase before a condition is actually verified. To prevent  this, the admission webhook explicitly rejects this combination.
+ > Because these two features serve opposing purposes, using them together can lead to unintended behavior, such as completing the bootstrap phase before a condition is actually verified. To prevent this, the controller explicitly rejects this combination.
 
 ## Readiness Condition Reporting
 
