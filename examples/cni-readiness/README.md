@@ -10,3 +10,7 @@ This example demonstrates how to use the Node Readiness Controller to ensure nod
 3. The `NodeReadinessRule` (`network-readiness-rule.yaml`) instructs the controller to remove the startup taint once the `projectcalico.org/CalicoReady` condition becomes `True`.
 4. The reporter is deployed with `hostNetwork: true` to reach Calico's local health endpoint.
 5. The reporter needs a dedicated ServiceAccount (`cni-reporter`) with permissions to patch node status.
+
+### Cilium Integration:
+For Cilium CNI, configure `--agent-not-ready-taint-key=readiness.k8s.io/network-not-ready` and apply `cilium-network-readiness-rule.yaml` targeting `NetworkUnavailable=False`.
+

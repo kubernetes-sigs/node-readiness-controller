@@ -1,0 +1,17 @@
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: cilium-network-readiness-rule
+spec:
+  conditions:
+    - type: "NetworkUnavailable"
+      requiredStatus: "False"
+  taint:
+    key: "readiness.k8s.io/network-not-ready"
+    effect: "NoSchedule"
+    value: "true"
+  enforcementMode: "bootstrap-only"
+  nodeSelector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: DoesNotExist
