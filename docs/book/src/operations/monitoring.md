@@ -69,6 +69,25 @@ Total number of failure events recorded by the controller.
 | `rule` | `NodeReadinessRule` name | Any rule name |
 | `reason` | Failure label recorded by the controller | `EvaluationError`, `AddTaintError`, `RemoveTaintError` |
 
+### `node_readiness_bootstrap_hold_duration_seconds`
+
+Time from readiness taint application or observation to bootstrap completion.
+
+| Property | Value |
+| --- | --- |
+| Type | `histogram` |
+| Labels | `rule`, `taint_origin` |
+| Buckets | `1, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600` |
+| Recorded when | The controller marks bootstrap as completed for a node under a bootstrap-only rule. |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `rule` | `NodeReadinessRule` name | Any rule name |
+| `taint_origin` | Origin of the readiness taint's anchor timestamp | `controller`, `adopted` |
+
+
 ### `node_readiness_build_info`
 
 *Available starting from the v0.6.0 release.*
