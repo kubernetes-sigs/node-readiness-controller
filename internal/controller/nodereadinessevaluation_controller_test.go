@@ -38,7 +38,7 @@ func nreNamespacedName(nodeName string) types.NamespacedName {
 	return types.NamespacedName{Name: nodeName}
 }
 
-var _ = Describe("NodeReadinessEvaluation Controller", func() {
+var _ = Describe("NodeReadinessEvaluation writes", func() {
 	const (
 		nreTestTimeout  = 10 * time.Second
 		nreTestInterval = 100 * time.Millisecond
@@ -84,32 +84,25 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 		}
 	}
 
-	// sharedSetup wires up a RuleReadinessController and a
-	// NodeReadinessEvaluationReconciler backed by the envtest k8sClient.
-	// Returns both reconcilers and a cleanup function.
-	sharedSetup := func() (*RuleReadinessController, *NodeReadinessEvaluationReconciler) {
-		rc := &RuleReadinessController{
+	// sharedSetup wires up a RuleReadinessController backed by the envtest k8sClient
+	// with NRE writing enabled.
+	sharedSetup := func() *RuleReadinessController {
+		return &RuleReadinessController{
 			Client:        k8sClient,
 			Scheme:        k8sClient.Scheme(),
 			clientset:     fake.NewSimpleClientset(),
 			ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
 			EventRecorder: events.NewFakeRecorder(32),
+			EnableNRE:     true,
 		}
-		nreR := &NodeReadinessEvaluationReconciler{
-			Client:     k8sClient,
-			Scheme:     k8sClient.Scheme(),
-			Controller: rc,
-		}
-		return rc, nreR
 	}
 
-	// reconcileNRE triggers a single NRE reconcile for the named node.
-	reconcileNRE := func(nreR *NodeReadinessEvaluationReconciler, nodeName string) {
+	// reconcileNRE triggers updateNREForNode for the named node.
+	reconcileNRE := func(rc *RuleReadinessController, nodeName string) {
 		GinkgoHelper()
-		_, err := nreR.Reconcile(ctx, reconcile.Request{
-			NamespacedName: types.NamespacedName{Name: nodeName},
-		})
-		Expect(err).NotTo(HaveOccurred())
+		node := &corev1.Node{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)).To(Succeed())
+		rc.updateNREForNode(ctx, node)
 	}
 
 	// getNRE fetches the current NRE for the given node name.
@@ -125,13 +118,12 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 	Context("Suite A — fresh cluster with NRE enabled", func() {
 		var (
 			rc   *RuleReadinessController
-			nreR *NodeReadinessEvaluationReconciler
 			node *corev1.Node
 			rule *nodereadinessiov1alpha1.NodeReadinessRule
 		)
 
 		BeforeEach(func() {
-			rc, nreR = sharedSetup()
+			rc = sharedSetup()
 
 			node = makeNode("nre-a-node", []corev1.Taint{
 				{Key: taintKey, Effect: corev1.TaintEffectNoSchedule},
@@ -168,7 +160,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 		})
 
 		It("A1 — creates NRE with correct spec.nodeName and ownerReference on first reconcile", func() {
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 
 			nre := getNRE(node.Name)
 
@@ -183,7 +175,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 		})
 
 		It("A2 — state is NotAvailable and activeTaints=1 when conditions are not met", func() {
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 
 			nre := getNRE(node.Name)
 
@@ -201,7 +193,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 
 		It("A3 — state transitions to Available after conditions are met and taint is removed", func() {
 			// First reconcile: conditions not met, taint present.
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 			Expect(getNRE(node.Name).Status.State).To(Equal(nodereadinessiov1alpha1.NodeEvaluationStateNotAvailable))
 
 			// Satisfy the condition and remove the taint (simulating NodeReconciler action).
@@ -215,7 +207,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 			Expect(k8sClient.Update(ctx, updatedNode)).To(Succeed())
 
 			// Second reconcile: conditions met, taint absent.
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 
 			nre := getNRE(node.Name)
 			Expect(nre.Status.State).To(Equal(nodereadinessiov1alpha1.NodeEvaluationStateAvailable))
@@ -224,7 +216,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 		})
 
 		It("A4 — taintKey and taintEffect are stamped on the RuleEvaluation entry", func() {
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 
 			nre := getNRE(node.Name)
 			Expect(nre.Status.Rules).To(HaveLen(1))
@@ -238,7 +230,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 		})
 
 		It("A4b — condition evaluation breakdown is present in RuleEvaluation", func() {
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 
 			nre := getNRE(node.Name)
 			Expect(nre.Status.Rules[0].ReadinessConditions).To(HaveLen(1))
@@ -249,7 +241,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 		})
 
 		It("A5 — Evaluated=True and Available=False conditions are set when taint is present", func() {
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 
 			nre := getNRE(node.Name)
 			By("Evaluated condition is True — no errors")
@@ -277,7 +269,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 			updatedNode.Status.Conditions[0].Status = corev1.ConditionTrue
 			Expect(k8sClient.Status().Update(ctx, updatedNode)).To(Succeed())
 
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 
 			nre := getNRE(node.Name)
 			available := findCondition(nre.Status.Conditions, "Available")
@@ -290,14 +282,13 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 	Context("Suite A (multi-rule) — multiple rules folded into one NRE", func() {
 		var (
 			rc    *RuleReadinessController
-			nreR  *NodeReadinessEvaluationReconciler
 			node  *corev1.Node
 			rule1 *nodereadinessiov1alpha1.NodeReadinessRule
 			rule2 *nodereadinessiov1alpha1.NodeReadinessRule
 		)
 
 		BeforeEach(func() {
-			rc, nreR = sharedSetup()
+			rc = sharedSetup()
 
 			node = makeNode("nre-multi-node", []corev1.Taint{
 				{Key: taintKey, Effect: corev1.TaintEffectNoSchedule},
@@ -339,7 +330,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 		})
 
 		It("A7 — both rules are folded into the single NRE for the node", func() {
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 
 			nre := getNRE(node.Name)
 			Expect(nre.Status.Rules).To(HaveLen(2),
@@ -360,7 +351,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 			}
 			rc.updateRuleCache(ctx, updatedRule2)
 
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 
 			nre := getNRE(node.Name)
 			Expect(nre.Status.Rules).To(HaveLen(1),
@@ -374,13 +365,12 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 	Context("Suite B — NRE enabled on a cluster with rules already running", func() {
 		var (
 			rc   *RuleReadinessController
-			nreR *NodeReadinessEvaluationReconciler
 			node *corev1.Node
 			rule *nodereadinessiov1alpha1.NodeReadinessRule
 		)
 
 		BeforeEach(func() {
-			rc, nreR = sharedSetup()
+			rc = sharedSetup()
 
 			// Simulate a cluster where rules and taints are already in place.
 			node = makeNode("nre-b-node", []corev1.Taint{
@@ -416,7 +406,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 
 		It("B1 — first NRE reconcile on existing cluster produces correct full state", func() {
 			// No prior NRE exists — this is the moment the feature is enabled.
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 
 			nre := getNRE(node.Name)
 			Expect(nre.Spec.NodeName).To(Equal(node.Name))
@@ -427,13 +417,13 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 		})
 
 		It("B2 — subsequent reconciles are idempotent", func() {
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 			firstNRE := getNRE(node.Name)
 			firstState := firstNRE.Status.State
 			firstRuleLen := len(firstNRE.Status.Rules)
 
 			// Reconcile again without changing anything.
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 			secondNRE := getNRE(node.Name)
 
 			Expect(secondNRE.Status.State).To(Equal(firstState))
@@ -446,13 +436,12 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 	Context("Suite C — pre-tainted node adoption", func() {
 		var (
 			rc   *RuleReadinessController
-			nreR *NodeReadinessEvaluationReconciler
 			node *corev1.Node
 			rule *nodereadinessiov1alpha1.NodeReadinessRule
 		)
 
 		BeforeEach(func() {
-			rc, nreR = sharedSetup()
+			rc = sharedSetup()
 			rule = makeRule("nre-c-rule")
 			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
 			rc.updateRuleCache(ctx, rule)
@@ -492,7 +481,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
 
 			// First reconcile: no previous NRE — taint is pre-existing.
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 
 			nre := getNRE(node.Name)
 			Expect(nre.Status.Rules).To(HaveLen(1))
@@ -515,7 +504,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
 
 			// First NRE reconcile: no taint yet.
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 			nre := getNRE(node.Name)
 			Expect(nre.Status.Rules[0].TaintObservedAt).To(BeNil())
 			Expect(nre.Status.Rules[0].TaintAddedAt).To(BeNil())
@@ -529,7 +518,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 			Expect(k8sClient.Update(ctx, updatedNode)).To(Succeed())
 
 			// Second NRE reconcile: taint is now present — Absent→Present transition.
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 			nre = getNRE(node.Name)
 			eval := nre.Status.Rules[0]
 
@@ -546,13 +535,13 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
 
 			// First reconcile: adoption — TaintObservedAt set.
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 			firstNRE := getNRE(node.Name)
 			firstObservedAt := firstNRE.Status.Rules[0].TaintObservedAt
 			Expect(firstObservedAt).NotTo(BeNil())
 
 			// Second reconcile: nothing changed.
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 			secondNRE := getNRE(node.Name)
 
 			Expect(secondNRE.Status.Rules[0].TaintObservedAt).To(Equal(firstObservedAt),
@@ -566,7 +555,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
 
 			// First reconcile: adoption — TaintObservedAt set, TaintAddedAt nil.
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 			Expect(getNRE(node.Name).Status.Rules[0].TaintObservedAt).NotTo(BeNil())
 			Expect(getNRE(node.Name).Status.Rules[0].TaintRemovedAt).To(BeNil())
 
@@ -581,7 +570,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 			Expect(k8sClient.Status().Update(ctx, updatedNode)).To(Succeed())
 
 			// Second reconcile: Present→Absent transition.
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 			eval := getNRE(node.Name).Status.Rules[0]
 
 			By("TaintObservedAt and TaintAddedAt are cleared")
@@ -592,7 +581,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 			Expect(eval.TaintRemovedAt).NotTo(BeNil())
 
 			// Third reconcile: taint stays absent — TaintRemovedAt carries forward.
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 			eval2 := getNRE(node.Name).Status.Rules[0]
 
 			By("TaintRemovedAt carries forward on subsequent reconciles (historical SLI)")
@@ -605,13 +594,12 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 	Context("Suite D — NRE lifecycle", func() {
 		var (
 			rc   *RuleReadinessController
-			nreR *NodeReadinessEvaluationReconciler
 			node *corev1.Node
 			rule *nodereadinessiov1alpha1.NodeReadinessRule
 		)
 
 		BeforeEach(func() {
-			rc, nreR = sharedSetup()
+			rc = sharedSetup()
 
 			node = makeNode("nre-d-node", []corev1.Taint{
 				{Key: taintKey, Effect: corev1.TaintEffectNoSchedule},
@@ -647,14 +635,14 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 
 		It("D1 — rule removed from cache causes its entry to disappear from NRE on next reconcile", func() {
 			// First reconcile: rule present.
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 			Expect(getNRE(node.Name).Status.Rules).To(HaveLen(1))
 
 			// Remove the rule from the cache (simulates rule deletion).
 			rc.removeRuleFromCache(ctx, rule.Name)
 
 			// Second reconcile: no applicable rules.
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 			nre := getNRE(node.Name)
 
 			Expect(nre.Status.Rules).To(BeEmpty(),
@@ -664,7 +652,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 		})
 
 		It("D2 — NRE carries ownerReference to Node for automatic GC", func() {
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 
 			nre := getNRE(node.Name)
 			Expect(nre.OwnerReferences).To(HaveLen(1))
@@ -682,7 +670,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 			dryRunRule.Spec.DryRun = true
 			rc.updateRuleCache(ctx, dryRunRule)
 
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 
 			nre := getNRE(node.Name)
 			Expect(nre.Status.Rules).To(BeEmpty(),
@@ -695,7 +683,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 			deletingRule.DeletionTimestamp = &now
 			rc.updateRuleCache(ctx, deletingRule)
 
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 
 			nre := getNRE(node.Name)
 			Expect(nre.Status.Rules).To(BeEmpty(),
@@ -703,14 +691,14 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 		})
 
 		It("D5 — FirstEvaluatedAt is set on creation and preserved on subsequent reconciles", func() {
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 			firstNRE := getNRE(node.Name)
 			Expect(firstNRE.Status.Rules[0].FirstEvaluatedAt).NotTo(BeNil())
 			firstTime := firstNRE.Status.Rules[0].FirstEvaluatedAt
 
 			// Wait a tick so the clock would differ if mistakenly overwritten.
 			time.Sleep(nreTestInterval)
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 
 			secondNRE := getNRE(node.Name)
 			Expect(secondNRE.Status.Rules[0].FirstEvaluatedAt).To(Equal(firstTime),
@@ -718,7 +706,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 		})
 
 		It("D6 — rule delete+recreate (same name, new UID) resets FirstEvaluatedAt", func() {
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 			firstNRE := getNRE(node.Name)
 			Expect(firstNRE.Status.Rules[0].FirstEvaluatedAt).NotTo(BeNil())
 			firstUID := firstNRE.Status.Rules[0].RuleUID
@@ -728,7 +716,7 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 			recreatedRule.UID = "new-uid-after-recreate"
 			rc.updateRuleCache(ctx, recreatedRule)
 
-			reconcileNRE(nreR, node.Name)
+			reconcileNRE(rc, node.Name)
 
 			secondNRE := getNRE(node.Name)
 			Expect(secondNRE.Status.Rules[0].FirstEvaluatedAt).NotTo(BeNil())
@@ -739,6 +727,78 @@ var _ = Describe("NodeReadinessEvaluation Controller", func() {
 			// The previous entry had the old UID so findPreviousRuleEvaluation returns nil,
 			// causing FirstEvaluatedAt to be set to now (which may equal the previous
 			// value if within the same wall-clock second — we verify via UID change above).
+		})
+	})
+	// Suite E — Wiring: NRE is written from NodeReconciler and RuleReconciler paths.
+
+	Context("Suite E — EnableNRE wiring through NodeReconciler and RuleReconciler", func() {
+		var (
+			rc   *RuleReadinessController
+			node *corev1.Node
+			rule *nodereadinessiov1alpha1.NodeReadinessRule
+		)
+
+		BeforeEach(func() {
+			rc = sharedSetup()
+
+			node = makeNode("nre-e-node", []corev1.Taint{
+				{Key: taintKey, Effect: corev1.TaintEffectNoSchedule},
+			}, corev1.ConditionFalse)
+			rule = makeRule("nre-e-rule")
+
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			rc.updateRuleCache(ctx, rule)
+		})
+
+		AfterEach(func() {
+			_ = k8sClient.Delete(ctx, node)
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: rule.Name}, updatedRule); err == nil {
+				updatedRule.Finalizers = nil
+				_ = k8sClient.Update(ctx, updatedRule)
+				_ = k8sClient.Delete(ctx, updatedRule)
+			}
+			Eventually(func() bool {
+				return apierrors.IsNotFound(
+					k8sClient.Get(ctx, types.NamespacedName{Name: rule.Name},
+						&nodereadinessiov1alpha1.NodeReadinessRule{}))
+			}, nreTestTimeout).Should(BeTrue())
+			nre := &nodereadinessiov1alpha1.NodeReadinessEvaluation{}
+			if err := k8sClient.Get(ctx, nreNamespacedName(node.Name), nre); err == nil {
+				_ = k8sClient.Delete(ctx, nre)
+			}
+			rc.removeRuleFromCache(ctx, rule.Name)
+		})
+
+		It("E1 — NodeReconciler.Reconcile creates NRE when EnableNRE=true", func() {
+			nodeReconciler := &NodeReconciler{
+				Client:     k8sClient,
+				Scheme:     k8sClient.Scheme(),
+				Controller: rc,
+			}
+
+			_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: node.Name},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			nre := getNRE(node.Name)
+			Expect(nre.Spec.NodeName).To(Equal(node.Name))
+			Expect(nre.Status.Rules).To(HaveLen(1))
+			Expect(nre.Status.Rules[0].RuleName).To(Equal(rule.Name))
+		})
+
+		It("E2 — processAllNodesForRule creates NRE per matching node when EnableNRE=true", func() {
+			nodeList := &corev1.NodeList{}
+			Expect(k8sClient.List(ctx, nodeList)).To(Succeed())
+
+			Expect(rc.processAllNodesForRule(ctx, rule, nodeList)).To(Succeed())
+
+			nre := getNRE(node.Name)
+			Expect(nre.Spec.NodeName).To(Equal(node.Name))
+			Expect(nre.Status.Rules).To(HaveLen(1))
+			Expect(nre.Status.Rules[0].RuleName).To(Equal(rule.Name))
 		})
 	})
 })

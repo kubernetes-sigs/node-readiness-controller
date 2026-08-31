@@ -25,125 +25,31 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 )
 
-// NodeReadinessEvaluationReconciler is an independent reconciler that maintains
-// one NodeReadinessEvaluation object per Node. It watches Nodes and
-// NodeReadinessRules and re-evaluates the full rule set for the affected node
-// on every relevant change. It shares the rule cache owned by
-// RuleReadinessController but never writes to Node taints or NRR status —
-// those remain the sole responsibility of NodeReconciler / RuleReconciler.
-type NodeReadinessEvaluationReconciler struct {
-	client.Client
-	Scheme     *runtime.Scheme
-	Controller *RuleReadinessController
-}
-
-// SetupWithManager wires the reconciler to watch:
-//   - Node objects (conditions, taints, labels)
-//   - NodeReadinessRule objects (enqueues all nodes matching the changed rule)
-func (r *NodeReadinessEvaluationReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		Named("nodereadinessevaluation").
-		// Primary watch: a node change triggers reconcile for that node's NRE.
-		For(&corev1.Node{}, builder.WithPredicates(predicate.Funcs{
-			CreateFunc: func(e event.CreateEvent) bool { return true },
-			UpdateFunc: func(e event.UpdateEvent) bool {
-				oldNode := e.ObjectOld.(*corev1.Node)
-				newNode := e.ObjectNew.(*corev1.Node)
-				return !conditionsEqual(oldNode.Status.Conditions, newNode.Status.Conditions) ||
-					!taintsEqual(oldNode.Spec.Taints, newNode.Spec.Taints) ||
-					!labelsEqual(oldNode.Labels, newNode.Labels)
-			},
-			DeleteFunc:  func(e event.DeleteEvent) bool { return false }, // GC handles deletion via ownerRef
-			GenericFunc: func(e event.GenericEvent) bool { return false },
-		})).
-		// Secondary watch: a rule change re-evaluates every node in the cluster
-		// that could be affected. We map the rule event to a list of node requests.
-		Watches(
-			&readinessv1alpha1.NodeReadinessRule{},
-			handler.EnqueueRequestsFromMapFunc(r.ruleToNodeRequests),
-			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
-		).
-		Complete(r)
-}
-
-// ruleToNodeRequests maps a NodeReadinessRule event to reconcile requests for
-// only the Nodes that match the rule's nodeSelector. Filtering here avoids
-// enqueueing the full cluster on every rule change — on a 5k-node cluster a
-// rule targeting 200 nodes produces 200 requests, not 5,000.
-//
-// nodeSelector is immutable enforeced via CEL validateion on the spec, so a changing
-// selector can never silently leave stale NRE entries behind.
-func (r *NodeReadinessEvaluationReconciler) ruleToNodeRequests(ctx context.Context, obj client.Object) []reconcile.Request {
-	log := ctrl.LoggerFrom(ctx)
-
-	rule, ok := obj.(*readinessv1alpha1.NodeReadinessRule)
-	if !ok {
-		return nil
-	}
-
-	selector, err := metav1.LabelSelectorAsSelector(&rule.Spec.NodeSelector)
-	if err != nil {
-		// Invalid selector — the rule reconciler will surface this as an error;
-		// nothing to enqueue here.
-		log.Error(err, "invalid nodeSelector on rule, skipping NRE fan-out", "rule", rule.Name)
-		return nil
-	}
-
-	nodeList := &corev1.NodeList{}
-	if err := r.List(ctx, nodeList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
-		log.Error(err, "failed to list matching nodes for NRE rule mapping", "rule", rule.Name)
-		return nil
-	}
-
-	requests := make([]reconcile.Request, len(nodeList.Items))
-	for i, node := range nodeList.Items {
-		requests[i] = reconcile.Request{
-			NamespacedName: types.NamespacedName{Name: node.Name},
-		}
-	}
-
-	log.V(4).Info("Enqueuing NRE reconciles for rule change",
-		"rule", rule.Name, "matchingNodes", len(requests))
-	return requests
-}
-
-// +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessevaluations,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessevaluations,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessevaluations/status,verbs=get;update;patch
 
-// Reconcile evaluates all applicable rules for the given node and writes the
-// result into the corresponding NodeReadinessEvaluation object.
-func (r *NodeReadinessEvaluationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+// updateNREForNode writes (or updates) the NodeReadinessEvaluation for the given
+// node using the current rule cache. It is called as a side-effect from both
+// NodeReconciler.Reconcile (after processing the node against all rules) and
+// RuleReconciler.Reconcile (after processing all nodes for the changed rule).
+func (r *RuleReadinessController) updateNREForNode(ctx context.Context, node *corev1.Node) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(4).Info("Reconciling NodeReadinessEvaluation", "node", req.Name)
 
-	// Fetch the Node.
-	node := &corev1.Node{}
-	if err := r.Get(ctx, req.NamespacedName, node); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
-	// Fetch or create the NRE object.
 	nre, err := r.ensureNRE(ctx, node)
 	if err != nil {
-		return ctrl.Result{}, err
+		log.Error(err, "Failed to ensure NRE for node", "node", node.Name)
+		return
 	}
 
 	// Evaluate all applicable rules from the shared cache.
-	applicableRules := r.Controller.getApplicableRulesForNode(ctx, node)
+	applicableRules := r.getApplicableRulesForNode(ctx, node)
 	log.V(4).Info("Evaluating rules for NRE", "node", node.Name, "ruleCount", len(applicableRules))
 
 	// Snapshot the previous rules slice for timestamp carry-forward BEFORE
@@ -169,16 +75,16 @@ func (r *NodeReadinessEvaluationReconciler) Reconcile(ctx context.Context, req c
 	recomputeNREStatus(&nre.Status)
 
 	if err := r.Status().Patch(ctx, nre, patch); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to patch NRE status %s: %w", node.Name, err)
+		log.Error(err, "Failed to patch NRE status", "node", node.Name)
+		return
 	}
 
-	log.V(4).Info("Reconciled NRE", "node", node.Name, "rules", len(nre.Status.Rules), "state", nre.Status.State)
-	return ctrl.Result{}, nil
+	log.V(4).Info("Updated NRE", "node", node.Name, "rules", len(nre.Status.Rules), "state", nre.Status.State)
 }
 
 // ensureNRE fetches the NRE for the node, creating it (with ownerReference) if
 // it does not exist yet. Returns the current object ready for status patching.
-func (r *NodeReadinessEvaluationReconciler) ensureNRE(ctx context.Context, node *corev1.Node) (*readinessv1alpha1.NodeReadinessEvaluation, error) {
+func (r *RuleReadinessController) ensureNRE(ctx context.Context, node *corev1.Node) (*readinessv1alpha1.NodeReadinessEvaluation, error) {
 	nre := &readinessv1alpha1.NodeReadinessEvaluation{}
 	err := r.Get(ctx, client.ObjectKey{Name: node.Name}, nre)
 
@@ -216,7 +122,7 @@ func (r *NodeReadinessEvaluationReconciler) ensureNRE(ctx context.Context, node 
 // buildRuleEvaluation evaluates a single rule against the node and constructs
 // the RuleEvaluation entry, preserving SLI timestamps from prevRules (the
 // snapshot of the previous status.rules slice taken before the rebuild started).
-func (r *NodeReadinessEvaluationReconciler) buildRuleEvaluation(
+func (r *RuleReadinessController) buildRuleEvaluation(
 	ctx context.Context,
 	node *corev1.Node,
 	rule *readinessv1alpha1.NodeReadinessRule,
@@ -229,7 +135,7 @@ func (r *NodeReadinessEvaluationReconciler) buildRuleEvaluation(
 	allConditionsSatisfied := true
 	conditionResults := make([]readinessv1alpha1.ConditionEvaluationResult, 0, len(rule.Spec.Conditions))
 	for _, condReq := range rule.Spec.Conditions {
-		effectiveStatus, conditionFound := r.Controller.getConditionStatus(node, condReq.Type, condReq.GetDefaultStatus())
+		effectiveStatus, conditionFound := r.getConditionStatus(node, condReq.Type, condReq.GetDefaultStatus())
 		satisfied := effectiveStatus == condReq.RequiredStatus
 		if !satisfied {
 			allConditionsSatisfied = false
@@ -251,7 +157,7 @@ func (r *NodeReadinessEvaluationReconciler) buildRuleEvaluation(
 		ruleStatus = readinessv1alpha1.RuleStatusUnsatisfied
 	}
 
-	taintPresent := r.Controller.hasTaintBySpec(node, rule.Spec.Taint)
+	taintPresent := r.hasTaintBySpec(node, rule.Spec.Taint)
 	taintStatus := readinessv1alpha1.TaintStatusAbsent
 	if taintPresent {
 		taintStatus = readinessv1alpha1.TaintStatusPresent

@@ -101,8 +101,7 @@ func main() {
 	flag.BoolVar(&enableNodeStateMetrics, "enable-node-state-metrics", false,
 		"Enable aggregate node state metrics on node updates.")
 	flag.BoolVar(&enableNodeReadinessEvaluation, "enable-node-readiness-evaluation", false,
-		"Enable the NodeReadinessEvaluation controller. When set, one NRE object is created "+
-			"per node and kept up to date with the evaluated state of all applicable rules.")
+		"Enable NodeReadinessEvaluation writes. When set, one NRE object is created per node")
 	flag.Float64Var(&kubeAPIQPS, "kube-api-qps", defaultKubeAPIQPS,
 		"Maximum queries per second to the API server from this client. "+
 			"Raise together with --kube-api-burst on large clusters.")
@@ -162,7 +161,7 @@ func main() {
 	}
 
 	// Create the main RuleReadinessController
-	readinessController := controller.NewRuleReadinessController(mgr, clientset, enableNodeStateMetrics)
+	readinessController := controller.NewRuleReadinessController(mgr, clientset, enableNodeStateMetrics, enableNodeReadinessEvaluation)
 
 	// Register the scrape-time collector.
 	crmetrics.Registry.MustRegister(metrics.NewReadinessCollector(readinessController))
@@ -194,16 +193,7 @@ func main() {
 	}
 
 	if enableNodeReadinessEvaluation {
-		nreReconciler := &controller.NodeReadinessEvaluationReconciler{
-			Client:     mgr.GetClient(),
-			Scheme:     mgr.GetScheme(),
-			Controller: readinessController,
-		}
-		if err := nreReconciler.SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "NodeReadinessEvaluation")
-			os.Exit(1)
-		}
-		setupLog.Info("NodeReadinessEvaluation controller enabled")
+		setupLog.Info("NodeReadinessEvaluation writing enabled")
 	}
 
 	// Setup webhook (conditional based on flag)

@@ -56,6 +56,7 @@ type RuleReadinessController struct {
 	clientset              kubernetes.Interface
 	EventRecorder          events.EventRecorder
 	EnableNodeStateMetrics bool
+	EnableNRE              bool
 
 	// Cache for efficient rule lookup
 	ruleCacheMutex sync.RWMutex
@@ -71,13 +72,14 @@ type RuleReconciler struct {
 }
 
 // NewRuleReadinessController creates a new controller.
-func NewRuleReadinessController(mgr ctrl.Manager, clientset kubernetes.Interface, enableNodeStateMetrics bool) *RuleReadinessController {
+func NewRuleReadinessController(mgr ctrl.Manager, clientset kubernetes.Interface, enableNodeStateMetrics bool, enableNRE bool) *RuleReadinessController {
 	return &RuleReadinessController{
 		Client:                 mgr.GetClient(),
 		Scheme:                 mgr.GetScheme(),
 		clientset:              clientset,
 		EventRecorder:          mgr.GetEventRecorder("node-readiness-controller"),
 		EnableNodeStateMetrics: enableNodeStateMetrics,
+		EnableNRE:              enableNRE,
 		ruleCache:              make(map[string]*readinessv1alpha1.NodeReadinessRule),
 	}
 }
@@ -331,6 +333,10 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 				}
 			}
 		}
+
+		if r.EnableNRE {
+			r.updateNREForNode(ctx, &node)
+		}
 	}
 
 	// Update status
@@ -540,7 +546,7 @@ func (r *RuleReadinessController) updateNodeEvaluationStatus(
 	// Update evaluation
 	nodeEval.ConditionResults = conditionResults
 	nodeEval.TaintStatus = taintStatus
-	nodeEval.LastEvaluationTime = metav1.Now()
+	nodeEval.LastEvaluatedAt = metav1.Now()
 }
 
 // getApplicableRulesForNode returns all rules applicable to a node.
