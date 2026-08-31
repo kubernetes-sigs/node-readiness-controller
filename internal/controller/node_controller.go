@@ -107,6 +107,11 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, err
 	}
 
+	// Update the NodeReadinessEvaluation for this node.
+	if r.Controller.EnableNRE {
+		r.Controller.updateNREForNode(ctx, node)
+	}
+
 	return ctrl.Result{}, nil
 }
 

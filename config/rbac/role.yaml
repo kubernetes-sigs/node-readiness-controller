@@ -34,11 +34,8 @@ rules:
   - nodereadinessevaluations
   verbs:
   - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - readiness.node.x-k8s.io
