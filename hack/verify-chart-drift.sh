@@ -28,3 +28,14 @@ make manifests
 diff -u \
   config/crd/bases/readiness.node.x-k8s.io_nodereadinessrules.yaml \
   charts/node-readiness-controller/crds/nodereadinessrules.readiness.node.x-k8s.io.yaml
+
+# ---------- RBAC drift ----------
+# The chart's manager ClusterRole carries a verbatim copy of the rules from
+# config/rbac/role.yaml, wrapped in BEGIN/END sentinel comments.  Extract that
+# block and diff it against the generated file.
+echo "Verifying chart manager RBAC matches config/rbac/role.yaml..."
+diff -u \
+  <(sed 's/\r$//' config/rbac/role.yaml | sed -n '/^rules:/,$p') \
+  <(sed 's/\r$//' charts/node-readiness-controller/templates/rbac.yaml \
+    | sed -n '/^# BEGIN GENERATED RBAC RULES$/,/^# END GENERATED RBAC RULES$/{ /^# /d; p; }')
+echo "RBAC in the Helm chart matches config/rbac."
