@@ -140,10 +140,41 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			continue
 		}
 
-		// Skip if dry run
+		// Handle dry run
 		if rule.Spec.DryRun {
-			log.Info("Skipping rule - dry run mode",
+			log.Info("Evaluating rule - dry run mode",
 				"node", node.Name, "rule", rule.Name)
+
+			nodeList := &corev1.NodeList{}
+			if err := r.List(ctx, nodeList); err != nil {
+				log.Error(err, "Failed to list nodes for dry run evaluation", "rule", rule.Name)
+				errs = append(errs, err)
+				continue
+			}
+
+			if err := r.processDryRun(ctx, rule, nodeList); err != nil {
+				log.Error(err, "Failed to process dry run for node",
+					"node", node.Name, "rule", rule.Name)
+				errs = append(errs, err)
+				continue
+			}
+
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				latestRule := &readinessv1alpha1.NodeReadinessRule{}
+				if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, latestRule); err != nil {
+					return err
+				}
+				patch := client.MergeFrom(latestRule.DeepCopy())
+				latestRule.Status.DryRunResults = rule.Status.DryRunResults
+				latestRule.Status.ObservedGeneration = rule.Status.ObservedGeneration
+				return r.Status().Patch(ctx, latestRule, patch)
+			})
+
+			if err != nil {
+				log.Error(err, "Failed to update rule status after dry run evaluation",
+					"node", node.Name, "rule", rule.Name)
+				errs = append(errs, err)
+			}
 			continue
 		}
 
