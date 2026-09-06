@@ -213,7 +213,15 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 
 		stored := latest.DeepCopy()
 		controllerutil.RemoveFinalizer(latest, finalizerName)
-		return r.Patch(ctx, latest, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{}))
+		if err := r.Patch(ctx, latest, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
+			if apierrors.IsConflict(err) {
+				metrics.APIConflicts.WithLabelValues(rule.Name, string(metrics.ConflictOperationFinalizerRemove)).Inc()
+				log.V(1).Info("Conflict removing finalizer from rule",
+					"rule", rule.Name, "operation", string(metrics.ConflictOperationFinalizerRemove))
+			}
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return ctrl.Result{}, err
@@ -268,16 +276,17 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 		"after", len(newNodeEvaluations))
 
 	// Use an optimistic-locked patch to avoid race conditions from concurrent node updates.
-	return r.patchRuleStatusWithOptimisticLock(ctx, rule.Name, func(fresh *readinessv1alpha1.NodeReadinessRule) {
-		freshNodeEvaluations, freshFailedNodes := filterStatusForExistingNodes(
-			existingNodes,
-			fresh.Status.NodeEvaluations,
-			fresh.Status.FailedNodes,
-		)
+	return r.patchRuleStatusWithOptimisticLock(ctx, rule.Name, metrics.ConflictOperationRuleStatusRuleSweep,
+		func(fresh *readinessv1alpha1.NodeReadinessRule) {
+			freshNodeEvaluations, freshFailedNodes := filterStatusForExistingNodes(
+				existingNodes,
+				fresh.Status.NodeEvaluations,
+				fresh.Status.FailedNodes,
+			)
 
-		fresh.Status.NodeEvaluations = freshNodeEvaluations
-		fresh.Status.FailedNodes = freshFailedNodes
-	})
+			fresh.Status.NodeEvaluations = freshNodeEvaluations
+			fresh.Status.FailedNodes = freshFailedNodes
+		})
 }
 
 // processAllNodesForRule processes all nodes when a rule changes. It mutates rule.Status in place
@@ -448,11 +457,11 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 			err = r.removeTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name)
 		}
 		if err != nil {
-			reason := string(metrics.FailureReasonRemoveTaintError)
+			reason := metrics.FailureReasonRemoveTaintError
 			if apierrors.IsConflict(err) {
-				reason = "RemoveTaintConflictExhausted"
+				reason = metrics.FailureReasonRemoveTaintConflictExhausted
 			}
-			metrics.Failures.WithLabelValues(rule.Name, reason).Inc()
+			metrics.Failures.WithLabelValues(rule.Name, string(reason)).Inc()
 			return fmt.Errorf("failed to remove taint: %w", err)
 		}
 
@@ -482,11 +491,11 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 
 		var added bool
 		if added, err = r.addTaintBySpec(ctx, node, rule); err != nil {
-			reason := string(metrics.FailureReasonAddTaintError)
+			reason := metrics.FailureReasonAddTaintError
 			if apierrors.IsConflict(err) {
-				reason = "AddTaintConflictExhausted"
+				reason = metrics.FailureReasonAddTaintConflictExhausted
 			}
-			metrics.Failures.WithLabelValues(rule.Name, reason).Inc()
+			metrics.Failures.WithLabelValues(rule.Name, string(reason)).Inc()
 			return fmt.Errorf("failed to add taint: %w", err)
 		}
 
@@ -792,9 +801,11 @@ func (r *RuleReadinessController) removeRuleFromCache(ctx context.Context, ruleN
 func (r *RuleReadinessController) patchRuleStatusWithOptimisticLock(
 	ctx context.Context,
 	ruleName string,
+	operation metrics.ConflictOperation,
 	mutate func(latest *readinessv1alpha1.NodeReadinessRule),
 ) error {
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+	log := ctrl.LoggerFrom(ctx)
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		latestRule := &readinessv1alpha1.NodeReadinessRule{}
 		if err := r.Get(ctx, client.ObjectKey{Name: ruleName}, latestRule); err != nil {
 			return err
@@ -807,8 +818,29 @@ func (r *RuleReadinessController) patchRuleStatusWithOptimisticLock(
 			return nil
 		}
 
-		return r.Status().Patch(ctx, latestRule, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{}))
+		if err := r.Status().Patch(ctx, latestRule, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
+			if apierrors.IsConflict(err) {
+				metrics.APIConflicts.WithLabelValues(ruleName, string(operation)).Inc()
+				log.V(1).Info("Conflict patching rule status",
+					"rule", ruleName, "operation", string(operation))
+			}
+			return err
+		}
+		return nil
 	})
+	if err != nil {
+		reason := metrics.FailureReasonStatusPatchError
+		if apierrors.IsConflict(err) {
+			reason = metrics.FailureReasonStatusPatchConflictExhausted
+			if operation == metrics.ConflictOperationRuleStatusRuleSweep {
+				reason = metrics.FailureReasonRuleStatusRuleSweepConflictExhausted
+			}
+			log.V(1).Info("Rule status patch exhausted all retries",
+				"rule", ruleName, "operation", string(operation), "reason", string(reason))
+		}
+		metrics.Failures.WithLabelValues(ruleName, string(reason)).Inc()
+	}
+	return err
 }
 
 // updateRuleStatus updates the status of a NodeReadinessRule. delta carries the per-node
@@ -824,12 +856,13 @@ func (r *RuleReadinessController) updateRuleStatus(ctx context.Context, rule *re
 		"nodeEvaluations", len(rule.Status.NodeEvaluations),
 		"appliedNodes", len(rule.Status.AppliedNodes))
 
-	err := r.patchRuleStatusWithOptimisticLock(ctx, rule.Name, func(latestRule *readinessv1alpha1.NodeReadinessRule) {
-		applyNodeStatusDelta(latestRule, delta)
-		latestRule.Status.AppliedNodes = rule.Status.AppliedNodes
-		latestRule.Status.ObservedGeneration = rule.Status.ObservedGeneration
-		latestRule.Status.DryRunResults = rule.Status.DryRunResults
-	})
+	err := r.patchRuleStatusWithOptimisticLock(ctx, rule.Name, metrics.ConflictOperationRuleStatusRuleSweep,
+		func(latestRule *readinessv1alpha1.NodeReadinessRule) {
+			applyNodeStatusDelta(latestRule, delta)
+			latestRule.Status.AppliedNodes = rule.Status.AppliedNodes
+			latestRule.Status.ObservedGeneration = rule.Status.ObservedGeneration
+			latestRule.Status.DryRunResults = rule.Status.DryRunResults
+		})
 	if err != nil {
 		log.V(1).Info("Failed to patch rule status", "rule", rule.Name, "error", err.Error())
 		return err
@@ -957,6 +990,7 @@ func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule
 }
 
 func (r *RuleReconciler) ensureFinalizer(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, finalizer string) (finalizerAdded bool, err error) {
+	log := ctrl.LoggerFrom(ctx)
 	// Finalizers can only be added when the deletionTimestamp is not set.
 	if !rule.GetDeletionTimestamp().IsZero() {
 		return false, nil
@@ -978,6 +1012,11 @@ func (r *RuleReconciler) ensureFinalizer(ctx context.Context, rule *readinessv1a
 		stored := latest.DeepCopy()
 		controllerutil.AddFinalizer(latest, finalizer)
 		if err := r.Patch(ctx, latest, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
+			if apierrors.IsConflict(err) {
+				metrics.APIConflicts.WithLabelValues(rule.Name, string(metrics.ConflictOperationFinalizerAdd)).Inc()
+				log.V(1).Info("Conflict adding finalizer to rule",
+					"rule", rule.Name, "operation", string(metrics.ConflictOperationFinalizerAdd))
+			}
 			return err
 		}
 

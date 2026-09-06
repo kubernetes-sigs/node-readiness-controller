@@ -86,7 +86,7 @@ Total number of failure events recorded by the controller.
 | Label | Description | Values |
 | --- | --- | --- |
 | `rule` | `NodeReadinessRule` name | Any rule name |
-| `reason` | Failure label recorded by the controller | `EvaluationError`, `AddTaintError`, `RemoveTaintError`, `AddTaintConflictExhausted`, `RemoveTaintConflictExhausted`, `StatusPatchError`, `StatusPatchConflictExhausted` |
+| `reason` | Failure label recorded by the controller | `EvaluationError`, `AddTaintError`, `RemoveTaintError`, `AnnotationPatchFailed`, `AddTaintConflictExhausted`, `RemoveTaintConflictExhausted`, `StatusPatchError`, `StatusPatchConflictExhausted`, `RuleStatusRuleSweepConflictExhausted` |
 
 ### `node_readiness_build_info`
 
@@ -215,6 +215,35 @@ Total number of nodes that have completed bootstrap.
 | Label | Description | Values |
 | --- | --- | --- |
 | `rule` | `NodeReadinessRule` name | Any rule name |
+
+### `node_readiness_api_conflicts_total`
+
+Total number of conflicts encountered on API writes, counted once per failed attempt, including attempts that later succeed on retry.
+
+| Property | Value |
+| --- | --- |
+| Type | `counter` |
+| Labels | `rule`, `operation` |
+| Recorded when | Controller retries an API write after a conflicting update from another writer |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `rule` | `NodeReadinessRule` name | Any rule name |
+| `operation` | Which write conflicted | See table below |
+
+#### Operation values
+
+| `operation` | Triggered by |
+| --- | --- |
+| `add_taint` | Adding a rule's taint to a Node (`addTaintBySpec`). |
+| `remove_taint` | Removing a rule's taint from a Node (`removeTaint`). |
+| `mark_bootstrap_completed` | Marking bootstrap as completed when no taint needs to be removed (`markBootstrapCompleted`). |
+| `finalizer_add` | Adding the controller finalizer to a `NodeReadinessRule` (`ensureFinalizer`). |
+| `finalizer_remove` | Removing the controller finalizer during rule deletion (`reconcileDelete`). |
+| `rule_status_node_write` | Updating a single node's evaluation in rule `status` (`processNodeAgainstAllRules`). |
+| `rule_status_rule_sweep` | Updating rule status for all nodes or removing deleted nodes (`updateRuleStatus`, `cleanupDeletedNodes`). |
 
 ## Reporter Metrics
 

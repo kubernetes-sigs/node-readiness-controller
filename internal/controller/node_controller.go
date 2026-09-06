@@ -209,17 +209,13 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			}
 		}
 
-		err := r.patchRuleStatusWithOptimisticLock(ctx, rule.Name, func(latestRule *readinessv1alpha1.NodeReadinessRule) {
-			applyNodeStatusDelta(latestRule, delta)
-			successfullyPatchedRule = latestRule
-		})
+		err := r.patchRuleStatusWithOptimisticLock(ctx, rule.Name, metrics.ConflictOperationRuleStatusNodeWrite,
+			func(latestRule *readinessv1alpha1.NodeReadinessRule) {
+				applyNodeStatusDelta(latestRule, delta)
+				successfullyPatchedRule = latestRule
+			})
 
 		if err != nil {
-			reason := "StatusPatchError"
-			if apierrors.IsConflict(err) {
-				reason = "StatusPatchConflictExhausted"
-			}
-			metrics.Failures.WithLabelValues(rule.Name, reason).Inc()
 			log.Error(err, "Failed to update rule status after node evaluation",
 				"node", node.Name,
 				"rule", rule.Name,
@@ -306,7 +302,9 @@ func (r *RuleReadinessController) addTaintBySpec(ctx context.Context, node *core
 		latestNode.Spec.Taints = append(latestNode.Spec.Taints, taintSpec)
 		if err := r.Patch(ctx, latestNode, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
 			if apierrors.IsConflict(err) {
-				log.V(1).Info("Conflict adding taint to node", "rule", rule.Name, "operation", "add_taint")
+				metrics.APIConflicts.WithLabelValues(rule.Name, string(metrics.ConflictOperationAddTaint)).Inc()
+				log.V(1).Info("Conflict adding taint to node",
+					"rule", rule.Name, "operation", string(metrics.ConflictOperationAddTaint))
 			}
 			return err
 		}
@@ -401,7 +399,9 @@ func (r *RuleReadinessController) removeTaint(ctx context.Context, node *corev1.
 		}
 		if err := r.Patch(ctx, latestNode, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
 			if apierrors.IsConflict(err) {
-				log.V(1).Info("Conflict removing taint from node", "rule", ruleName, "operation", "remove_taint")
+				metrics.APIConflicts.WithLabelValues(ruleName, string(metrics.ConflictOperationRemoveTaint)).Inc()
+				log.V(1).Info("Conflict removing taint from node",
+					"rule", ruleName, "operation", string(metrics.ConflictOperationRemoveTaint))
 			}
 			return err
 		}
@@ -477,6 +477,12 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 
 		node.Annotations[annotationKey] = bootstrapAnnotationValue(rule.Name)
 		if err := r.Patch(ctx, node, client.MergeFromWithOptions(stored, client.MergeFromWithOptimisticLock{})); err != nil {
+			if apierrors.IsConflict(err) {
+				metrics.APIConflicts.WithLabelValues(rule.Name, string(metrics.ConflictOperationMarkBootstrapCompleted)).Inc()
+				log.V(1).Info("Conflict marking bootstrap completed on node",
+					"node", nodeName, "rule", rule.Name,
+					"operation", string(metrics.ConflictOperationMarkBootstrapCompleted))
+			}
 			return err
 		}
 
