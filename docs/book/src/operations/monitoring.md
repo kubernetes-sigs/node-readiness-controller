@@ -141,6 +141,91 @@ Total number of nodes that have completed bootstrap.
 | --- | --- | --- |
 | `rule` | `NodeReadinessRule` name | Any rule name |
 
+### `node_readiness_bootstrap_duration_seconds`
+
+Time from node creation to bootstrap completion (taint removal) for bootstrap-only rules.
+
+| Property | Value |
+| --- | --- |
+| Type | `histogram` |
+| Labels | `rule` |
+| Buckets | `1`, `5`, `10`, `30`, `60`, `120`, `300`, `600`, `1200` seconds |
+| Recorded when | A bootstrap-only rule removes its taint from a node that was created after the rule. Nodes older than the rule are skipped so that they do not skew the histogram |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `rule` | `NodeReadinessRule` name | Any bootstrap-only rule name |
+
+### `node_readiness_reconciliation_latency_seconds`
+
+End-to-end latency from node condition change to taint operation completion.
+
+| Property | Value |
+| --- | --- |
+| Type | `histogram` |
+| Labels | `rule`, `operation` |
+| Buckets | `0.01`, `0.05`, `0.1`, `0.5`, `1`, `2`, `5`, `10`, `30`, `60`, `120`, `300` seconds |
+| Recorded when | The controller adds or removes a taint. The latency is measured from the most recent `lastTransitionTime` among the rule's conditions on that node, and clamped to zero if the node's clock is ahead of the controller's |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `rule` | `NodeReadinessRule` name | Any rule name |
+| `operation` | Taint operation that completed the reconciliation | `add_taint`, `remove_taint` |
+
+### `node_readiness_nodes_by_state`
+
+Number of nodes in each readiness state per rule.
+
+| Property | Value |
+| --- | --- |
+| Type | `gauge` |
+| Labels | `rule`, `state` |
+| Recorded when | The controller reconciles a rule or a node, and only when the controller runs with `--enable-node-state-metrics`. The counts come from the rule's `status.nodeEvaluations` |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `rule` | `NodeReadinessRule` name | Any rule name |
+| `state` | Readiness state derived from the taint status of the node under the rule | `ready` (taint absent), `not_ready` (taint present under a continuous rule), `bootstrapping` (taint present under a bootstrap-only rule) |
+
+### `node_readiness_condition_failures_total`
+
+Total number of failed condition evaluations by rule and condition name.
+
+| Property | Value |
+| --- | --- |
+| Type | `counter` |
+| Labels | `rule`, `condition` |
+| Recorded when | A condition listed in `spec.conditions` does not have its required status on a node during evaluation |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `rule` | `NodeReadinessRule` name | Any rule name |
+| `condition` | Condition type declared in `spec.conditions` | Any condition type declared by the rule |
+
+### `node_readiness_rule_last_reconciliation_timestamp_seconds`
+
+Unix timestamp of the last rule reconciliation.
+
+| Property | Value |
+| --- | --- |
+| Type | `gauge` |
+| Labels | `rule` |
+| Recorded when | The rule controller finishes cleaning up deleted nodes for a rule, on every reconciliation of that rule |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `rule` | `NodeReadinessRule` name | Any rule name |
+
 ## Reporter Metrics
 
 The `readiness-condition-reporter` serves its own Prometheus metrics on `/metrics`, on the address configured by `METRICS_BIND_ADDRESS`. See [Reporter Configuration](../reference/reporter-configuration.md) for deployment details.
