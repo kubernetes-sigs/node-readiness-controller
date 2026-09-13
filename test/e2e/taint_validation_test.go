@@ -247,5 +247,32 @@ spec:
 			Expect(err).To(HaveOccurred(), "Should fail with special characters")
 			Expect(string(output)).To(ContainSubstring("must consist of alphanumeric characters"))
 		})
+
+		It("should reject taint values with invalid characters", func() {
+			manifest := `
+apiVersion: readiness.node.x-k8s.io/v1alpha1
+kind: NodeReadinessRule
+metadata:
+  name: test-invalid-taint-value
+spec:
+  conditions:
+    - type: "test.condition"
+      requiredStatus: "True"
+  taint:
+    key: "readiness.k8s.io/valid-key"
+    value: "not a valid value!"
+    effect: "NoSchedule"
+  enforcementMode: "continuous"
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/os: linux
+`
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(manifest)
+			output, err := cmd.CombinedOutput()
+
+			Expect(err).To(HaveOccurred(), "Should fail with invalid taint value")
+			Expect(string(output)).To(ContainSubstring("taint value must consist of alphanumeric characters"))
+		})
 	})
 })

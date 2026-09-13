@@ -110,6 +110,7 @@ type NodeReadinessRuleSpec struct {
 	// +kubebuilder:validation:XValidation:rule="size(self.key.split('/')[1]) > 0 && size(self.key.split('/')[1]) <= 63",message="taint key name part must be 1-63 characters"
 	// +kubebuilder:validation:XValidation:rule="self.key.split('/')[1].matches('^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$')",message="taint key name part must consist of alphanumeric characters, '-', '_' or '.', and must start and end with an alphanumeric character"
 	// +kubebuilder:validation:XValidation:rule="!has(self.value) || self.value.size() <= 63",message="taint value length must be at most 63 characters"
+	// +kubebuilder:validation:XValidation:rule="!has(self.value) || self.value.matches('^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$')",message="taint value must consist of alphanumeric characters, '-', '_' or '.', and must start and end with an alphanumeric character"
 	// +kubebuilder:validation:XValidation:rule="self.effect in ['NoSchedule', 'PreferNoSchedule', 'NoExecute']",message="taint effect must be one of 'NoSchedule', 'PreferNoSchedule', 'NoExecute'"
 	// +kubebuilder:validation:XValidation:rule="!has(oldSelf.key) || self.key == oldSelf.key",message="taint key is immutable"
 	// +kubebuilder:validation:XValidation:rule="!has(oldSelf.effect) || self.effect == oldSelf.effect",message="taint effect is immutable"
