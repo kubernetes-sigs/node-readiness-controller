@@ -58,6 +58,18 @@ tests:
           path: webhooks[0].clientConfig.service.port
           value: 8443
 
+  - it: injects caBundle when certManager is disabled
+    template: templates/validatingwebhookconfiguration.yaml
+    set:
+      certManager:
+        enabled: false
+      validatingWebhook:
+        caBundle: "test-ca-bundle-string"
+    asserts:
+      - equal:
+          path: webhooks[0].clientConfig.caBundle
+          value: test-ca-bundle-string
+
   - it: mounts webhook cert volume when webhook enabled
     template: templates/deployment.yaml
     asserts:

@@ -19,6 +19,9 @@ webhooks:
         namespace: {{ include "node-readiness-controller.namespace" . }}
         port: {{ .Values.webhook.service.port }}
         path: {{ .Values.validatingWebhook.path }}
+      {{- if and (not .Values.certManager.enabled) .Values.validatingWebhook.caBundle }}
+      caBundle: {{ .Values.validatingWebhook.caBundle }}
+      {{- end }}
     failurePolicy: {{ .Values.validatingWebhook.failurePolicy }}
     sideEffects: {{ .Values.validatingWebhook.sideEffects }}
     rules:

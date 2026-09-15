@@ -160,6 +160,10 @@ validatingWebhook:
   path: /validate-readiness-node-x-k8s-io-v1alpha1-nodereadinessrule
   admissionReviewVersions:
     - v1
+  # -- PEM encoded CA bundle used to validate the webhook's server certificate.
+  # If certManager.enabled=true, this field is ignored (auto-injected).
+  # If certManager.enabled=false, this field is required to secure the webhook.
+  caBundle: ""
 
 nodeSelector: {}
 
