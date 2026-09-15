@@ -132,13 +132,17 @@ func (r *RuleReadinessController) buildRuleEvaluation(
 	now := metav1.Now()
 
 	// Evaluate all conditions.
+	conditionPolicy := rule.Spec.GetConditionPolicy()
 	allConditionsSatisfied := true
+	anyConditionSatisfied := false
 	conditionResults := make([]readinessv1alpha1.ConditionEvaluationResult, 0, len(rule.Spec.Conditions))
 	for _, condReq := range rule.Spec.Conditions {
 		effectiveStatus, conditionFound := r.getConditionStatus(node, condReq.Type, condReq.GetDefaultStatus())
 		satisfied := effectiveStatus == condReq.RequiredStatus
 		if !satisfied {
 			allConditionsSatisfied = false
+		} else {
+			anyConditionSatisfied = true
 		}
 		observedStatus := effectiveStatus
 		if !conditionFound {
@@ -152,8 +156,12 @@ func (r *RuleReadinessController) buildRuleEvaluation(
 		})
 	}
 
+	satisfied := allConditionsSatisfied
+	if conditionPolicy == readinessv1alpha1.ConditionPolicyAnyOf {
+		satisfied = anyConditionSatisfied
+	}
 	ruleStatus := readinessv1alpha1.RuleStatusSatisfied
-	if !allConditionsSatisfied {
+	if !satisfied {
 		ruleStatus = readinessv1alpha1.RuleStatusUnsatisfied
 	}
 
@@ -179,10 +187,11 @@ func (r *RuleReadinessController) buildRuleEvaluation(
 		TaintStatus:         taintStatus,
 		TaintKey:            rule.Spec.Taint.Key,
 		TaintEffect:         rule.Spec.Taint.Effect,
+		ConditionPolicy:     conditionPolicy,
 		Reason:              reason,
 		Message:             message,
 		ReadinessConditions: conditionResults,
-		LastEvaluatedAt:  now,
+		LastEvaluatedAt:     now,
 	}
 
 	// FirstEvaluatedAt: set once, carried forward on subsequent evaluations.

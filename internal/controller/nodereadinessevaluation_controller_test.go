@@ -793,7 +793,8 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			nodeList := &corev1.NodeList{}
 			Expect(k8sClient.List(ctx, nodeList)).To(Succeed())
 
-			Expect(rc.processAllNodesForRule(ctx, rule, nodeList)).To(Succeed())
+			_, err := rc.processAllNodesForRule(ctx, rule, nodeList)
+			Expect(err).To(Succeed())
 
 			nre := getNRE(node.Name)
 			Expect(nre.Spec.NodeName).To(Equal(node.Name))
