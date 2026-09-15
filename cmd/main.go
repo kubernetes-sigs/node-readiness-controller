@@ -120,6 +120,11 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	ctrl.Log.Info(fmt.Sprintf("version: %s", info.GetVersionString()))
 
+	if err := validateKubeAPIFlags(kubeAPIQPS, kubeAPIBurst); err != nil {
+		setupLog.Error(err, "invalid flags")
+		os.Exit(1)
+	}
+
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   metricsAddr,
 		CertDir:       metricsCertDir,
@@ -216,4 +221,15 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// validateKubeAPIFlags rejects a positive --kube-api-qps without a positive
+// --kube-api-burst. client-go refuses that pair when building a clientset, and
+// a controller-runtime client built from it fails every request, so the
+// controller would exit later with a message that names neither flag.
+func validateKubeAPIFlags(qps float64, burst int) error {
+	if qps > 0 && burst <= 0 {
+		return fmt.Errorf("--kube-api-burst must be greater than 0 when --kube-api-qps is set (got --kube-api-qps=%v --kube-api-burst=%d)", qps, burst)
+	}
+	return nil
 }
