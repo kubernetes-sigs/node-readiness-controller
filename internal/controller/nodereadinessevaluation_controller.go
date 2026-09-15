@@ -182,7 +182,7 @@ func (r *RuleReadinessController) buildRuleEvaluation(
 		Reason:              reason,
 		Message:             message,
 		ReadinessConditions: conditionResults,
-		LastEvaluationTime:  now,
+		LastEvaluatedAt:  now,
 	}
 
 	// FirstEvaluatedAt: set once, carried forward on subsequent evaluations.

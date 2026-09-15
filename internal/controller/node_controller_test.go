@@ -749,7 +749,7 @@ var _ = Describe("Node Controller", func() {
 			Expect(nodeEval.ConditionResults[0].RequiredStatus).To(Equal(corev1.ConditionTrue))
 			Expect(nodeEval.ConditionResults[0].DefaultStatus).To(Equal(corev1.ConditionUnknown))
 			Expect(nodeEval.TaintStatus).To(Equal(nodereadinessiov1alpha1.TaintStatusPresent))
-			Expect(nodeEval.LastEvaluationTime.IsZero()).To(BeFalse(), "LastEvaluationTime should be set")
+			Expect(nodeEval.LastEvaluatedAt.IsZero()).To(BeFalse(), "LastEvaluatedAt should be set")
 		})
 
 		It("should update existing NodeEvaluation when node is re-evaluated", func() {
