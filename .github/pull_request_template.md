@@ -60,3 +60,22 @@ For more information on release notes see: https://git.k8s.io/community/contribu
 
 ```
 Doc #(issue)
+
+## Generative AI Usage Disclosure
+<!--
+If you used AI tools in preparing this PR, please disclose and how they were used.
+
+Using AI tools to help write your PR is acceptable, but as the author, you are responsible for understanding every change in your contribution.
+
+Please write the PR description in your words. Do not submit AI-generated summary and analysis and do not leave the first review of AI generated changes to the reviewers, please verify the changes (code review, local testing, etc.) before submitting your PR.
+
+For more details please review guidelines on responsible Generative AI usage:
+* https://www.linuxfoundation.org/legal/generative-ai
+* https://www.kubernetes.dev/docs/guide/pull-requests/#ai-guidance
+
+-->
+- [ ] No AI tools were used
+- [ ] AI tools were used (complete below)
+
+*How they were used:*
+<!-- Describe what the AI helped with (e.g., code generation, refactoring, documentation, tests) and which parts of the PR were affected -->

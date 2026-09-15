@@ -9,11 +9,9 @@ body:
         Thanks for taking the time to report this! 
         Before submitting, please ensure you have searched the [existing issues](https://github.com/kubernetes-sigs/node-readiness-controller/issues) to avoid duplicates.
 
-  - type: markdown
-    attributes:
-      value: |
-        While AI-assisted submissions are acceptable, you should understand the issue and describe it in your own words.
-        To learn more, please refer to Kubernetes AI usage policy: https://www.kubernetes.dev/docs/guide/pull-requests/#ai-guidance
+        **Generative AI Usage Disclosure**
+
+        If you used AI tools in preparing this issue, please review our [Generative AI Usage Disclosure](https://github.com/kubernetes-sigs/node-readiness-controller/blob/main/CONTRIBUTING.md#generative-ai-usage-disclosure) guidelines and disclose it below.
 
   - type: textarea
     id: description
@@ -78,5 +76,21 @@ body:
     attributes:
       label: Additional Environment Details
       description: Any other relevant details.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: ai-disclosure
+    attributes:
+      label: AI Tools Usage
+      options:
+        - label: No AI tools were used
+        - label: AI tools were used (complete below)
+
+  - type: textarea
+    id: ai-tools-usage
+    attributes:
+      label: How They Were Used
+      description: Describe what the AI helped with (e.g., drafting the description, analyzing logs) and which parts of the issue were affected.
     validations:
       required: false
