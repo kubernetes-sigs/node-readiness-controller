@@ -508,7 +508,7 @@ func (r *RuleReadinessController) recordNodeFailure(
 		NodeName:           nodeName,
 		Reason:             reason,
 		Message:            message,
-		LastEvaluationTime: metav1.Now(),
+		LastEvaluatedAt: metav1.Now(),
 	})
 
 	rule.Status.FailedNodes = failedNodes

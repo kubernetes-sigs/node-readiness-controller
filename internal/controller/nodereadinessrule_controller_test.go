@@ -2523,7 +2523,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 							NodeName:           "stale-recovery-node",
 							Reason:             "EvaluationError",
 							Message:            "stale from previous reconcile",
-							LastEvaluationTime: metav1.Now(),
+							LastEvaluatedAt: metav1.Now(),
 						},
 					},
 				},

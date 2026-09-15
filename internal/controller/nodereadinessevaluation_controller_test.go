@@ -188,7 +188,7 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			Expect(nre.Status.Rules[0].RuleUID).To(Equal(rule.GetUID()))
 			Expect(nre.Status.Rules[0].RuleStatus).To(Equal(nodereadinessiov1alpha1.RuleStatusUnsatisfied))
 			Expect(nre.Status.Rules[0].TaintStatus).To(Equal(nodereadinessiov1alpha1.TaintStatusPresent))
-			Expect(nre.Status.Rules[0].LastEvaluationTime.IsZero()).To(BeFalse())
+			Expect(nre.Status.Rules[0].LastEvaluatedAt.IsZero()).To(BeFalse())
 		})
 
 		It("A3 — state transitions to Available after conditions are met and taint is removed", func() {

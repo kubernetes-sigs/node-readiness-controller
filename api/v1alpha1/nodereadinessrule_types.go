@@ -243,10 +243,10 @@ type NodeFailure struct {
 	// +kubebuilder:validation:MaxLength=10240
 	Message string `json:"message,omitempty"`
 
-	// lastEvaluationTime is the timestamp of the last rule check failed for this Node.
+	// lastEvaluatedAt is the timestamp of the last rule check failed for this Node.
 	//
 	// +required
-	LastEvaluationTime metav1.Time `json:"lastEvaluationTime,omitempty,omitzero"`
+	LastEvaluatedAt metav1.Time `json:"lastEvaluatedAt,omitempty,omitzero"`
 }
 
 // NodeEvaluation provides a detailed audit of a single Node's compliance with the rule.
@@ -274,10 +274,10 @@ type NodeEvaluation struct {
 	// +required
 	TaintStatus TaintStatus `json:"taintStatus,omitempty"`
 
-	// lastEvaluationTime is the timestamp when the controller last assessed this Node.
+	// lastEvaluatedAt is the timestamp when the controller last assessed this Node.
 	//
 	// +required
-	LastEvaluationTime metav1.Time `json:"lastEvaluationTime,omitempty,omitzero"`
+	LastEvaluatedAt metav1.Time `json:"lastEvaluatedAt,omitempty,omitzero"`
 }
 
 // ConditionEvaluationResult provides a detailed report of the comparison between

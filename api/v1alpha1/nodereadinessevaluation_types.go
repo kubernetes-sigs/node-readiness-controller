@@ -169,10 +169,10 @@ type RuleEvaluation struct {
 	// +kubebuilder:validation:MaxItems=32
 	ReadinessConditions []ConditionEvaluationResult `json:"readinessConditions,omitempty"`
 
-	// lastEvaluationTime records the exact moment the controller most recently assessed this rule.
+	// lastEvaluatedAt records the exact moment the controller most recently assessed this rule.
 	//
 	// +required
-	LastEvaluationTime metav1.Time `json:"lastEvaluationTime,omitempty,omitzero"`
+	LastEvaluatedAt metav1.Time `json:"lastEvaluatedAt,omitempty,omitzero"`
 
 	// firstEvaluatedAt is the time the rule was first assessed against this node.
 	//

@@ -162,9 +162,9 @@ spec:
                         assessed against this node.
                       format: date-time
                       type: string
-                    lastEvaluationTime:
-                      description: lastEvaluationTime records the exact moment the
-                        controller most recently assessed this rule.
+                    lastEvaluatedAt:
+                      description: lastEvaluatedAt records the exact moment the controller
+                        most recently assessed this rule.
                       format: date-time
                       type: string
                     message:
@@ -302,7 +302,7 @@ spec:
                       - Absent
                       type: string
                   required:
-                  - lastEvaluationTime
+                  - lastEvaluatedAt
                   - ruleName
                   - ruleStatus
                   - ruleUID
