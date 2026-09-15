@@ -1,0 +1,16 @@
+# Sample NRD drop-in condition: mark cni.example.io/NetworkReady based on the
+# health of the CNI agent DaemonSet pods on this node.
+#
+# Pair this with a NodeReadinessRule that gates a taint on this condition, and start
+# kubelet with --register-with-taints for the taint key for end to end working demo with NRC.
+conditionType: cni.example.io/NetworkReady
+selector:
+  namespace: kube-system
+  matchLabels:
+    k8s-app: cilium
+# Must be >= 1. Defaults to 1 if omitted.
+minPods: 1
+debounce:
+  # Configured to react slowly to recovery, quickly to failure.
+  healthyThreshold: 6s
+  unhealthyThreshold: 3s
