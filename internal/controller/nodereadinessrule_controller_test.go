@@ -1852,10 +1852,10 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "delete-node-rule"}, seededRule)).To(Succeed())
 			statusPatch := client.MergeFrom(seededRule.DeepCopy())
 			seededRule.Status.FailedNodes = append(seededRule.Status.FailedNodes, nodereadinessiov1alpha1.NodeFailure{
-				NodeName:           "node1",
-				Reason:             "EvaluationError",
-				Message:            "test failure",
-				LastEvaluationTime: metav1.Now(),
+				NodeName:        "node1",
+				Reason:          "EvaluationError",
+				Message:         "test failure",
+				LastEvaluatedAt: metav1.Now(),
 			})
 			Expect(k8sClient.Status().Patch(ctx, seededRule, statusPatch)).To(Succeed())
 
@@ -2520,9 +2520,9 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				Status: nodereadinessiov1alpha1.NodeReadinessRuleStatus{
 					FailedNodes: []nodereadinessiov1alpha1.NodeFailure{
 						{
-							NodeName:           "stale-recovery-node",
-							Reason:             "EvaluationError",
-							Message:            "stale from previous reconcile",
+							NodeName:        "stale-recovery-node",
+							Reason:          "EvaluationError",
+							Message:         "stale from previous reconcile",
 							LastEvaluatedAt: metav1.Now(),
 						},
 					},

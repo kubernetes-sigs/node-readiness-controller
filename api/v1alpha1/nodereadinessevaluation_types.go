@@ -146,6 +146,13 @@ type RuleEvaluation struct {
 	// +kubebuilder:validation:Enum=NoSchedule;PreferNoSchedule;NoExecute
 	TaintEffect corev1.TaintEffect `json:"taintEffect,omitempty"`
 
+	// conditionPolicy is the aggregation policy used when evaluating the conditions list,
+	// stamped at evaluation time so this entry is self-contained without requiring a lookup
+	// of the rule. Matches rule.spec.conditionPolicy.
+	//
+	// +required
+	ConditionPolicy ConditionPolicy `json:"conditionPolicy,omitempty"`
+
 	// reason contains a concise, machine-readable string detailing the primary outcome.
 	//
 	// +optional

@@ -157,6 +157,15 @@ spec:
                   description: RuleEvaluation defines the outcome of evaluating a
                     single NodeReadinessRule against this Node.
                   properties:
+                    conditionPolicy:
+                      description: |-
+                        conditionPolicy is the aggregation policy used when evaluating the conditions list,
+                        stamped at evaluation time so this entry is self-contained without requiring a lookup
+                        of the rule. Matches rule.spec.conditionPolicy.
+                      enum:
+                      - allOf
+                      - anyOf
+                      type: string
                     firstEvaluatedAt:
                       description: firstEvaluatedAt is the time the rule was first
                         assessed against this node.
@@ -302,6 +311,7 @@ spec:
                       - Absent
                       type: string
                   required:
+                  - conditionPolicy
                   - lastEvaluatedAt
                   - ruleName
                   - ruleStatus
