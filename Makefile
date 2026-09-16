@@ -15,7 +15,7 @@
 .DEFAULT_GOAL:=help
 
 # Force using a specific toolchain version to avoid issues with local installations.
-export GOTOOLCHAIN := go1.26.0
+export GOTOOLCHAIN := go1.26.6
 
 #
 # Directories.
@@ -478,7 +478,7 @@ $(KIND): # Build kind from tools folder.
 ##@ docs
 
 MDBOOK_VERSION ?= 0.5.2
-GO_VERSION ?= 1.26.0
+GO_VERSION ?= 1.26.6
 MDBOOK_SCRIPT := $(ROOT_DIR)/docs/book/install-and-build-mdbook.sh
 
 

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Build the manager binary
-FROM --platform=$BUILDPLATFORM golang:1.26.0 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.6 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=unknown
