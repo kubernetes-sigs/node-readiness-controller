@@ -28,7 +28,7 @@ Number of `NodeReadinessRule` objects tracked by the controller by enforcement m
 | --- | --- |
 | Type | `gauge` |
 | Labels | `enforcement_mode`, `dry_run` |
-| Recorded when | The controller refreshes or removes a tracked rule |
+| Recorded when | Computed on each Prometheus scrape from the cached rule list |
 
 #### Labels
 
