@@ -2163,6 +2163,51 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		})
 	})
 
+	Context("CEL Validation for taint value format", func() {
+		It("should reject rule creation when taint.value contains invalid characters", func() {
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "cel-test-reject-invalid-taint-value"},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/cel-test",
+						Effect: corev1.TaintEffectNoSchedule,
+						Value:  "not a valid value!",
+					},
+					NodeSelector: metav1.LabelSelector{MatchLabels: map[string]string{"foo": "bar"}},
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "TestReady", RequiredStatus: corev1.ConditionTrue},
+					},
+				},
+			}
+			err := k8sClient.Create(ctx, rule)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("taint value must consist of alphanumeric characters"))
+		})
+
+		It("should allow rule creation when taint.value is empty or valid format", func() {
+			for i, val := range []string{"", "valid-value", "valid.value_123", "value"} {
+				rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+					ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("cel-test-allow-taint-val-%d", i)},
+					Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+						EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+						Taint: corev1.Taint{
+							Key:    "readiness.k8s.io/cel-test",
+							Effect: corev1.TaintEffectNoSchedule,
+							Value:  val,
+						},
+						NodeSelector: metav1.LabelSelector{MatchLabels: map[string]string{"foo": "bar"}},
+						Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+							{Type: "TestReady", RequiredStatus: corev1.ConditionTrue},
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+				_ = k8sClient.Delete(ctx, rule)
+			}
+		})
+	})
+
 	Context("when existing rule is updated", func() {
 		var rule *nodereadinessiov1alpha1.NodeReadinessRule
 		var node *corev1.Node
