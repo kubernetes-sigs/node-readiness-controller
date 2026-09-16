@@ -20,63 +20,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
-
-func TestRulesByMode(t *testing.T) {
-	RulesByMode.Reset()
-	t.Cleanup(RulesByMode.Reset)
-
-	RulesByMode.WithLabelValues("bootstrap-only", "false").Set(2)
-	RulesByMode.WithLabelValues("continuous", "true").Set(1)
-
-	expected := `
-# HELP node_readiness_rules Number of NodeReadinessRules by enforcement mode and dry-run state
-# TYPE node_readiness_rules gauge
-node_readiness_rules{dry_run="false",enforcement_mode="bootstrap-only"} 2
-node_readiness_rules{dry_run="true",enforcement_mode="continuous"} 1
-`
-	assertObservationReflected(t, RulesByMode, "node_readiness_rules", expected)
-
-	assertMetricRegistered(t, metrics.Registry,
-		"node_readiness_rules", "GAUGE",
-		"Number of NodeReadinessRules by enforcement mode and dry-run state")
-}
-
-// assertMetricRegistered checks that the metric is registered correctly.
-func assertMetricRegistered(t *testing.T, registry prometheus.Gatherer, name, wantType, wantHelp string) {
-	t.Helper()
-
-	gathered, err := registry.Gather()
-	if err != nil {
-		t.Fatalf("failed to gather metrics: %v", err)
-	}
-
-	for _, mf := range gathered {
-		if mf.GetName() != name {
-			continue
-		}
-		if got := mf.GetType().String(); got != wantType {
-			t.Fatalf("expected %s to be a %s, got %s", name, wantType, got)
-		}
-		if got := mf.GetHelp(); got != wantHelp {
-			t.Fatalf("unexpected help text for %s: got %q, want %q", name, got, wantHelp)
-		}
-		return
-	}
-	t.Fatalf("expected %s to be registered with the controller-runtime metrics registry", name)
-}
-
-// assertObservationReflected checks the collected metric.
-func assertObservationReflected(t *testing.T, collector prometheus.Collector, name, expectedExposition string) {
-	t.Helper()
-
-	if err := testutil.CollectAndCompare(collector, strings.NewReader(expectedExposition), name); err != nil {
-		t.Fatalf("unexpected collecting result:\n%s", err)
-	}
-}
 
 func TestBuildInfo(t *testing.T) {
 	expected := `

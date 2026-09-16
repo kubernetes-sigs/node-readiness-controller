@@ -18,6 +18,7 @@ package metrics
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -59,12 +60,24 @@ type BlockedNodesLister interface {
 	ListBlockedNodes(ctx context.Context, nodes []corev1.Node, rules []*readinessv1alpha1.NodeReadinessRule) (map[string]RuleBlockedConditions, error)
 }
 
+// RuleModeKey identifies a bucket of rules sharing the same enforcement mode and dry-run state.
+type RuleModeKey struct {
+	EnforcementMode string
+	DryRun          bool
+}
+
+// RuleInventoryLister counts NodeReadinessRules by enforcement mode and dry-run state.
+type RuleInventoryLister interface {
+	ListRuleInventory(ctx context.Context, rules []*readinessv1alpha1.NodeReadinessRule) (map[RuleModeKey]float64, error)
+}
+
 // ReadinessLister aggregates the scrape-time lookups the collector needs.
 type ReadinessLister interface {
 	NodeLister
 	RuleLister
 	RuleNodeStateLister
 	BlockedNodesLister
+	RuleInventoryLister
 }
 
 var ruleNodesDesc = prometheus.NewDesc(
@@ -81,6 +94,13 @@ var blockedNodesDesc = prometheus.NewDesc(
 	nil,
 )
 
+var ruleInventoryByModeDesc = prometheus.NewDesc(
+	"node_readiness_rules",
+	"Number of NodeReadinessRules by enforcement mode and dry-run state",
+	[]string{"enforcement_mode", "dry_run"},
+	nil,
+)
+
 // ReadinessCollector is a prometheus.Collector that reads at scrape time.
 type ReadinessCollector struct {
 	lister ReadinessLister
@@ -94,6 +114,7 @@ func NewReadinessCollector(lister ReadinessLister) *ReadinessCollector {
 func (c *ReadinessCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- ruleNodesDesc
 	ch <- blockedNodesDesc
+	ch <- ruleInventoryByModeDesc
 }
 
 // Collect implements prometheus.Collector.
@@ -131,6 +152,15 @@ func (c *ReadinessCollector) Collect(ch chan<- prometheus.Metric) {
 			for condition, count := range conditions {
 				ch <- prometheus.MustNewConstMetric(blockedNodesDesc, prometheus.GaugeValue, count, rule, condition)
 			}
+		}
+	}
+
+	ruleInventory, err := c.lister.ListRuleInventory(ctx, rules)
+	if err != nil {
+		ctrl.Log.V(2).Info("Failed to list rule inventory", "error", err)
+	} else {
+		for key, count := range ruleInventory {
+			ch <- prometheus.MustNewConstMetric(ruleInventoryByModeDesc, prometheus.GaugeValue, count, key.EnforcementMode, strconv.FormatBool(key.DryRun))
 		}
 	}
 }

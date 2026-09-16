@@ -46,11 +46,15 @@ type stubLister struct {
 	blocked    map[string]RuleBlockedConditions
 	blockedErr error
 
+	inventory    map[RuleModeKey]float64
+	inventoryErr error
+
 	mu                    sync.Mutex
 	gotNodesForRuleStates []corev1.Node
 	gotNodesForBlocked    []corev1.Node
 	gotRulesForRuleStates []*readinessv1alpha1.NodeReadinessRule
 	gotRulesForBlocked    []*readinessv1alpha1.NodeReadinessRule
+	gotRulesForInventory  []*readinessv1alpha1.NodeReadinessRule
 }
 
 func (s *stubLister) ListNodes(_ context.Context) ([]corev1.Node, error) {
@@ -87,6 +91,16 @@ func (s *stubLister) ListBlockedNodes(_ context.Context, nodes []corev1.Node, ru
 		return nil, s.blockedErr
 	}
 	return s.blocked, nil
+}
+
+func (s *stubLister) ListRuleInventory(_ context.Context, rules []*readinessv1alpha1.NodeReadinessRule) (map[RuleModeKey]float64, error) {
+	s.mu.Lock()
+	s.gotRulesForInventory = rules
+	s.mu.Unlock()
+	if s.inventoryErr != nil {
+		return nil, s.inventoryErr
+	}
+	return s.inventory, nil
 }
 
 func TestReadinessCollector_NoRules(t *testing.T) {
@@ -220,8 +234,9 @@ func collectAll(t *testing.T, c *ReadinessCollector) map[string][]*dto.Metric {
 
 func TestReadinessCollector_RuleNodesErrorDoesNotBlockBlockedNodes(t *testing.T) {
 	c := NewReadinessCollector(&stubLister{
-		err:     errors.New("cache not synced"),
-		blocked: map[string]RuleBlockedConditions{"gpu-ready": {"GPUDriverReady": 2}},
+		err:          errors.New("cache not synced"),
+		blocked:      map[string]RuleBlockedConditions{"gpu-ready": {"GPUDriverReady": 2}},
+		inventoryErr: errors.New("rule inventory cache not synced"),
 	})
 
 	got := collectAll(t, c)
@@ -241,8 +256,9 @@ func TestReadinessCollector_RuleNodesErrorDoesNotBlockBlockedNodes(t *testing.T)
 
 func TestReadinessCollector_BlockedNodesErrorDoesNotBlockRuleNodes(t *testing.T) {
 	c := NewReadinessCollector(&stubLister{
-		counts:     map[string]RuleNodeCounts{"gpu-ready": {Held: 3, Released: 1}},
-		blockedErr: errors.New("cache not synced"),
+		counts:       map[string]RuleNodeCounts{"gpu-ready": {Held: 3, Released: 1}},
+		blockedErr:   errors.New("cache not synced"),
+		inventoryErr: errors.New("rule inventory cache not synced"),
 	})
 
 	got := collectAll(t, c)
@@ -349,6 +365,67 @@ func TestReadinessCollector_RulesSharedBetweenBothListers(t *testing.T) {
 	}
 }
 
+func TestReadinessCollector_RuleInventory_ByModeAndDryRun(t *testing.T) {
+	c := NewReadinessCollector(&stubLister{
+		counts:  map[string]RuleNodeCounts{},
+		blocked: map[string]RuleBlockedConditions{},
+		inventory: map[RuleModeKey]float64{
+			{EnforcementMode: "bootstrap-only", DryRun: false}: 2,
+			{EnforcementMode: "continuous", DryRun: true}:      1,
+		},
+	})
+
+	expected := `
+		# HELP node_readiness_rules Number of NodeReadinessRules by enforcement mode and dry-run state
+		# TYPE node_readiness_rules gauge
+		node_readiness_rules{dry_run="false",enforcement_mode="bootstrap-only"} 2
+		node_readiness_rules{dry_run="true",enforcement_mode="continuous"} 1
+	`
+	if err := testutil.CollectAndCompare(c, strings.NewReader(expected), "node_readiness_rules"); err != nil {
+		t.Fatalf("unexpected collect mismatch: %v", err)
+	}
+}
+
+func TestReadinessCollector_RuleInventoryErrorSkipsBothInventoryMetrics(t *testing.T) {
+	stub := &stubLister{
+		counts:       map[string]RuleNodeCounts{},
+		blocked:      map[string]RuleBlockedConditions{},
+		inventoryErr: errors.New("cache not synced"),
+	}
+	c := NewReadinessCollector(stub)
+
+	ch := make(chan prometheus.Metric, 8)
+	c.Collect(ch)
+	close(ch)
+
+	for m := range ch {
+		if m.Desc() == ruleInventoryByModeDesc {
+			t.Fatalf("expected no rule inventory metrics when ListRuleInventory fails, got %v", m.Desc())
+		}
+	}
+}
+
+func TestReadinessCollector_RuleInventoryReceivesSharedRules(t *testing.T) {
+	rules := []*readinessv1alpha1.NodeReadinessRule{{ObjectMeta: metav1.ObjectMeta{Name: "gpu-ready"}}}
+	stub := &stubLister{
+		rules:     rules,
+		counts:    map[string]RuleNodeCounts{},
+		blocked:   map[string]RuleBlockedConditions{},
+		inventory: map[RuleModeKey]float64{},
+	}
+	c := NewReadinessCollector(stub)
+
+	ch := make(chan prometheus.Metric, 8)
+	c.Collect(ch)
+	close(ch)
+	for range ch {
+	}
+
+	if len(stub.gotRulesForInventory) != 1 || stub.gotRulesForInventory[0].Name != "gpu-ready" {
+		t.Fatalf("ListRuleInventory did not receive the shared rule snapshot: %v", stub.gotRulesForInventory)
+	}
+}
+
 func TestReadinessCollector_CollectAndLint(t *testing.T) {
 	c := NewReadinessCollector(&stubLister{
 		nodes: []corev1.Node{{}},
@@ -357,6 +434,9 @@ func TestReadinessCollector_CollectAndLint(t *testing.T) {
 		},
 		blocked: map[string]RuleBlockedConditions{
 			"gpu-ready": {"GPUDriverReady": 2, "CNIReady": 0},
+		},
+		inventory: map[RuleModeKey]float64{
+			{EnforcementMode: "bootstrap-only", DryRun: false}: 1,
 		},
 	})
 

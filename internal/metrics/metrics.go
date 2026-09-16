@@ -70,17 +70,8 @@ var (
 	RulesTotal = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "node_readiness_rules_total",
-			Help: "Number of NodeReadinessRules",
+			Help: "[DEPRECATED] Number of NodeReadinessRules. Use node_readiness_rules instead.",
 		},
-	)
-
-	// RulesByMode tracks the number of NodeReadinessRules.
-	RulesByMode = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "node_readiness_rules",
-			Help: "Number of NodeReadinessRules by enforcement mode and dry-run state",
-		},
-		[]string{"enforcement_mode", "dry_run"},
 	)
 
 	// TaintOperations tracks the number of taint operations (add/remove).
@@ -188,7 +179,6 @@ var (
 func init() {
 	// Register custom metrics with the global prometheus registry
 	metrics.Registry.MustRegister(RulesTotal)
-	metrics.Registry.MustRegister(RulesByMode)
 	metrics.Registry.MustRegister(TaintOperations)
 	metrics.Registry.MustRegister(EvaluationDuration)
 	metrics.Registry.MustRegister(Failures)

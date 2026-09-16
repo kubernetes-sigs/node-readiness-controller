@@ -17,11 +17,9 @@ limitations under the License.
 package controller
 
 import (
-	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"github.com/prometheus/client_golang/prometheus/testutil"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -307,60 +305,40 @@ func TestApplyNodeStatusDelta(t *testing.T) {
 	})
 }
 
-func TestSyncRulesByModeLocked(t *testing.T) {
+func TestListRuleInventory(t *testing.T) {
 	g := NewWithT(t)
-	metrics.RulesByMode.Reset()
-	t.Cleanup(metrics.RulesByMode.Reset)
 
-	c := &RuleReadinessController{
-		ruleCache: make(map[string]*readinessv1alpha1.NodeReadinessRule),
-	}
+	c := &RuleReadinessController{}
 	ctx := t.Context()
 
-	newRule := func(name string, mode readinessv1alpha1.EnforcementMode, dryRun bool) *readinessv1alpha1.NodeReadinessRule {
-		return &readinessv1alpha1.NodeReadinessRule{
+	newRule := func(name string, mode readinessv1alpha1.EnforcementMode, dryRun bool, deleting bool) *readinessv1alpha1.NodeReadinessRule {
+		rule := &readinessv1alpha1.NodeReadinessRule{
 			ObjectMeta: metav1.ObjectMeta{Name: name},
 			Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 				EnforcementMode: mode,
 				DryRun:          dryRun,
 			},
 		}
+		if deleting {
+			now := metav1.Now()
+			rule.DeletionTimestamp = &now
+			rule.Finalizers = []string{finalizerName}
+		}
+		return rule
 	}
 
-	ruleA := newRule("rule-a", readinessv1alpha1.EnforcementModeBootstrapOnly, false)
-	ruleB := newRule("rule-b", readinessv1alpha1.EnforcementModeBootstrapOnly, false)
-	ruleC := newRule("rule-c", readinessv1alpha1.EnforcementModeContinuous, true)
+	rules := []*readinessv1alpha1.NodeReadinessRule{
+		newRule("rule-a", readinessv1alpha1.EnforcementModeBootstrapOnly, false, false),
+		newRule("rule-b", readinessv1alpha1.EnforcementModeBootstrapOnly, false, false),
+		newRule("rule-c", readinessv1alpha1.EnforcementModeContinuous, true, false),
+		newRule("rule-deleting", readinessv1alpha1.EnforcementModeContinuous, false, true),
+	}
 
-	c.updateRuleCache(ctx, ruleA)
-	c.updateRuleCache(ctx, ruleB)
-	c.updateRuleCache(ctx, ruleC)
+	counts, err := c.ListRuleInventory(ctx, rules)
+	g.Expect(err).NotTo(HaveOccurred())
 
-	expected := `
-# HELP node_readiness_rules Number of NodeReadinessRules by enforcement mode and dry-run state
-# TYPE node_readiness_rules gauge
-node_readiness_rules{dry_run="false",enforcement_mode="bootstrap-only"} 2
-node_readiness_rules{dry_run="true",enforcement_mode="continuous"} 1
-`
-	g.Expect(testutil.CollectAndCompare(metrics.RulesByMode, strings.NewReader(expected), "node_readiness_rules")).To(Succeed())
-
-	c.removeRuleFromCache(ctx, "rule-c")
-
-	expected = `
-# HELP node_readiness_rules Number of NodeReadinessRules by enforcement mode and dry-run state
-# TYPE node_readiness_rules gauge
-node_readiness_rules{dry_run="false",enforcement_mode="bootstrap-only"} 2
-`
-	g.Expect(testutil.CollectAndCompare(metrics.RulesByMode, strings.NewReader(expected), "node_readiness_rules")).To(Succeed())
-
-	ruleB.Spec.EnforcementMode = readinessv1alpha1.EnforcementModeContinuous
-	ruleB.Spec.DryRun = true
-	c.updateRuleCache(ctx, ruleB)
-
-	expected = `
-# HELP node_readiness_rules Number of NodeReadinessRules by enforcement mode and dry-run state
-# TYPE node_readiness_rules gauge
-node_readiness_rules{dry_run="false",enforcement_mode="bootstrap-only"} 1
-node_readiness_rules{dry_run="true",enforcement_mode="continuous"} 1
-`
-	g.Expect(testutil.CollectAndCompare(metrics.RulesByMode, strings.NewReader(expected), "node_readiness_rules")).To(Succeed())
+	g.Expect(counts).To(Equal(map[metrics.RuleModeKey]float64{
+		{EnforcementMode: "bootstrap-only", DryRun: false}: 2,
+		{EnforcementMode: "continuous", DryRun: true}:      1,
+	}))
 }
