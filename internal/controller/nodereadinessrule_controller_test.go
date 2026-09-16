@@ -2840,4 +2840,71 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				"the concurrently-written evaluation must survive the retried patch")
 		})
 	})
+
+	Context("when reconciliation fails", func() {
+		It("should return an empty result with no RequeueAfter alongside the error", func() {
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "error-reconcile-rule",
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/error-test",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"role": "worker"},
+					},
+				},
+			}
+
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "worker-node",
+					Labels: map[string]string{"role": "worker"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionTrue},
+					},
+				},
+			}
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(node, rule).
+				WithStatusSubresource(rule).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						return fmt.Errorf("injected status patch failure")
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        scheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: events.NewFakeRecorder(10),
+			}
+
+			reconciler := &RuleReconciler{
+				Client:     fc,
+				Scheme:     scheme,
+				Controller: controller,
+			}
+
+			res, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: rule.Name},
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(res).To(Equal(reconcile.Result{}))
+			Expect(res.RequeueAfter).To(Equal(time.Duration(0)))
+		})
+	})
 })

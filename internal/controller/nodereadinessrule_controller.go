@@ -144,7 +144,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	if rule.Spec.DryRun {
 		if err := r.Controller.processDryRun(ctx, rule, nodeList); err != nil {
 			log.Error(err, "Failed to process dry run", "rule", rule.Name)
-			return ctrl.Result{RequeueAfter: time.Minute}, err
+			return ctrl.Result{}, err
 		}
 	} else {
 		// Clear previous dry run results
@@ -155,20 +155,20 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		delta, err = r.Controller.processAllNodesForRule(ctx, rule, nodeList)
 		if err != nil {
 			log.Error(err, "Failed to process nodes for rule", "rule", rule.Name)
-			return ctrl.Result{RequeueAfter: time.Minute}, err
+			return ctrl.Result{}, err
 		}
 	}
 
 	// Update rule status
 	if err := r.Controller.updateRuleStatus(ctx, rule, delta); err != nil {
 		log.Error(err, "Failed to update rule status", "rule", rule.Name)
-		return ctrl.Result{RequeueAfter: time.Minute}, err
+		return ctrl.Result{}, err
 	}
 
 	// Clean up status for deleted nodes
 	if err := r.Controller.cleanupDeletedNodes(ctx, rule, nodeList); err != nil {
 		log.Error(err, "Failed to clean up deleted nodes", "rule", rule.Name)
-		return ctrl.Result{RequeueAfter: time.Minute}, err
+		return ctrl.Result{}, err
 	}
 
 	// Update top-level rule metrics.
@@ -195,7 +195,7 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	log.Info("Cleaning up taints for deleted rule", "rule", rule.Name)
 	if err := r.Controller.cleanupTaintsForRule(ctx, rule, nodeList); err != nil {
 		log.Error(err, "Failed to cleanup taints for rule", "rule", rule.Name)
-		return ctrl.Result{RequeueAfter: time.Minute}, err
+		return ctrl.Result{}, err
 	}
 
 	log.V(3).Info("Removing the rule from cache")
