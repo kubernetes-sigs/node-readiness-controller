@@ -107,6 +107,11 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, err
 	}
 
+	// Update the NodeReadinessEvaluation for this node.
+	if r.Controller.EnableNRE {
+		r.Controller.updateNREForNode(ctx, node)
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -500,10 +505,10 @@ func (r *RuleReadinessController) recordNodeFailure(
 
 	// Add new failure
 	failedNodes = append(failedNodes, readinessv1alpha1.NodeFailure{
-		NodeName:           nodeName,
-		Reason:             reason,
-		Message:            message,
-		LastEvaluationTime: metav1.Now(),
+		NodeName:        nodeName,
+		Reason:          reason,
+		Message:         message,
+		LastEvaluatedAt: metav1.Now(),
 	})
 
 	rule.Status.FailedNodes = failedNodes
