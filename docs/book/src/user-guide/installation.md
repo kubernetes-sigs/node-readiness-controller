@@ -99,6 +99,91 @@ example on deploying the controller as a static pod in a kind cluster.
     This is typically handled via a bootstrap script or post-install job in a `kubeadm` setup.
 
 ---
+## Avoiding a Duplicate Installation
+
+The controller manages node taints, so only one installation should run in a cluster.
+Two installations reconciling the same `NodeReadinessRule` resources will both act on
+the same nodes.
+
+This is easy to do by accident on a managed cluster. Where the control plane is hosted,
+the provider may already run the controller as part of it, and that installation is not
+visible to you in the usual places.
+
+### Finding the existing installation
+
+The CRD is cluster-scoped and singleton, so it is the one artifact every installation
+shares. It carries the standard `app.kubernetes.io/managed-by` label naming the
+installer that owns it:
+
+```sh
+kubectl get crd nodereadinessrules.readiness.node.x-k8s.io \
+  -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}'
+```
+
+The value is the installer: `helm` from the chart, `kustomize` from the config
+manifests, or a provider's own name when they override it (see below).
+
+If the CRD is not present, the controller is not installed.
+
+### For providers
+
+Providers installing the controller should override the label value so it identifies
+them rather than the `helm`/`kustomize` default, which makes the hosted installation
+self-describing to users:
+
+```yaml
+# kustomize patch
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: nodereadinessrules.readiness.node.x-k8s.io
+  labels:
+    app.kubernetes.io/managed-by: example-provider
+```
+
+### Helm guardrail
+
+A fresh `helm install` runs two checks and aborts if either one finds an existing
+installation:
+
+1. **CRD ownership.** If the `NodeReadinessRule` CRD already carries a
+   `app.kubernetes.io/managed-by` value different from the one this chart claims
+   (`helm`, set by `crds.managedBy`), another installer owns it — a `kustomize`
+   install, or a provider's `<provider>`. This catches a hosted provider install
+   even when its workload is renamed or hidden. A self reinstall passes, because the
+   CRD Helm leaves behind still carries `helm`.
+2. **Running workload.** If a controller Deployment labelled
+   `app.kubernetes.io/name=node-readiness-controller` is already running, the install
+   is refused and the Deployment is named. This catches a second Helm release, which
+   check 1 cannot distinguish because it carries the same `managed-by` value.
+
+The workload check names the offending Deployment in the error:
+
+```console
+$ helm install nrc ./charts/node-readiness-controller
+Error: node-readiness-controller is already installed in this cluster.
+
+The Deployment kube-system/node-readiness-controller-manager is already running the
+controller.
+...
+```
+
+The guard keys on the running controller Deployment, not on the CRD: Helm installs the
+CRD from `crds/` before it renders templates, so the CRD always exists by the time the
+check runs. The Deployment is applied after rendering, so one found during the check
+belongs to a different, already-running installation.
+
+`helm upgrade` is unaffected. To install anyway, set `crds.preInstallCheck=false`.
+
+> [!NOTE]
+> The check only runs during a real install. It is skipped by `helm template` and
+> `helm install --dry-run`, which do not query the cluster. It matches Deployments
+> labelled `app.kubernetes.io/name=node-readiness-controller`; an installation that
+> renames the workload, or does not use this chart, is not detected.
+
+The other install paths -- `kubectl apply` of the release manifests, or Kustomize --
+do not have an equivalent guard. Check the label above before installing.
+
 ## Verification
 
 After installation, verify that the controller is running successfully. 

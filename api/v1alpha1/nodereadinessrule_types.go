@@ -351,6 +351,14 @@ type DryRunResults struct {
 }
 
 // +kubebuilder:object:root=true
+// Stamp the CRD with the standard app.kubernetes.io/managed-by label so the
+// controlling installation is visible in clusters where the control plane is
+// hosted and the controller itself is not. The value is the installer: this
+// kustomize package stamps "kustomize" (matching every other resource under
+// config/); the Helm chart ships "helm"; providers override it to their own name
+// in their install pipeline. See docs/book/src/user-guide/installation.md.
+//
+// +kubebuilder:metadata:labels=app.kubernetes.io/managed-by=kustomize
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=nrr
 // +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.enforcementMode`,description="The enforcement mode of the rule: bootstrap-only or continuous."

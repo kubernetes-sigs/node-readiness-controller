@@ -23,8 +23,12 @@ set -o pipefail
 KUBE_ROOT="$(dirname "${BASH_SOURCE[0]}")/.."
 cd "${KUBE_ROOT}"
 
+# `make manifests` regenerates config/crd/bases AND the chart's crds/ copy (via
+# sync-chart-crds). So this check just runs it and asserts nothing changed: if the
+# committed CRDs are stale, or the chart copy was hand-edited, regeneration moves
+# them and git diff fails. Both files are generated; neither is edited by hand.
 make manifests
 
-diff -u \
+git diff --exit-code -- \
   config/crd/bases/readiness.node.x-k8s.io_nodereadinessrules.yaml \
   charts/node-readiness-controller/crds/nodereadinessrules.readiness.node.x-k8s.io.yaml
