@@ -303,7 +303,7 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 		log.Info("Processing node for rule", "rule", rule.Name, "node", node.Name)
 		if err := r.evaluateRuleForNode(ctx, rule, &node); err != nil {
 			log.Error(err, "Failed to evaluate node for rule", "rule", rule.Name, "node", node.Name)
-			r.recordNodeFailure(rule, node.Name, "EvaluationError", err.Error())
+			r.recordNodeFailure(rule, node.Name, string(metrics.FailureReasonEvaluationError), err.Error())
 			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonEvaluationError)).Inc()
 
 			for _, f := range rule.Status.FailedNodes {
@@ -680,6 +680,31 @@ func (r *RuleReadinessController) ListBlockedNodes(ctx context.Context, nodes []
 	}
 
 	return result, nil
+}
+
+// ListRuleMatchedNodes returns the number of nodes matching each rule's NodeSelector.
+func (r *RuleReadinessController) ListRuleMatchedNodes(ctx context.Context, nodes []corev1.Node, rules []*readinessv1alpha1.NodeReadinessRule) (map[string]float64, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	counts := make(map[string]float64, len(rules))
+	for _, rule := range rules {
+		// Parse the selector once per rule.
+		selector, err := parseNodeSelector(rule)
+		if err != nil {
+			log.V(2).Info("Invalid node selector for rule", "rule", rule.Name, "error", err)
+			continue
+		}
+
+		var matched float64
+		for i := range nodes {
+			if selector.Matches(labels.Set(nodes[i].Labels)) {
+				matched++
+			}
+		}
+		counts[rule.Name] = matched
+	}
+
+	return counts, nil
 }
 
 // parseNodeSelector parses a rule's NodeSelector into a labels.Selector.

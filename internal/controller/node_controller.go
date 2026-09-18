@@ -157,7 +157,7 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			log.Error(evalErr, "Failed to evaluate rule for node",
 				"node", node.Name, "rule", rule.Name)
 			// Continue with other rules even if one fails
-			r.recordNodeFailure(rule, node.Name, "EvaluationError", evalErr.Error())
+			r.recordNodeFailure(rule, node.Name, string(metrics.FailureReasonEvaluationError), evalErr.Error())
 			errs = append(errs, evalErr)
 			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonEvaluationError)).Inc()
 		} else {
@@ -474,6 +474,7 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 	switch {
 	case err != nil:
 		log.Error(err, "Failed to mark bootstrap completed", "node", nodeName, "rule", rule.Name, "uid", rule.GetUID())
+		metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonAnnotationPatchFailed)).Inc()
 	case deferred:
 		log.Info("Deferring bootstrap completion - rule taint still present on node",
 			"node", nodeName, "rule", rule.Name, "taint", rule.Spec.Taint.Key)

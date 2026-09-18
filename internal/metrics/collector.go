@@ -59,12 +59,18 @@ type BlockedNodesLister interface {
 	ListBlockedNodes(ctx context.Context, nodes []corev1.Node, rules []*readinessv1alpha1.NodeReadinessRule) (map[string]RuleBlockedConditions, error)
 }
 
+// RuleMatchedNodesLister lists the number of nodes matching each rule's NodeSelector.
+type RuleMatchedNodesLister interface {
+	ListRuleMatchedNodes(ctx context.Context, nodes []corev1.Node, rules []*readinessv1alpha1.NodeReadinessRule) (map[string]float64, error)
+}
+
 // ReadinessLister aggregates the scrape-time lookups the collector needs.
 type ReadinessLister interface {
 	NodeLister
 	RuleLister
 	RuleNodeStateLister
 	BlockedNodesLister
+	RuleMatchedNodesLister
 }
 
 var ruleNodesDesc = prometheus.NewDesc(
@@ -81,6 +87,13 @@ var blockedNodesDesc = prometheus.NewDesc(
 	nil,
 )
 
+var ruleMatchedNodesDesc = prometheus.NewDesc(
+	"node_readiness_rule_matched_nodes",
+	"Number of nodes matched by a rule's NodeSelector.",
+	[]string{"rule"},
+	nil,
+)
+
 // ReadinessCollector is a prometheus.Collector that reads at scrape time.
 type ReadinessCollector struct {
 	lister ReadinessLister
@@ -94,6 +107,7 @@ func NewReadinessCollector(lister ReadinessLister) *ReadinessCollector {
 func (c *ReadinessCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- ruleNodesDesc
 	ch <- blockedNodesDesc
+	ch <- ruleMatchedNodesDesc
 }
 
 // Collect implements prometheus.Collector.
@@ -131,6 +145,15 @@ func (c *ReadinessCollector) Collect(ch chan<- prometheus.Metric) {
 			for condition, count := range conditions {
 				ch <- prometheus.MustNewConstMetric(blockedNodesDesc, prometheus.GaugeValue, count, rule, condition)
 			}
+		}
+	}
+
+	matched, err := c.lister.ListRuleMatchedNodes(ctx, nodes, rules)
+	if err != nil {
+		ctrl.Log.V(2).Info("Failed to list rule matched nodes", "error", err)
+	} else {
+		for rule, count := range matched {
+			ch <- prometheus.MustNewConstMetric(ruleMatchedNodesDesc, prometheus.GaugeValue, count, rule)
 		}
 	}
 }

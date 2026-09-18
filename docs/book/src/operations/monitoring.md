@@ -125,6 +125,24 @@ Number of currently-held nodes against blocking conditions per `NodeReadinessRul
 | `rule` | `NodeReadinessRule` name | Any non-dry-run rule name |
 | `condition` | Condition type declared in `spec.conditions` | Any condition type declared by the rule |
 
+### `node_readiness_rule_matched_nodes`
+
+*Available starting from the v0.6.0 release.*
+
+Number of nodes matching each `NodeReadinessRule`'s `nodeSelector`, collected at scrape time.
+
+| Property | Value |
+| --- | --- |
+| Type | `gauge` |
+| Labels | `rule` |
+| Recorded when | Computed on each Prometheus scrape from the cached node list |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `rule` | `NodeReadinessRule` name | Any rule name with a valid selector |
+
 ### `node_readiness_bootstrap_completed_total`
 
 Total number of nodes that have completed bootstrap.

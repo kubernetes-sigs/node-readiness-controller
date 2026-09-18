@@ -32,7 +32,7 @@ import (
 	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 )
 
-// stubLister is a test double for RuleNodeStateLister.
+// stubLister is a test double for ReadinessLister.
 type stubLister struct {
 	nodes    []corev1.Node
 	nodesErr error
@@ -46,11 +46,16 @@ type stubLister struct {
 	blocked    map[string]RuleBlockedConditions
 	blockedErr error
 
+	matched    map[string]float64
+	matchedErr error
+
 	mu                    sync.Mutex
 	gotNodesForRuleStates []corev1.Node
 	gotNodesForBlocked    []corev1.Node
+	gotNodesForMatched    []corev1.Node
 	gotRulesForRuleStates []*readinessv1alpha1.NodeReadinessRule
 	gotRulesForBlocked    []*readinessv1alpha1.NodeReadinessRule
+	gotRulesForMatched    []*readinessv1alpha1.NodeReadinessRule
 }
 
 func (s *stubLister) ListNodes(_ context.Context) ([]corev1.Node, error) {
@@ -87,6 +92,17 @@ func (s *stubLister) ListBlockedNodes(_ context.Context, nodes []corev1.Node, ru
 		return nil, s.blockedErr
 	}
 	return s.blocked, nil
+}
+
+func (s *stubLister) ListRuleMatchedNodes(_ context.Context, nodes []corev1.Node, rules []*readinessv1alpha1.NodeReadinessRule) (map[string]float64, error) {
+	s.mu.Lock()
+	s.gotNodesForMatched = nodes
+	s.gotRulesForMatched = rules
+	s.mu.Unlock()
+	if s.matchedErr != nil {
+		return nil, s.matchedErr
+	}
+	return s.matched, nil
 }
 
 func TestReadinessCollector_NoRules(t *testing.T) {
@@ -158,6 +174,66 @@ func TestReadinessCollector_ListError(t *testing.T) {
 	}
 }
 
+func TestReadinessCollector_MatchedNodes(t *testing.T) {
+	c := NewReadinessCollector(&stubLister{
+		counts:  map[string]RuleNodeCounts{},
+		matched: map[string]float64{"gpu-ready": 3, "dry-run-rule": 5},
+	})
+
+	expected := `
+		# HELP node_readiness_rule_matched_nodes Number of nodes matched by a rule's NodeSelector.
+		# TYPE node_readiness_rule_matched_nodes gauge
+		node_readiness_rule_matched_nodes{rule="gpu-ready"} 3
+		node_readiness_rule_matched_nodes{rule="dry-run-rule"} 5
+	`
+	if err := testutil.CollectAndCompare(c, strings.NewReader(expected), "node_readiness_rule_matched_nodes"); err != nil {
+		t.Fatalf("unexpected collect mismatch: %v", err)
+	}
+}
+
+func TestReadinessCollector_MatchedNodesListError_DoesNotBlockRuleNodes(t *testing.T) {
+	c := NewReadinessCollector(&stubLister{
+		counts:     map[string]RuleNodeCounts{"gpu-ready": {Held: 1, Released: 2}},
+		matchedErr: errors.New("cache not synced"),
+	})
+
+	expected := `
+		# HELP node_readiness_rule_nodes Number of nodes currently gated or released by the rule.
+		# TYPE node_readiness_rule_nodes gauge
+		node_readiness_rule_nodes{rule="gpu-ready",state="held"} 1
+		node_readiness_rule_nodes{rule="gpu-ready",state="released"} 2
+	`
+	if err := testutil.CollectAndCompare(c, strings.NewReader(expected), "node_readiness_rule_nodes"); err != nil {
+		t.Fatalf("unexpected collect mismatch: %v", err)
+	}
+
+	expectedMatched := ``
+	if err := testutil.CollectAndCompare(c, strings.NewReader(expectedMatched), "node_readiness_rule_matched_nodes"); err != nil {
+		t.Fatalf("unexpected collect mismatch: %v", err)
+	}
+}
+
+func TestReadinessCollector_RuleNodesListError_DoesNotBlockMatchedNodes(t *testing.T) {
+	c := NewReadinessCollector(&stubLister{
+		err:     errors.New("cache not synced"),
+		matched: map[string]float64{"gpu-ready": 4},
+	})
+
+	expected := ``
+	if err := testutil.CollectAndCompare(c, strings.NewReader(expected), "node_readiness_rule_nodes"); err != nil {
+		t.Fatalf("unexpected collect mismatch: %v", err)
+	}
+
+	expectedMatched := `
+		# HELP node_readiness_rule_matched_nodes Number of nodes matched by a rule's NodeSelector.
+		# TYPE node_readiness_rule_matched_nodes gauge
+		node_readiness_rule_matched_nodes{rule="gpu-ready"} 4
+	`
+	if err := testutil.CollectAndCompare(c, strings.NewReader(expectedMatched), "node_readiness_rule_matched_nodes"); err != nil {
+		t.Fatalf("unexpected collect mismatch: %v", err)
+	}
+}
+
 func TestReadinessCollector_BlockedNodes_NoRules(t *testing.T) {
 	c := NewReadinessCollector(&stubLister{blocked: map[string]RuleBlockedConditions{}})
 
@@ -205,8 +281,11 @@ func collectAll(t *testing.T, c *ReadinessCollector) map[string][]*dto.Metric {
 	out := make(map[string][]*dto.Metric)
 	for m := range ch {
 		name := "node_readiness_rule_nodes"
-		if m.Desc() == blockedNodesDesc {
+		switch m.Desc() {
+		case blockedNodesDesc:
 			name = "node_readiness_blocked_nodes"
+		case ruleMatchedNodesDesc:
+			name = "node_readiness_rule_matched_nodes"
 		}
 
 		pb := &dto.Metric{}
@@ -274,18 +353,19 @@ func TestReadinessCollector_NodeListErrorSkipsBothMetrics(t *testing.T) {
 		t.Fatalf("expected no node_readiness_blocked_nodes metrics when ListNodes fails, got %v", got["node_readiness_blocked_nodes"])
 	}
 
-	if stub.gotNodesForRuleStates != nil || stub.gotNodesForBlocked != nil {
-		t.Fatalf("expected Collect to short-circuit before calling either counting method, but ListRuleNodeStates got %v, ListBlockedNodes got %v",
-			stub.gotNodesForRuleStates, stub.gotNodesForBlocked)
+	if stub.gotNodesForRuleStates != nil || stub.gotNodesForBlocked != nil || stub.gotNodesForMatched != nil {
+		t.Fatalf("expected Collect to short-circuit before calling any counting method, but ListRuleNodeStates got %v, ListBlockedNodes got %v, ListRuleMatchedNodes got %v",
+			stub.gotNodesForRuleStates, stub.gotNodesForBlocked, stub.gotNodesForMatched)
 	}
 }
 
-func TestReadinessCollector_NodesSharedBetweenBothListers(t *testing.T) {
+func TestReadinessCollector_NodesSharedBetweenAllListers(t *testing.T) {
 	nodes := []corev1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}}
 	stub := &stubLister{
 		nodes:   nodes,
 		counts:  map[string]RuleNodeCounts{},
 		blocked: map[string]RuleBlockedConditions{},
+		matched: map[string]float64{},
 	}
 	c := NewReadinessCollector(stub)
 
@@ -300,6 +380,9 @@ func TestReadinessCollector_NodesSharedBetweenBothListers(t *testing.T) {
 	}
 	if len(stub.gotNodesForBlocked) != 1 || stub.gotNodesForBlocked[0].Name != "node-a" {
 		t.Fatalf("ListBlockedNodes did not receive the shared node snapshot: %v", stub.gotNodesForBlocked)
+	}
+	if len(stub.gotNodesForMatched) != 1 || stub.gotNodesForMatched[0].Name != "node-a" {
+		t.Fatalf("ListRuleMatchedNodes did not receive the shared node snapshot: %v", stub.gotNodesForMatched)
 	}
 }
 
@@ -320,18 +403,19 @@ func TestReadinessCollector_RuleListErrorSkipsBothMetrics(t *testing.T) {
 		t.Fatalf("expected no node_readiness_blocked_nodes metrics when ListRules fails, got %v", got["node_readiness_blocked_nodes"])
 	}
 
-	if stub.gotRulesForRuleStates != nil || stub.gotRulesForBlocked != nil {
-		t.Fatalf("expected Collect to short-circuit before calling either counting method, but ListRuleNodeStates got %v, ListBlockedNodes got %v",
-			stub.gotRulesForRuleStates, stub.gotRulesForBlocked)
+	if stub.gotRulesForRuleStates != nil || stub.gotRulesForBlocked != nil || stub.gotRulesForMatched != nil {
+		t.Fatalf("expected Collect to short-circuit before calling any counting method, but ListRuleNodeStates got %v, ListBlockedNodes got %v, ListRuleMatchedNodes got %v",
+			stub.gotRulesForRuleStates, stub.gotRulesForBlocked, stub.gotRulesForMatched)
 	}
 }
 
-func TestReadinessCollector_RulesSharedBetweenBothListers(t *testing.T) {
+func TestReadinessCollector_RulesSharedBetweenAllListers(t *testing.T) {
 	rules := []*readinessv1alpha1.NodeReadinessRule{{ObjectMeta: metav1.ObjectMeta{Name: "gpu-ready"}}}
 	stub := &stubLister{
 		rules:   rules,
 		counts:  map[string]RuleNodeCounts{},
 		blocked: map[string]RuleBlockedConditions{},
+		matched: map[string]float64{},
 	}
 	c := NewReadinessCollector(stub)
 
@@ -347,6 +431,9 @@ func TestReadinessCollector_RulesSharedBetweenBothListers(t *testing.T) {
 	if len(stub.gotRulesForBlocked) != 1 || stub.gotRulesForBlocked[0].Name != "gpu-ready" {
 		t.Fatalf("ListBlockedNodes did not receive the shared rule snapshot: %v", stub.gotRulesForBlocked)
 	}
+	if len(stub.gotRulesForMatched) != 1 || stub.gotRulesForMatched[0].Name != "gpu-ready" {
+		t.Fatalf("ListRuleMatchedNodes did not receive the shared rule snapshot: %v", stub.gotRulesForMatched)
+	}
 }
 
 func TestReadinessCollector_CollectAndLint(t *testing.T) {
@@ -357,6 +444,9 @@ func TestReadinessCollector_CollectAndLint(t *testing.T) {
 		},
 		blocked: map[string]RuleBlockedConditions{
 			"gpu-ready": {"GPUDriverReady": 2, "CNIReady": 0},
+		},
+		matched: map[string]float64{
+			"gpu-ready": 10,
 		},
 	})
 
@@ -373,6 +463,7 @@ func TestReadinessCollector_ConcurrentCollect(t *testing.T) {
 	c := NewReadinessCollector(&stubLister{
 		counts:  map[string]RuleNodeCounts{"gpu-ready": {Held: 3, Released: 7}},
 		blocked: map[string]RuleBlockedConditions{"gpu-ready": {"GPUDriverReady": 3}},
+		matched: map[string]float64{"gpu-ready": 10},
 	})
 
 	var wg sync.WaitGroup
