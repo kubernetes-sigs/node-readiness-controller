@@ -241,6 +241,9 @@ After running the test scenario, you should see the following metrics:
    ```bash
    # Number of active rules
    curl -s http://localhost:8080/metrics | grep "node_readiness_rules_total"
+
+   # Number of active rules by enforcement mode and dry-run state
+   curl -s http://localhost:8080/metrics | grep "node_readiness_rules{"
    ```
 
 2. **Taint Operations:**
@@ -295,6 +298,9 @@ After completing Steps 1-9, verify the metrics reflect the test scenario:
 ```bash
 # Should show 1 rule (network-readiness-rule)
 curl -s http://localhost:8080/metrics | grep 'node_readiness_rules_total'
+
+# Should show 1 rule under its enforcement_mode/dry_run combination
+curl -s http://localhost:8080/metrics | grep 'node_readiness_rules{'
 
 # Should show taint removal operations for worker2, worker3, worker4
 curl -s http://localhost:8080/metrics | grep 'node_readiness_taint_operations_total{.*operation="remove"}'

@@ -682,6 +682,22 @@ func (r *RuleReadinessController) ListBlockedNodes(ctx context.Context, nodes []
 	return result, nil
 }
 
+// ListRuleInventory counts rules by enforcement mode and dry-run state.
+func (r *RuleReadinessController) ListRuleInventory(_ context.Context, rules []*readinessv1alpha1.NodeReadinessRule) (map[metrics.RuleModeKey]float64, error) {
+	counts := make(map[metrics.RuleModeKey]float64)
+
+	for _, rule := range rules {
+		if !rule.DeletionTimestamp.IsZero() {
+			continue
+		}
+
+		key := metrics.RuleModeKey{EnforcementMode: string(rule.Spec.EnforcementMode), DryRun: rule.Spec.DryRun}
+		counts[key]++
+	}
+
+	return counts, nil
+}
+
 // parseNodeSelector parses a rule's NodeSelector into a labels.Selector.
 func parseNodeSelector(rule *readinessv1alpha1.NodeReadinessRule) (labels.Selector, error) {
 	return metav1.LabelSelectorAsSelector(&rule.Spec.NodeSelector)
