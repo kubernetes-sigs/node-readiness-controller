@@ -37,7 +37,7 @@ Total number of taint operations performed by the controller.
 
 ### `node_readiness_evaluation_duration_seconds`
 
-Duration of rule evaluations per rule.
+Duration of evaluating a rule against a node, including any taint add/remove operations.
 
 | Property | Value |
 | --- | --- |

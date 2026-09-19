@@ -87,7 +87,7 @@ var (
 	EvaluationDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "node_readiness_evaluation_duration_seconds",
-			Help:    "Duration of rule evaluations per rule",
+			Help:    "Duration of evaluating a rule against a node, including any taint add/remove operations",
 			Buckets: prometheus.DefBuckets,
 		},
 		[]string{"rule"},
