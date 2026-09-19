@@ -271,6 +271,9 @@ After running the test scenario, you should see the following metrics:
    
    # Reconciliation latency
    curl -s http://localhost:8080/metrics | grep "node_readiness_reconciliation_latency_seconds"
+   
+   # Enforcement latency
+   curl -s http://localhost:8080/metrics | grep "node_readiness_enforcement_latency_seconds"
    ```
 
 6. **Failure Tracking:**

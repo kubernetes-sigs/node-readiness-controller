@@ -125,6 +125,44 @@ Number of currently-held nodes against blocking conditions per `NodeReadinessRul
 | `rule` | `NodeReadinessRule` name | Any non-dry-run rule name |
 | `condition` | Condition type declared in `spec.conditions` | Any condition type declared by the rule |
 
+### `node_readiness_reconciliation_latency_seconds`
+
+*Deprecated: use [`node_readiness_enforcement_latency_seconds`](#node_readiness_enforcement_latency_seconds) instead. It uses the same latency measurement with simplified operation labels. `node_readiness_reconciliation_latency_seconds` is still published for compatibility.*
+
+Latency from a node condition change to completion of the corresponding taint operation.
+
+| Property | Value |
+| --- | --- |
+| Type | `histogram` |
+| Labels | `rule`, `operation` |
+| Buckets | `0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300` seconds |
+| Recorded when | The controller completes a taint add or remove operation |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `rule` | `NodeReadinessRule` name | Any rule name |
+| `operation` | Taint operation the latency was measured for | `add_taint`, `remove_taint` |
+
+### `node_readiness_enforcement_latency_seconds`
+
+Time elapsed between a node's condition transition and the controller's taint response.
+
+| Property | Value |
+| --- | --- |
+| Type | `histogram` |
+| Labels | `rule`, `operation` |
+| Buckets | `0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300` seconds |
+| Recorded when | The controller completes a taint add or remove operation |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `rule` | `NodeReadinessRule` name | Any rule name |
+| `operation` | Taint operation the latency was measured for | `add`, `remove` |
+
 ### `node_readiness_bootstrap_completed_total`
 
 Total number of nodes that have completed bootstrap.
