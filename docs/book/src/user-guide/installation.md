@@ -62,7 +62,127 @@ REPO="registry.k8s.io/node-readiness-controller/node-readiness-controller"
 TAG=$(skopeo list-tags docker://$REPO | jq .'Tags[-1]' | tr -d '"')
 docker pull $REPO:$TAG
 ```
-### Option 2: Advanced Deployment (Kustomize)
+### Option 2: Helm Chart
+
+The official Helm chart is published to the OCI registry at `registry.k8s.io/node-readiness-controller/charts/node-readiness-controller`.
+
+```sh
+# Chart version, which is independent of the controller release tag above.
+CHART_VERSION=0.5.0
+
+helm install node-readiness-controller \
+  oci://registry.k8s.io/node-readiness-controller/charts/node-readiness-controller \
+  --version ${CHART_VERSION} \
+  --namespace nrr-system --create-namespace
+```
+
+Requires Helm 3.8+ (native OCI support). This deploys the controller with the same defaults as the standard manifest: leader election on, metrics off, and the validating webhook off.
+
+`helm show values` lists everything the chart exposes, and redirecting it gives you a starting point to edit:
+
+```sh
+helm show values oci://registry.k8s.io/node-readiness-controller/charts/node-readiness-controller --version ${CHART_VERSION} > custom-values.yaml
+```
+
+Override them with `--set`, or from a file with `-f`:
+
+```sh
+helm install node-readiness-controller \
+  oci://registry.k8s.io/node-readiness-controller/charts/node-readiness-controller \
+  --version ${CHART_VERSION} \
+  --namespace nrr-system --create-namespace \
+  --set metrics.enabled=true
+
+helm install node-readiness-controller \
+  oci://registry.k8s.io/node-readiness-controller/charts/node-readiness-controller \
+  --version ${CHART_VERSION} \
+  --namespace nrr-system --create-namespace \
+  -f custom-values.yaml
+```
+
+#### Optional components
+
+Everything beyond the core controller is opt-in, matching the kustomize components.
+
+| Feature | Values | Prerequisites |
+| :--- | :--- | :--- |
+| Metrics endpoint | `metrics.enabled=true` | None for plain HTTP |
+| Metrics over TLS | `metrics.enabled=true`, `metrics.secure=true`, `certManager.enabled=true` | `cert-manager` |
+| Validating webhook | `webhook.enabled=true`, `validatingWebhook.enabled=true`, `certManager.enabled=true` | `cert-manager` |
+
+The webhook rejects rules whose taint key and effect collide with an existing rule over an overlapping node selector, so it is worth enabling in production.
+
+```sh
+helm install node-readiness-controller \
+  oci://registry.k8s.io/node-readiness-controller/charts/node-readiness-controller \
+  --version ${CHART_VERSION} \
+  --namespace nrr-system --create-namespace \
+  --set certManager.enabled=true \
+  --set webhook.enabled=true \
+  --set validatingWebhook.enabled=true \
+  --set metrics.enabled=true \
+  --set metrics.secure=true
+```
+
+Both `webhook.enabled` and `validatingWebhook.enabled` are needed. The first runs the webhook server in the controller and mounts its certificate, the second registers the `ValidatingWebhookConfiguration` with the API server.
+
+#### Tuning for larger clusters
+
+The values under `controller` map to the manager's own flags, and each one is only passed to the container when you move it off its default:
+
+| Value | Flag | Default |
+| :--- | :--- | :--- |
+| `controller.nodeConcurrentReconciles` | `--node-concurrent-reconciles` | `1` |
+| `controller.ruleConcurrentReconciles` | `--rule-concurrent-reconciles` | `1` |
+| `controller.kubeAPIQPS` | `--kube-api-qps` | `-1`, client-side throttling off |
+| `controller.kubeAPIBurst` | `--kube-api-burst` | `-1`, client-side throttling off |
+| `controller.enableNodeStateMetrics` | `--enable-node-state-metrics` | `false` |
+| `controller.pprofBindAddress` | `--pprof-bind-address` | unset, disabled |
+
+Raising the two concurrency values is the usual response to readiness taints lagging behind node joins on a large cluster. `enableNodeStateMetrics` adds the per-rule `node_readiness_nodes_by_state` gauge at the cost of extra API reads on node updates, so turn it on when you want the fleet view and can afford the reads.
+
+#### Upgrading
+
+Upgrade the release in place using the OCI chart. Values you set at install time are carried over, so only pass the ones you are changing:
+
+```sh
+helm upgrade node-readiness-controller \
+  oci://registry.k8s.io/node-readiness-controller/charts/node-readiness-controller \
+  --version ${CHART_VERSION} \
+  --namespace nrr-system \
+  -f custom-values.yaml
+```
+
+`helm upgrade --install` works too if you want one command that handles both the first install and later upgrades.
+
+Check what changed before applying it to a live cluster:
+
+```sh
+helm diff upgrade node-readiness-controller \
+  oci://registry.k8s.io/node-readiness-controller/charts/node-readiness-controller \
+  --version ${CHART_VERSION} \
+  --namespace nrr-system   # needs the helm-diff plugin
+```
+
+Read the CRD note below first. Helm will not update the CRD for you, so a chart bump that changes the schema needs that step done by hand.
+
+#### CRD upgrades
+
+Helm installs the CRD from the chart's `crds/` directory on first install only. It does not upgrade or remove it on `helm upgrade` or `helm uninstall`.
+
+Before moving to a chart version that changes the `NodeReadinessRule` schema, apply the CRD yourself. Use the controller release that the chart version ships, which `helm show chart` reports as its `appVersion`:
+
+```sh
+RELEASE=$(helm show chart \
+  oci://registry.k8s.io/node-readiness-controller/charts/node-readiness-controller \
+  --version ${CHART_VERSION} | awk '/^appVersion:/ {print $2}')
+
+kubectl apply -f https://github.com/kubernetes-sigs/node-readiness-controller/releases/download/${RELEASE}/crds.yaml
+```
+
+Skipping this leaves the old schema in place, and rules using newly added fields are rejected by the API server even though the controller supports them.
+
+### Option 3: Advanced Deployment (Kustomize)
 
 If you need deeper customization, you can use Kustomize directly from the source.
 
@@ -76,7 +196,7 @@ kubectl apply -k config/default
 
 You can enable optional components (Metrics, TLS, Webhook) by creating a `kustomization.yaml` that includes the relevant components from the `config/` directory. For reference on how these components can be combined, see the `deploy-with-metrics`, `deploy-with-tls`, `deploy-with-webhook`, and `deploy-full` targets in the projects [`Makefile`](https://github.com/kubernetes-sigs/node-readiness-controller/blob/main/Makefile).
 
-### Option 3: Deploy as a Static Pod (Control Plane)
+### Option 4: Deploy as a Static Pod (Control Plane)
 
 Running the controller as a **Static Pod** on control-plane nodes is useful for self-managed clusters (e.g., `kubeadm`) where you want the controller to be available alongside core components like the API server.
 
@@ -157,6 +277,9 @@ The controller uses a **finalizer** (`readiness.node.x-k8s.io/cleanup-taints`) o
     # OR if using Kustomize
     kubectl delete -k config/default
 
+    # OR if using Helm
+    helm uninstall node-readiness-controller --namespace nrr-system
+
     # OR if using Static Pods
     # Remove the manifest from /etc/kubernetes/manifests/ on all control-plane nodes
     ```
@@ -165,6 +288,7 @@ The controller uses a **finalizer** (`readiness.node.x-k8s.io/cleanup-taints`) o
     ```sh
     kubectl delete -k config/crd
     ```
+    Helm does not remove the CRD it installed from the chart's `crds/` directory, so delete it explicitly if you used the chart.
 
 ### Recovering from Stuck Resources
 
