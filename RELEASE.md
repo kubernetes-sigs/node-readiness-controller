@@ -15,6 +15,7 @@ Instead of manually creating branches and tags, the release is triggered by a pu
 - In this PR:
   - Update the `VERSION` file at the repository root to the new semantic version (e.g., `v0.2.0`).
   - Update `docs/book/src/releases.md` with the release notes.
+  - Update `version` and `appVersion` in `charts/node-readiness-controller/Chart.yaml` to match, so installing the chart from a source checkout deploys the release being cut.
   - Update any other documentation, examples, or manifests as needed for the release.
 - Ensure all tests are passing.
 - Once the PR is merged, the Release Automation GitHub Action will trigger.

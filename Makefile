@@ -505,6 +505,10 @@ crd-ref-docs:
 # helm
 
 HELM ?= go run helm.sh/helm/v3/cmd/helm@v3.15.1
+# Defaults to the VERSION file so build-helm produces a correctly stamped chart
+# outside the release pipeline. scripts/build-and-publish.sh overrides it from the
+# image tag being published.
+RELEASE_VERSION ?= $(shell cat $(ROOT_DIR)/VERSION)
 CHART_VERSION ?= $(shell echo "$(RELEASE_VERSION)" | sed 's/^v//')
 
 lint-chart:
