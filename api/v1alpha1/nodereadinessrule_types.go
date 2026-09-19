@@ -119,8 +119,12 @@ type NodeReadinessRuleSpec struct {
 
 	// nodeSelector limits the scope of this rule to a specific subset of Nodes.
 	//
+	// An empty selector matches every Node in the cluster, so it is rejected.
+	// At least one of matchLabels or matchExpressions must be set.
+	//
 	// +required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="nodeSelector is immutable"
+	// +kubebuilder:validation:XValidation:rule="(has(self.matchLabels) && size(self.matchLabels) > 0) || (has(self.matchExpressions) && size(self.matchExpressions) > 0)",message="nodeSelector must not be empty"
 	NodeSelector metav1.LabelSelector `json:"nodeSelector,omitempty,omitzero"`
 
 	// conditionPolicy controls how the conditions list is evaluated.

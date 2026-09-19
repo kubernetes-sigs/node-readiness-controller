@@ -55,19 +55,6 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 	})
 
 	Context("Spec Validation", func() {
-		It("should validate nodeSelector is not empty", func() {
-			rule := &readinessv1alpha1.NodeReadinessRule{
-				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
-					NodeSelector: metav1.LabelSelector{
-						// Empty selector
-					},
-				},
-			}
-			allErrs := webhook.validateSpec(rule.Spec)
-			Expect(allErrs).To(HaveLen(1))
-			Expect(allErrs[0].Field).To(Equal("spec.nodeSelector"))
-		})
-
 		It("should accept valid nodeSelector", func() {
 			rule := &readinessv1alpha1.NodeReadinessRule{
 				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
@@ -83,24 +70,6 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 		})
 
 		Context("Validate nodeSelector", func() {
-			It("nodeSelector should be set", func() {
-				rule := &readinessv1alpha1.NodeReadinessRule{
-					Spec: readinessv1alpha1.NodeReadinessRuleSpec{
-						Conditions: []readinessv1alpha1.ConditionRequirement{
-							{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
-						},
-						Taint: corev1.Taint{
-							Key:    "readiness.k8s.io/test-key",
-							Effect: corev1.TaintEffectNoSchedule,
-						},
-						EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
-					},
-				}
-				allErrs := webhook.validateSpec(rule.Spec)
-				Expect(allErrs).To(HaveLen(1))
-				Expect(allErrs[0].Field).To(Equal("spec.nodeSelector"))
-				Expect(allErrs[0].Type).To(Equal(field.ErrorTypeRequired))
-			})
 			It("with invalid nodeSelector", func() {
 				rule := &readinessv1alpha1.NodeReadinessRule{
 					Spec: readinessv1alpha1.NodeReadinessRuleSpec{
@@ -480,10 +449,16 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 		})
 
 		It("should reject invalid create operations", func() {
+			// An empty selector is rejected by CEL on the CRD now, so exercise what the
+			// webhook still owns: a selector that does not parse.
 			rule := &readinessv1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "invalid-create"},
-				Spec:       readinessv1alpha1.NodeReadinessRuleSpec{
-					// Missing required fields
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					NodeSelector: metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{Key: "k", Operator: "NotARealOperator"},
+						},
+					},
 				},
 			}
 
@@ -770,14 +745,19 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			Expect(allErrs).To(HaveLen(1))
 			Expect(allErrs[0].Field).To(Equal("spec.taint.key"))
 
-			// Test empty nodeSelector
+			// An unparseable nodeSelector. The empty case is enforced by CEL on the CRD
+			// now, so it never reaches the webhook.
 			invalidRule := &readinessv1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{Name: "invalid-comprehensive"},
 				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
 					Conditions: []readinessv1alpha1.ConditionRequirement{
 						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
 					},
-					NodeSelector: metav1.LabelSelector{}, // Empty selector
+					NodeSelector: metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{Key: "k", Operator: "NotARealOperator"},
+						},
+					},
 					Taint: corev1.Taint{
 						Key:    "readiness.k8s.io/test-key",
 						Effect: corev1.TaintEffectNoSchedule,
@@ -787,7 +767,7 @@ var _ = Describe("NodeReadinessRule Validation Webhook", func() {
 			}
 
 			allErrs = webhook.validateNodeReadinessRule(ctx, invalidRule, false)
-			Expect(allErrs).To(HaveLen(1)) // Empty nodeSelector validation
+			Expect(allErrs).To(HaveLen(1))
 			Expect(allErrs[0].Field).To(Equal("spec.nodeSelector"))
 
 		})

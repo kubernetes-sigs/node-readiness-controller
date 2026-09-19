@@ -61,13 +61,12 @@ func (w *NodeReadinessRuleWebhook) validateSpec(
 ) field.ErrorList {
 	var allErrs field.ErrorList
 
-	// validate that the nodeSelector isn't empty
-	selector, err := metav1.LabelSelectorAsSelector(&spec.NodeSelector)
-	if err != nil {
+	// An empty nodeSelector is rejected by CEL on the CRD, which runs before
+	// validating webhooks, so that case cannot reach here. What CEL cannot express
+	// is whether the selector actually parses, for example an unknown
+	// matchExpressions operator, so that check stays.
+	if _, err := metav1.LabelSelectorAsSelector(&spec.NodeSelector); err != nil {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "nodeSelector"), spec.NodeSelector, err.Error()))
-	}
-	if selector != nil && selector.Empty() {
-		allErrs = append(allErrs, field.Required(field.NewPath("spec", "nodeSelector"), "nodeSelector must not be empty"))
 	}
 
 	return allErrs
