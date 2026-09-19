@@ -191,6 +191,497 @@
 				"graphMode": "area",
 				"justifyMode": "auto"
 			}
+		},
+		{
+			"id": 8,
+			"type": "row",
+			"title": "Controller Internals",
+			"collapsed": false,
+			"gridPos": {
+				"h": 1,
+				"w": 24,
+				"x": 0,
+				"y": 9
+			},
+			"panels": []
+		},
+		{
+			"id": 9,
+			"type": "stat",
+			"title": "Controller Up",
+			"description": "Is the controller running? Green = yes. Grey/no data means it's down or unreachable.",
+			"gridPos": {
+				"h": 8,
+				"w": 4,
+				"x": 0,
+				"y": 10
+			},
+			"datasource": {
+				"type": "prometheus",
+				"uid": "${datasource}"
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "min(up{job=\"$job\"})",
+					"legendFormat": "up",
+					"refId": "A"
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"unit": "short",
+					"decimals": 0,
+					"mappings": [
+						{
+							"type": "value",
+							"options": {
+								"0": {
+									"text": "Down"
+								},
+								"1": {
+									"text": "Up"
+								}
+							}
+						}
+					],
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{
+								"color": "red",
+								"value": null
+							},
+							{
+								"color": "green",
+								"value": 1
+							}
+						]
+					}
+				},
+				"overrides": []
+			},
+			"options": {
+				"reduceOptions": {
+					"calcs": ["lastNotNull"],
+					"fields": "",
+					"values": false
+				},
+				"orientation": "auto",
+				"textMode": "auto",
+				"colorMode": "value",
+				"graphMode": "none",
+				"justifyMode": "auto"
+			}
+		},
+		{
+			"id": 10,
+			"type": "timeseries",
+			"title": "Workqueue Depth",
+			"description": "How much work is piled up waiting to be processed. Lower is better — flat 0 means the controller's fully caught up.",
+			"gridPos": {
+				"h": 8,
+				"w": 10,
+				"x": 4,
+				"y": 10
+			},
+			"datasource": {
+				"type": "prometheus",
+				"uid": "${datasource}"
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "sum by (controller) (workqueue_depth{job=\"$job\"})",
+					"legendFormat": "{{controller}}",
+					"refId": "A"
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"unit": "short",
+					"decimals": 0,
+					"min": 0,
+					"max": 1200,
+					"color": {
+						"mode": "thresholds"
+					},
+					"custom": {
+						"drawStyle": "line",
+						"lineInterpolation": "linear",
+						"lineWidth": 3,
+						"fillOpacity": 8,
+						"showPoints": "always",
+						"pointSize": 5,
+						"spanNulls": false,
+						"axisPlacement": "auto",
+						"thresholdsStyle": {
+							"mode": "line"
+						}
+					},
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{
+								"color": "green",
+								"value": null
+							},
+							{
+								"color": "yellow",
+								"value": 500
+							},
+							{
+								"color": "red",
+								"value": 1000
+							}
+						]
+					}
+				},
+				"overrides": [
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "node"
+						},
+						"properties": [
+							{
+								"id": "custom.lineStyle",
+								"value": {
+									"fill": "solid"
+								}
+							}
+						]
+					},
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "nodereadiness-controller"
+						},
+						"properties": [
+							{
+								"id": "custom.lineStyle",
+								"value": {
+									"fill": "dash",
+									"dash": [10, 6]
+								}
+							}
+						]
+					}
+				]
+			},
+			"options": {
+				"legend": {
+					"displayMode": "list",
+					"placement": "bottom",
+					"calcs": []
+				},
+				"tooltip": {
+					"mode": "multi",
+					"sort": "none"
+				}
+			}
+		},
+		{
+			"id": 11,
+			"type": "timeseries",
+			"title": "Workqueue Latency (p99)",
+			"description": "How long the slowest reconciles are waiting in queue. No data just means the queue's been idle — that's normal, not broken.",
+			"gridPos": {
+				"h": 8,
+				"w": 10,
+				"x": 14,
+				"y": 10
+			},
+			"datasource": {
+				"type": "prometheus",
+				"uid": "${datasource}"
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "histogram_quantile(0.99, sum by (le, controller) (rate(workqueue_queue_duration_seconds_bucket{job=\"$job\"}[5m]))) and on (controller) (sum by (controller) (rate(workqueue_queue_duration_seconds_count{job=\"$job\"}[5m])) > 0)",
+					"legendFormat": "{{controller}}",
+					"refId": "A"
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"unit": "s",
+					"custom": {
+						"drawStyle": "line",
+						"lineInterpolation": "linear",
+						"lineWidth": 1,
+						"fillOpacity": 10,
+						"showPoints": "never",
+						"spanNulls": false,
+						"axisPlacement": "auto"
+					},
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{
+								"color": "text",
+								"value": null
+							}
+						]
+					}
+				},
+				"overrides": []
+			},
+			"options": {
+				"legend": {
+					"displayMode": "list",
+					"placement": "bottom",
+					"calcs": []
+				},
+				"tooltip": {
+					"mode": "multi",
+					"sort": "none"
+				}
+			}
+		},
+		{
+			"id": 12,
+			"type": "timeseries",
+			"title": "Reconcile Errors",
+			"description": "Failed reconcile attempts per second. Should stay at 0 — any real number here means something's actually breaking.",
+			"gridPos": {
+				"h": 8,
+				"w": 11,
+				"x": 0,
+				"y": 18
+			},
+			"datasource": {
+				"type": "prometheus",
+				"uid": "${datasource}"
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "sum by (controller) (rate(controller_runtime_reconcile_errors_total{job=\"$job\"}[5m]))",
+					"legendFormat": "{{controller}}",
+					"refId": "A"
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"unit": "errs/s",
+					"min": 0,
+					"max": 0.01,
+					"color": {
+						"mode": "thresholds"
+					},
+					"custom": {
+						"drawStyle": "line",
+						"lineInterpolation": "linear",
+						"lineWidth": 3,
+						"fillOpacity": 8,
+						"showPoints": "always",
+						"pointSize": 5,
+						"spanNulls": false,
+						"axisPlacement": "auto",
+						"thresholdsStyle": {
+							"mode": "line"
+						}
+					},
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{
+								"color": "green",
+								"value": null
+							},
+							{
+								"color": "red",
+								"value": 0.0001
+							}
+						]
+					}
+				},
+				"overrides": [
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "node"
+						},
+						"properties": [
+							{
+								"id": "custom.lineStyle",
+								"value": {
+									"fill": "solid"
+								}
+							}
+						]
+					},
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "nodereadiness-controller"
+						},
+						"properties": [
+							{
+								"id": "custom.lineStyle",
+								"value": {
+									"fill": "dash",
+									"dash": [10, 6]
+								}
+							}
+						]
+					}
+				]
+			},
+			"options": {
+				"legend": {
+					"displayMode": "list",
+					"placement": "bottom",
+					"calcs": []
+				},
+				"tooltip": {
+					"mode": "multi",
+					"sort": "none"
+				}
+			}
+		},
+		{
+			"id": 13,
+			"type": "stat",
+			"title": "Bootstrap Completions",
+			"description": "Nodes that finished bootstrapping since the controller last restarted. Just a heads-up number, not something to alert on.",
+			"gridPos": {
+				"h": 8,
+				"w": 5,
+				"x": 19,
+				"y": 18
+			},
+			"datasource": {
+				"type": "prometheus",
+				"uid": "${datasource}"
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "sum(node_readiness_bootstrap_completed_total{job=\"$job\"}) or vector(0)",
+					"legendFormat": "Completions",
+					"instant": true,
+					"refId": "A"
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"unit": "short",
+					"decimals": 0,
+					"mappings": [],
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{
+								"color": "text",
+								"value": null
+							}
+						]
+					}
+				},
+				"overrides": []
+			},
+			"options": {
+				"reduceOptions": {
+					"calcs": ["lastNotNull"],
+					"fields": "",
+					"values": false
+				},
+				"orientation": "auto",
+				"textMode": "auto",
+				"colorMode": "none",
+				"graphMode": "none",
+				"justifyMode": "auto"
+			}
+		},
+		{
+			"id": 14,
+			"type": "table",
+			"title": "Build Info",
+			"description": "Which version's running, and on which pod. Handy for catching version drift mid-rollout.",
+			"gridPos": {
+				"h": 8,
+				"w": 8,
+				"x": 11,
+				"y": 18
+			},
+			"datasource": {
+				"type": "prometheus",
+				"uid": "${datasource}"
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "node_readiness_build_info{job=\"$job\"}",
+					"format": "table",
+					"instant": true,
+					"refId": "A"
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"custom": {
+						"align": "auto",
+						"filterable": false
+					},
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{
+								"color": "text",
+								"value": null
+							}
+						]
+					}
+				},
+				"overrides": []
+			},
+			"options": {
+				"showHeader": true
+			},
+			"transformations": [
+				{
+					"id": "organize",
+					"options": {
+						"excludeByName": {
+							"Time": true,
+							"__name__": true,
+							"container": true,
+							"endpoint": true,
+							"job": true,
+							"namespace": true,
+							"service": true
+						},
+						"indexByName": {
+							"Value": 0,
+							"version": 1,
+							"pod": 2,
+							"instance": 3
+						},
+						"renameByName": {}
+					}
+				}
+			]
 		}
 	],
 	"templating": {
@@ -202,6 +693,29 @@
 				"current": {},
 				"hide": 0,
 				"refresh": 1
+			},
+			{
+				"name": "job",
+				"type": "query",
+				"label": "Job",
+				"datasource": {
+					"type": "prometheus",
+					"uid": "${datasource}"
+				},
+				"definition": "label_values(node_readiness_build_info, job)",
+				"query": {
+					"query": "label_values(node_readiness_build_info, job)",
+					"refId": "StandardVariableQuery"
+				},
+				"refresh": 1,
+				"sort": 1,
+				"hide": 0,
+				"current": {
+					"text": "nrr-metrics-service",
+					"value": "nrr-metrics-service"
+				},
+				"includeAll": false,
+				"multi": false
 			}
 		]
 	}
