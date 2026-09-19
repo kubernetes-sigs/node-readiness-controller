@@ -18,6 +18,8 @@
 <!-- - [Device Drivers](./examples/dra-readiness.md) -->
 - [Constrained Impersonation](./examples/constrained-impersonation.md)
 
+- [Kubelet Serving Certificate](./examples/kubelet-cert-readiness.md)
+
 # Releases
 
 - [Release Notes](./releases.md)
