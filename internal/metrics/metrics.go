@@ -48,6 +48,14 @@ const (
 	ReconciliationOperationAddTaint    ReconciliationOperation = "add_taint"
 )
 
+// EnforcementOperation represents an enforcement operation.
+type EnforcementOperation string
+
+const (
+	EnforcementOperationRemove EnforcementOperation = "remove"
+	EnforcementOperationAdd    EnforcementOperation = "add"
+)
+
 // NodeState defines node states.
 type NodeState string
 
@@ -124,6 +132,8 @@ var (
 
 	// ReconciliationLatency tracks end-to-end latency from condition change to taint operation.
 	// This measures how quickly the controller responds to node condition changes.
+	//
+	// Deprecated: Use EnforcementLatency instead. ReconciliationLatency will be removed in future releases.
 	ReconciliationLatency = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "node_readiness_reconciliation_latency_seconds",
@@ -131,6 +141,17 @@ var (
 			Buckets: []float64{0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300}, // 10ms to 5min
 		},
 		[]string{"rule", "operation"}, // operation: add_taint, remove_taint
+	)
+
+	// EnforcementLatency tracks end-to-end latency from condition change to taint operation.
+	// This measures how quickly the controller enforces node readiness changes.
+	EnforcementLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "node_readiness_enforcement_latency_seconds",
+			Help:    "End-to-end latency from node condition change to taint operation completion",
+			Buckets: []float64{0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300}, // 10ms to 5min
+		},
+		[]string{"rule", "operation"}, // operation: add, remove
 	)
 
 	// NodesByState tracks nodes in each readiness state per rule.
@@ -185,6 +206,7 @@ func init() {
 	metrics.Registry.MustRegister(BootstrapCompleted)
 	metrics.Registry.MustRegister(BootstrapDuration)
 	metrics.Registry.MustRegister(ReconciliationLatency)
+	metrics.Registry.MustRegister(EnforcementLatency)
 	metrics.Registry.MustRegister(NodesByState)
 	metrics.Registry.MustRegister(ConditionEvaluationFailures)
 	metrics.Registry.MustRegister(RuleLastReconciliationTime)

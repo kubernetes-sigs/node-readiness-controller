@@ -59,6 +59,21 @@ var metricQueries = []MetricQuery{
 		QueryTmpl: "histogram_quantile(0.99, sum(rate(node_readiness_reconciliation_latency_seconds_bucket{rule=\"security-agent-readiness-rule\"}[%ds])) by (le))",
 		Unit:      "s",
 	},
+	{
+		Key:       "enforcement_latency_p50",
+		QueryTmpl: "histogram_quantile(0.50, sum(rate(node_readiness_enforcement_latency_seconds_bucket{rule=\"security-agent-readiness-rule\"}[%ds])) by (le))",
+		Unit:      "s",
+	},
+	{
+		Key:       "enforcement_latency_p90",
+		QueryTmpl: "histogram_quantile(0.90, sum(rate(node_readiness_enforcement_latency_seconds_bucket{rule=\"security-agent-readiness-rule\"}[%ds])) by (le))",
+		Unit:      "s",
+	},
+	{
+		Key:       "enforcement_latency_p99",
+		QueryTmpl: "histogram_quantile(0.99, sum(rate(node_readiness_enforcement_latency_seconds_bucket{rule=\"security-agent-readiness-rule\"}[%ds])) by (le))",
+		Unit:      "s",
+	},
 
 	{
 		Key:       "workqueue_queue_duration_p50",

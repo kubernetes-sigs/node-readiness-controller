@@ -233,7 +233,9 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	metrics.Failures.DeletePartialMatch(ruleLabel)
 	metrics.ConditionEvaluationFailures.DeletePartialMatch(ruleLabel)
 	metrics.TaintOperations.DeletePartialMatch(ruleLabel)
+	//nolint:staticcheck
 	metrics.ReconciliationLatency.DeletePartialMatch(ruleLabel)
+	metrics.EnforcementLatency.DeletePartialMatch(ruleLabel)
 
 	return ctrl.Result{}, nil
 }
@@ -417,7 +419,7 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		}
 	}
 
-	recordLatency := func(operation string) {
+	recordLatency := func(operation metrics.ReconciliationOperation, enforcementOperation metrics.EnforcementOperation) {
 		if !latestTransition.IsZero() {
 			latency := time.Since(latestTransition.Time).Seconds()
 
@@ -427,7 +429,10 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 				latency = 0
 			}
 
-			metrics.ReconciliationLatency.WithLabelValues(rule.Name, operation).Observe(latency)
+			// Deprecated: ReconciliationLatency is superseded by EnforcementLatency and will be removed in future releases.
+			//nolint:staticcheck
+			metrics.ReconciliationLatency.WithLabelValues(rule.Name, string(operation)).Observe(latency)
+			metrics.EnforcementLatency.WithLabelValues(rule.Name, string(enforcementOperation)).Observe(latency)
 		}
 	}
 
@@ -449,7 +454,7 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 
 		// Record taint removal latency and taint operation counter.
 		metrics.TaintOperations.WithLabelValues(rule.Name, string(metrics.TaintOperationRemove)).Inc()
-		recordLatency(string(metrics.ReconciliationOperationRemoveTaint))
+		recordLatency(metrics.ReconciliationOperationRemoveTaint, metrics.EnforcementOperationRemove)
 
 		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
 			// Only record the bootstrap duration if the node was created AFTER the rule.
@@ -480,7 +485,7 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		if added {
 			// Record add taint latency and taint operation counter
 			metrics.TaintOperations.WithLabelValues(rule.Name, string(metrics.TaintOperationAdd)).Inc()
-			recordLatency(string(metrics.ReconciliationOperationAddTaint))
+			recordLatency(metrics.ReconciliationOperationAddTaint, metrics.EnforcementOperationAdd)
 		}
 
 	case !shouldRemoveTaint && currentlyHasTaint:
