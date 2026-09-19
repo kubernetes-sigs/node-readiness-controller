@@ -35,6 +35,26 @@
 | **Condition Check Failures** | {{index .Metrics "condition_failures_total"}} |
 | **Controller Operational Failures** | {{index .Metrics "operational_failures_total"}} |
 
+### API Conflicts
+
+| Conflict Operation | Count |
+| :--- | :--- |
+| **Total (all operations)** | {{index .Metrics "api_conflicts_total"}} |
+| **add_taint** | {{index .Metrics "api_conflicts_add_taint"}} |
+| **remove_taint** | {{index .Metrics "api_conflicts_remove_taint"}} |
+| **rule_status_node_write** | {{index .Metrics "api_conflicts_rule_status_node_write"}} |
+| **rule_status_rule_sweep** | {{index .Metrics "api_conflicts_rule_status_rule_sweep"}} |
+
+#### Retry Exhaustion
+
+| Exhausted Operation | Count |
+| :--- | :--- |
+| **add_taint** | {{index .Metrics "retry_exhaustion_add_taint"}} |
+| **remove_taint** | {{index .Metrics "retry_exhaustion_remove_taint"}} |
+| **status_patch** | {{index .Metrics "retry_exhaustion_status_patch"}} |
+| **rule_status_sweep** | {{index .Metrics "retry_exhaustion_rule_status_sweep"}} |
+| Rule Controller reconcile errors (`controller_runtime_reconcile_errors_total`) | {{index .Metrics "rule_controller_reconcile_errors"}} |
+
 ### Kubernetes API Client Metrics
 
 | Metric | Value |

@@ -131,6 +131,67 @@ var metricQueries = []MetricQuery{
 		IsCounter: true,
 	},
 	{
+		Key:       "api_conflicts_add_taint",
+		QueryTmpl: "sum(node_readiness_api_conflicts_total{rule=\"security-agent-readiness-rule\",operation=\"add_taint\"}) - (sum(node_readiness_api_conflicts_total{rule=\"security-agent-readiness-rule\",operation=\"add_taint\"} @ %.3f) or vector(0))",
+		Unit:      "conflicts",
+		IsCounter: true,
+	},
+	{
+		Key:       "api_conflicts_remove_taint",
+		QueryTmpl: "sum(node_readiness_api_conflicts_total{rule=\"security-agent-readiness-rule\",operation=\"remove_taint\"}) - (sum(node_readiness_api_conflicts_total{rule=\"security-agent-readiness-rule\",operation=\"remove_taint\"} @ %.3f) or vector(0))",
+		Unit:      "conflicts",
+		IsCounter: true,
+	},
+	{
+		Key:       "api_conflicts_rule_status_node_write",
+		QueryTmpl: "sum(node_readiness_api_conflicts_total{rule=\"security-agent-readiness-rule\",operation=\"rule_status_node_write\"}) - (sum(node_readiness_api_conflicts_total{rule=\"security-agent-readiness-rule\",operation=\"rule_status_node_write\"} @ %.3f) or vector(0))",
+		Unit:      "conflicts",
+		IsCounter: true,
+	},
+	{
+		Key:       "api_conflicts_rule_status_rule_sweep",
+		QueryTmpl: "sum(node_readiness_api_conflicts_total{rule=\"security-agent-readiness-rule\",operation=\"rule_status_rule_sweep\"}) - (sum(node_readiness_api_conflicts_total{rule=\"security-agent-readiness-rule\",operation=\"rule_status_rule_sweep\"} @ %.3f) or vector(0))",
+		Unit:      "conflicts",
+		IsCounter: true,
+	},
+	{
+		Key:       "api_conflicts_total",
+		QueryTmpl: "sum(node_readiness_api_conflicts_total{rule=\"security-agent-readiness-rule\"}) - (sum(node_readiness_api_conflicts_total{rule=\"security-agent-readiness-rule\"} @ %.3f) or vector(0))",
+		Unit:      "conflicts",
+		IsCounter: true,
+	},
+	{
+		Key:       "retry_exhaustion_add_taint",
+		QueryTmpl: "sum(node_readiness_failures_total{rule=\"security-agent-readiness-rule\",reason=\"AddTaintConflictExhausted\"}) - (sum(node_readiness_failures_total{rule=\"security-agent-readiness-rule\",reason=\"AddTaintConflictExhausted\"} @ %.3f) or vector(0))",
+		Unit:      "conflicts",
+		IsCounter: true,
+	},
+	{
+		Key:       "retry_exhaustion_remove_taint",
+		QueryTmpl: "sum(node_readiness_failures_total{rule=\"security-agent-readiness-rule\",reason=\"RemoveTaintConflictExhausted\"}) - (sum(node_readiness_failures_total{rule=\"security-agent-readiness-rule\",reason=\"RemoveTaintConflictExhausted\"} @ %.3f) or vector(0))",
+		Unit:      "conflicts",
+		IsCounter: true,
+	},
+	{
+		Key:       "retry_exhaustion_status_patch",
+		QueryTmpl: "sum(node_readiness_failures_total{rule=\"security-agent-readiness-rule\",reason=\"StatusPatchConflictExhausted\"}) - (sum(node_readiness_failures_total{rule=\"security-agent-readiness-rule\",reason=\"StatusPatchConflictExhausted\"} @ %.3f) or vector(0))",
+		Unit:      "conflicts",
+		IsCounter: true,
+	},
+	{
+		Key:       "retry_exhaustion_rule_status_sweep",
+		QueryTmpl: "sum(node_readiness_failures_total{rule=\"security-agent-readiness-rule\",reason=\"RuleStatusRuleSweepConflictExhausted\"}) - (sum(node_readiness_failures_total{rule=\"security-agent-readiness-rule\",reason=\"RuleStatusRuleSweepConflictExhausted\"} @ %.3f) or vector(0))",
+		Unit:      "conflicts",
+		IsCounter: true,
+	},
+	{
+		Key:       "rule_controller_reconcile_errors",
+		QueryTmpl: "sum(controller_runtime_reconcile_errors_total{controller=\"nodereadiness-controller\",job=\"node-readiness-controller\"}) - (sum(controller_runtime_reconcile_errors_total{controller=\"nodereadiness-controller\",job=\"node-readiness-controller\"} @ %.3f) or vector(0))",
+		Unit:      "errors",
+		IsCounter: true,
+	},
+
+	{
 		Key:       "cpu_cores_rate",
 		QueryTmpl: "sum(rate(process_cpu_seconds_total{job=\"node-readiness-controller\"}[%ds]))",
 		Unit:      "cores",
