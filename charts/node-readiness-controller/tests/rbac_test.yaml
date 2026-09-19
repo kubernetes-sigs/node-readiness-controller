@@ -70,3 +70,73 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: creates leader election role and rolebinding in the release namespace by default
+    template: templates/rbac.yaml
+    release:
+      namespace: test-ns
+    asserts:
+      - isKind:
+          of: Role
+        documentSelector:
+          path: metadata.name
+          value: node-readiness-controller-leader-election-role
+      - equal:
+          path: metadata.namespace
+          value: test-ns
+        documentSelector:
+          path: metadata.name
+          value: node-readiness-controller-leader-election-role
+      - isKind:
+          of: RoleBinding
+        documentSelector:
+          path: metadata.name
+          value: node-readiness-controller-leader-election-rolebinding
+      - equal:
+          path: metadata.namespace
+          value: test-ns
+        documentSelector:
+          path: metadata.name
+          value: node-readiness-controller-leader-election-rolebinding
+      - equal:
+          path: subjects[0].namespace
+          value: test-ns
+        documentSelector:
+          path: metadata.name
+          value: node-readiness-controller-leader-election-rolebinding
+
+  - it: overrides leader election role and rolebinding namespace when leaderElection.namespace is set
+    template: templates/rbac.yaml
+    release:
+      namespace: test-ns
+    set:
+      leaderElection:
+        namespace: kube-system
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: kube-system
+        documentSelector:
+          path: metadata.name
+          value: node-readiness-controller-leader-election-role
+      - equal:
+          path: metadata.namespace
+          value: kube-system
+        documentSelector:
+          path: metadata.name
+          value: node-readiness-controller-leader-election-rolebinding
+      - equal:
+          path: subjects[0].namespace
+          value: test-ns
+        documentSelector:
+          path: metadata.name
+          value: node-readiness-controller-leader-election-rolebinding
+
+  - it: omits leader election role and rolebinding when leaderElection.enabled is false
+    template: templates/rbac.yaml
+    set:
+      leaderElection:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 8
