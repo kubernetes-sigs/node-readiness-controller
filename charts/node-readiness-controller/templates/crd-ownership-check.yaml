@@ -1,0 +1,59 @@
+{{- /*
+Refuse to install a second node-readiness-controller into a cluster that already
+has one. Two controllers reconciling the same NodeReadinessRules compete over the
+same node taints. That is easy to do by accident where the control plane is hosted:
+the provider's installation is not visible to the user, so nothing signals that the
+controller is already running.
+
+Two independent checks run below; either one aborts the install.
+
+1. CRD ownership (value) check. The cluster-scoped NodeReadinessRule CRD carries the
+   standard app.kubernetes.io/managed-by label naming its installer. This chart's
+   crds/ copy stamps `helm` (crds.managedBy). Helm applies crds/ *before* it renders
+   templates, so on a self install the CRD this install just created already carries
+   our own value -- it matches and passes. A value that is present but DIFFERENT
+   belongs to another installer: `kustomize`, or a hosted provider's `<provider>`.
+   This catches an invisible provider install even when its workload is renamed or
+   hidden, which the Deployment check below cannot see. It also naturally allows a
+   `helm uninstall` -> `helm install` cycle, since Helm leaves crds/ in place and the
+   value still matches.
+
+2. Deployment (workload) check. Catches a duplicate that carries the SAME managed-by
+   value (for example a second Helm release of this chart), which the value check
+   cannot distinguish. We match any Deployment in any namespace carrying
+   app.kubernetes.io/name=node-readiness-controller, the label this chart stamps.
+   The Deployment is applied after rendering, so one found here belongs to a
+   different, already-running installation. Flows that rename the workload are not
+   seen here but are caught by check 1 via the CRD label; see the installation guide.
+
+Lookup foot-guns handled below:
+  * lookup with an empty name returns a *list* that is truthy even when it matched
+    nothing, so we range .items and count real matches.
+  * a Deployment (or CRD) may carry no labels at all, so we default the label map
+    before indexing to avoid a nil panic.
+
+lookup returns nothing during "helm template" and "--dry-run", so this only fires on
+a real install.
+*/ -}}
+{{- if and .Values.crds.preInstallCheck .Release.IsInstall }}
+{{- $expected := .Values.crds.managedBy }}
+{{- /* 1. CRD ownership (value) check. */ -}}
+{{- $crd := lookup "apiextensions.k8s.io/v1" "CustomResourceDefinition" "" "nodereadinessrules.readiness.node.x-k8s.io" }}
+{{- if $crd }}
+{{- $owner := get ($crd.metadata.labels | default dict) "app.kubernetes.io/managed-by" }}
+{{- if and $owner (ne $owner $expected) }}
+{{- fail (printf "node-readiness-controller is already installed in this cluster by a different installer.\n\nThe NodeReadinessRule CRD is labelled app.kubernetes.io/managed-by=%s, but this install claims %q.\n\nAnother installation -- often a hosted provider's, running in the control plane where\nit is not visible to you -- already owns the cluster-scoped CRD. Installing this chart\nwould make two controllers manage the same node taints.\n\nTo adopt the existing installation, run 'helm upgrade' against its release.\nTo install anyway, set crds.preInstallCheck=false." $owner $expected) }}
+{{- end }}
+{{- end }}
+{{- /* 2. Deployment (workload) check. */ -}}
+{{- $existing := "" }}
+{{- range (lookup "apps/v1" "Deployment" "" "").items }}
+{{- $labels := .metadata.labels | default dict }}
+{{- if eq (get $labels "app.kubernetes.io/name") "node-readiness-controller" }}
+{{- $existing = printf "%s/%s" .metadata.namespace .metadata.name }}
+{{- end }}
+{{- end }}
+{{- if $existing }}
+{{- fail (printf "node-readiness-controller is already installed in this cluster.\n\nThe Deployment %s is already running the controller.\n\nInstalling a second controller will make both of them manage the same node taints.\nIf this is a managed cluster, your provider may have installed the controller as\npart of the control plane, where it is not visible to you.\n\nTo upgrade the existing installation, run 'helm upgrade' against its release.\nTo install anyway, set crds.preInstallCheck=false." $existing) }}
+{{- end }}
+{{- end }}
