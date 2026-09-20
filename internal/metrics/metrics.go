@@ -27,10 +27,28 @@ import (
 type FailureReason string
 
 const (
-	FailureReasonEvaluationError       FailureReason = "EvaluationError"
-	FailureReasonAddTaintError         FailureReason = "AddTaintError"
-	FailureReasonRemoveTaintError      FailureReason = "RemoveTaintError"
-	FailureReasonAnnotationPatchFailed FailureReason = "AnnotationPatchFailed"
+	FailureReasonEvaluationError                      FailureReason = "EvaluationError"
+	FailureReasonAddTaintError                        FailureReason = "AddTaintError"
+	FailureReasonRemoveTaintError                     FailureReason = "RemoveTaintError"
+	FailureReasonAnnotationPatchFailed                FailureReason = "AnnotationPatchFailed"
+	FailureReasonAddTaintConflictExhausted            FailureReason = "AddTaintConflictExhausted"
+	FailureReasonRemoveTaintConflictExhausted         FailureReason = "RemoveTaintConflictExhausted"
+	FailureReasonStatusPatchError                     FailureReason = "StatusPatchError"
+	FailureReasonStatusPatchConflictExhausted         FailureReason = "StatusPatchConflictExhausted"
+	FailureReasonRuleStatusRuleSweepConflictExhausted FailureReason = "RuleStatusRuleSweepConflictExhausted"
+)
+
+// ConflictOperation identifies which optimistic-locked API write hit a 409.
+type ConflictOperation string
+
+const (
+	ConflictOperationAddTaint               ConflictOperation = "add_taint"
+	ConflictOperationRemoveTaint            ConflictOperation = "remove_taint"
+	ConflictOperationMarkBootstrapCompleted ConflictOperation = "mark_bootstrap_completed"
+	ConflictOperationFinalizerAdd           ConflictOperation = "finalizer_add"
+	ConflictOperationFinalizerRemove        ConflictOperation = "finalizer_remove"
+	ConflictOperationRuleStatusNodeWrite    ConflictOperation = "rule_status_node_write"
+	ConflictOperationRuleStatusRuleSweep    ConflictOperation = "rule_status_rule_sweep"
 )
 
 // TaintOperation represents a taint operation.
@@ -109,6 +127,15 @@ var (
 			Help: "Total number of operational failures",
 		},
 		[]string{"rule", "reason"},
+	)
+
+	// APIConflicts counts API write conflicts for each retry attempt.
+	APIConflicts = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "node_readiness_api_conflicts_total",
+			Help: "Total number of API write conflicts encountered per retry attempt",
+		},
+		[]string{"rule", "operation"},
 	)
 
 	// BootstrapCompleted tracks the number of nodes that have completed bootstrap.
@@ -204,6 +231,7 @@ func init() {
 	metrics.Registry.MustRegister(TaintOperations)
 	metrics.Registry.MustRegister(EvaluationDuration)
 	metrics.Registry.MustRegister(Failures)
+	metrics.Registry.MustRegister(APIConflicts)
 	metrics.Registry.MustRegister(BootstrapCompleted)
 	metrics.Registry.MustRegister(BootstrapDuration)
 	metrics.Registry.MustRegister(ReconciliationLatency)
