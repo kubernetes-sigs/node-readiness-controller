@@ -78,7 +78,7 @@ var (
 	RulesTotal = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "node_readiness_rules_total",
-			Help: "Number of NodeReadinessRules",
+			Help: "[DEPRECATED] Number of NodeReadinessRules. Use node_readiness_rules instead.",
 		},
 	)
 

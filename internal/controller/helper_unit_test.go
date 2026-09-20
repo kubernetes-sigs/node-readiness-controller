@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
+	"sigs.k8s.io/node-readiness-controller/internal/metrics"
 )
 
 func TestBootstrapAnnotationKey(t *testing.T) {
@@ -302,4 +303,42 @@ func TestApplyNodeStatusDelta(t *testing.T) {
 		g.Expect(rule.Status.NodeEvaluations[1].NodeName).To(Equal("other-node"))
 		g.Expect(rule.Status.FailedNodes).To(BeEmpty())
 	})
+}
+
+func TestListRuleInventory(t *testing.T) {
+	g := NewWithT(t)
+
+	c := &RuleReadinessController{}
+	ctx := t.Context()
+
+	newRule := func(name string, mode readinessv1alpha1.EnforcementMode, dryRun bool, deleting bool) *readinessv1alpha1.NodeReadinessRule {
+		rule := &readinessv1alpha1.NodeReadinessRule{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+				EnforcementMode: mode,
+				DryRun:          dryRun,
+			},
+		}
+		if deleting {
+			now := metav1.Now()
+			rule.DeletionTimestamp = &now
+			rule.Finalizers = []string{finalizerName}
+		}
+		return rule
+	}
+
+	rules := []*readinessv1alpha1.NodeReadinessRule{
+		newRule("rule-a", readinessv1alpha1.EnforcementModeBootstrapOnly, false, false),
+		newRule("rule-b", readinessv1alpha1.EnforcementModeBootstrapOnly, false, false),
+		newRule("rule-c", readinessv1alpha1.EnforcementModeContinuous, true, false),
+		newRule("rule-deleting", readinessv1alpha1.EnforcementModeContinuous, false, true),
+	}
+
+	counts, err := c.ListRuleInventory(ctx, rules)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	g.Expect(counts).To(Equal(map[metrics.RuleModeKey]float64{
+		{EnforcementMode: "bootstrap-only", DryRun: false}: 2,
+		{EnforcementMode: "continuous", DryRun: true}:      1,
+	}))
 }

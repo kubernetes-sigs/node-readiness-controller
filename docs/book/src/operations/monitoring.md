@@ -10,6 +10,8 @@ The controller serves metrics on `/metrics` only when metrics are explicitly ena
 
 ### `node_readiness_rules_total`
 
+***Deprecated:** use [`node_readiness_rules`](#node_readiness_rules) instead. It provides the same rule count with additional `enforcement_mode` and `dry_run` labels. `node_readiness_rules_total` is still published for compatibility.*
+
 Number of `NodeReadinessRule` objects tracked by the controller.
 
 | Property | Value |
@@ -17,6 +19,23 @@ Number of `NodeReadinessRule` objects tracked by the controller.
 | Type | `gauge` |
 | Labels | none |
 | Recorded when | The controller refreshes or removes a tracked rule |
+
+### `node_readiness_rules`
+
+Number of `NodeReadinessRule` objects tracked by the controller by enforcement mode and dry-run state.
+
+| Property | Value |
+| --- | --- |
+| Type | `gauge` |
+| Labels | `enforcement_mode`, `dry_run` |
+| Recorded when | Computed on each Prometheus scrape from the current rule list, excluding rules that are being deleted |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `enforcement_mode` | Enforcement mode of the rule | `bootstrap-only`, `continuous` |
+| `dry_run` | Whether the rule is in dry-run mode | `true`, `false` |
 
 ### `node_readiness_taint_operations_total`
 
