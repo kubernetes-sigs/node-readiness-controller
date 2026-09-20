@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: npd-kubelet-cert-config
+  namespace: kube-system
+data:
+  kubelet-serving-cert-monitor.json: |
+    {
+      "plugin": "custom",
+      "pluginConfig": {
+        "invoke_interval": "10s",
+        "timeout": "5s",
+        "max_output_length": 80,
+        "concurrency": 1
+      },
+      "source": "kubelet-serving-cert-monitor",
+      "conditions": [
+        {
+          "type": "KubeletServingCertNotReady",
+          "reason": "KubeletServingCertPresent",
+          "message": "kubelet serving certificate is present"
+        }
+      ],
+      "rules": [
+        {
+          "type": "permanent",
+          "condition": "KubeletServingCertNotReady",
+          "reason": "KubeletServingCertMissing",
+          "path": "/config/plugin/check-kubelet-serving-cert.sh",
+          "timeout": "5s"
+        }
+      ]
+    }
+  check-kubelet-serving-cert.sh: |
+    #!/bin/sh
+    CERT_PATH="/var/lib/kubelet/pki/kubelet-server-current.pem"
+    if [ -f "$CERT_PATH" ]; then
+      echo "kubelet serving certificate present at $CERT_PATH"
+      exit 0
+    else
+      echo "kubelet serving certificate not yet present at $CERT_PATH"
+      exit 1
+    fi
