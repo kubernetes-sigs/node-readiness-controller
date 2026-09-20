@@ -100,6 +100,32 @@ func BenchmarkListRuleNodeStates(b *testing.B) {
 	}
 }
 
+func BenchmarkListRuleMatchedNodes(b *testing.B) {
+	nodeCounts := []int{100, 1000, 5000, 15000}
+	ruleCounts := []int{5, 20, 50}
+
+	for _, nodeCount := range nodeCounts {
+		for _, ruleCount := range ruleCounts {
+			b.Run(fmt.Sprintf("nodes=%d/rules=%d", nodeCount, ruleCount), func(b *testing.B) {
+				c, nodes := buildBenchController(b, nodeCount, ruleCount)
+				ctx := b.Context()
+				rules, err := c.ListRules(ctx)
+				if err != nil {
+					b.Fatalf("ListRules failed: %v", err)
+				}
+
+				b.ResetTimer()
+				b.ReportAllocs()
+				for range b.N {
+					if _, err := c.ListRuleMatchedNodes(ctx, nodes, rules); err != nil {
+						b.Fatalf("ListRuleMatchedNodes failed: %v", err)
+					}
+				}
+			})
+		}
+	}
+}
+
 // buildBlockedNodesBenchController sets up rules and evaluations for benchmarking ListBlockedNodes.
 func buildBlockedNodesBenchController(b *testing.B, nodeCount, ruleCount, conditionsPerRule int) (*RuleReadinessController, []corev1.Node) {
 	b.Helper()
