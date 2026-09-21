@@ -179,3 +179,97 @@ tests:
       - equal:
           path: spec.template.spec.topologySpreadConstraints[0].topologyKey
           value: topology.kubernetes.io/zone
+
+  - it: derives container and probe ports from the default healthProbeBindAddress
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8081
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: 8081
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: 8081
+
+  - it: derives container and probe ports from a custom healthProbeBindAddress
+    set:
+      healthProbeBindAddress: ":9090"
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --health-probe-bind-address=:9090
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 9090
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: 9090
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: 9090
+
+  - it: derives probe ports when the bind address includes a host
+    set:
+      healthProbeBindAddress: "0.0.0.0:9091"
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 9091
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: 9091
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: 9091
+
+  - it: derives probe ports from an IPv6 bind address
+    set:
+      healthProbeBindAddress: "[::]:9092"
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 9092
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: 9092
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: 9092
+
+  - it: omits ports and probes when the health probe endpoint is disabled
+    set:
+      healthProbeBindAddress: "0"
+    template: templates/deployment.yaml
+    asserts:
+      - isNull:
+          path: spec.template.spec.containers[0].ports
+      - isNull:
+          path: spec.template.spec.containers[0].livenessProbe
+      - isNull:
+          path: spec.template.spec.containers[0].readinessProbe
+
+  - it: keeps the webhook port when the health probe endpoint is disabled
+    set:
+      healthProbeBindAddress: "0"
+      webhook:
+        enabled: true
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].name
+          value: webhook-server
+      - isNull:
+          path: spec.template.spec.containers[0].livenessProbe
+
+  - it: fails when healthProbeBindAddress has no port
+    set:
+      healthProbeBindAddress: "localhost"
+    template: templates/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: 'healthProbeBindAddress "localhost" must end with ":<port>"'
