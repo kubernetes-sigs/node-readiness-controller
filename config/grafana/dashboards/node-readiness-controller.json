@@ -368,7 +368,7 @@
 			"id": 15,
 			"type": "table",
 			"title": "Rule Inventory",
-			"description": "Shows how many rules use each enforcement mode and whether they are running in dry-run mode.",
+			"description": "Shows how many rules use enforcement mode and whether they are running in dry-run mode.",
 			"gridPos": { "h": 8, "w": 8, "x": 16, "y": 10 },
 			"datasource": { "type": "prometheus", "uid": "${datasource}" },
 			"targets": [
