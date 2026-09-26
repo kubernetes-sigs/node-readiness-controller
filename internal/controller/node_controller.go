@@ -208,8 +208,19 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			}
 		}
 
+		// Calculate summary once outside the optimistic lock retry loop to avoid O(N) operations on conflicts.
+		// We use the original rule for this computation; the summary will eventually converge.
+		summary, sumErr := r.ComputeRuleSummary(ctx, rule)
+
 		err := r.patchRuleStatusWithOptimisticLock(ctx, rule.Name, func(latestRule *readinessv1alpha1.NodeReadinessRule) {
 			applyNodeStatusDelta(latestRule, delta)
+
+			if sumErr == nil && summary != nil {
+				latestRule.Status.EvaluationSummary = summary
+			} else if sumErr != nil {
+				log.Error(sumErr, "Failed to compute summary for rule", "rule", rule.Name)
+			}
+
 			successfullyPatchedRule = latestRule
 		})
 

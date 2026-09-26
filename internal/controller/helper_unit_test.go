@@ -17,12 +17,16 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"testing"
 
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 	"sigs.k8s.io/node-readiness-controller/internal/metrics"
@@ -341,4 +345,144 @@ func TestListRuleInventory(t *testing.T) {
 		{EnforcementMode: "bootstrap-only", DryRun: false}: 2,
 		{EnforcementMode: "continuous", DryRun: true}:      1,
 	}))
+}
+
+func TestComputeRuleSummary(t *testing.T) {
+	scheme := clientgoscheme.Scheme
+	utilruntime.Must(readinessv1alpha1.AddToScheme(scheme))
+
+	node1 := &corev1.Node{ // node-1 has taint, condition Unknown
+		ObjectMeta: metav1.ObjectMeta{Name: "node-1", Labels: map[string]string{"match": "true"}},
+		Spec:       corev1.NodeSpec{Taints: []corev1.Taint{{Key: "test-taint", Effect: corev1.TaintEffectNoSchedule}}},
+	}
+	node2 := &corev1.Node{ // node-2 has no taint, condition Ready=True
+		ObjectMeta: metav1.ObjectMeta{Name: "node-2", Labels: map[string]string{"match": "true"}},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+	node3 := &corev1.Node{ // Doesn't match selector
+		ObjectMeta: metav1.ObjectMeta{Name: "node-3"},
+	}
+	node4 := &corev1.Node{ // Matches selector, fails evaluation
+		ObjectMeta: metav1.ObjectMeta{Name: "node-4", Labels: map[string]string{"match": "true"}},
+	}
+	node5 := &corev1.Node{ // Matches selector, condition Ready=False, NetworkUnavailable=False (for AnyOf)
+		ObjectMeta: metav1.ObjectMeta{Name: "node-5", Labels: map[string]string{"match": "true"}},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionFalse},
+				{Type: corev1.NodeNetworkUnavailable, Status: corev1.ConditionFalse},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node1, node2, node3, node4, node5).Build()
+
+	controller := &RuleReadinessController{
+		Client: fakeClient,
+	}
+
+	tests := []struct {
+		name     string
+		rule     *readinessv1alpha1.NodeReadinessRule
+		matched  int32
+		held     int32
+		released int32
+		failed   int32
+	}{
+		{
+			name: "Standard evaluation (no dry run)",
+			rule: &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-rule"},
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					NodeSelector: metav1.LabelSelector{MatchLabels: map[string]string{"match": "true"}},
+					Taint:        corev1.Taint{Key: "test-taint", Effect: corev1.TaintEffectNoSchedule},
+				},
+				Status: readinessv1alpha1.NodeReadinessRuleStatus{
+					FailedNodes: []readinessv1alpha1.NodeFailure{
+						{NodeName: "node-4"},
+					},
+				},
+			},
+			matched:  4, // node-1, node-2, node-4, node-5
+			held:     1, // node-1 has taint
+			released: 2, // node-2, node-5 no taint
+			failed:   1, // node-4
+		},
+		{
+			name: "DryRun: true, ConditionPolicyAllOf",
+			rule: &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-rule"},
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"match": "true"}},
+					Taint:           corev1.Taint{Key: "test-taint", Effect: corev1.TaintEffectNoSchedule},
+					DryRun:          true,
+					ConditionPolicy: readinessv1alpha1.ConditionPolicyAllOf,
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: string(corev1.NodeReady), RequiredStatus: corev1.ConditionTrue},
+						{Type: string(corev1.NodeNetworkUnavailable), RequiredStatus: corev1.ConditionFalse},
+					},
+				},
+				Status: readinessv1alpha1.NodeReadinessRuleStatus{
+					FailedNodes: []readinessv1alpha1.NodeFailure{
+						{NodeName: "node-4"},
+					},
+				},
+			},
+			matched: 4,
+			// In dry-run AllOf:
+			// node-1: Unknown / Unknown != True / False => held
+			// node-2: True / Unknown != True / False => held
+			// node-5: False / False != True / False => held
+			held:     3,
+			released: 0,
+			failed:   1,
+		},
+		{
+			name: "DryRun: true, ConditionPolicyAnyOf",
+			rule: &readinessv1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-rule"},
+				Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"match": "true"}},
+					Taint:           corev1.Taint{Key: "test-taint", Effect: corev1.TaintEffectNoSchedule},
+					DryRun:          true,
+					ConditionPolicy: readinessv1alpha1.ConditionPolicyAnyOf,
+					Conditions: []readinessv1alpha1.ConditionRequirement{
+						{Type: string(corev1.NodeReady), RequiredStatus: corev1.ConditionTrue},
+						{Type: string(corev1.NodeNetworkUnavailable), RequiredStatus: corev1.ConditionFalse},
+					},
+				},
+				Status: readinessv1alpha1.NodeReadinessRuleStatus{
+					FailedNodes: []readinessv1alpha1.NodeFailure{
+						{NodeName: "node-4"},
+					},
+				},
+			},
+			matched: 4,
+			// In dry-run AnyOf:
+			// node-1: Unknown / Unknown => neither match => held
+			// node-2: True / Unknown => True matches => released
+			// node-5: False / False => False matches (NetworkUnavailable=False) => released
+			held:     1, // node-1
+			released: 2, // node-2, node-5
+			failed:   1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			ctx := context.Background()
+			summary, err := controller.ComputeRuleSummary(ctx, tt.rule)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(summary).NotTo(BeNil())
+			g.Expect(summary.Targeted).To(HaveValue(Equal(tt.matched)))
+			g.Expect(summary.Unsatisfied).To(HaveValue(Equal(tt.held)))
+			g.Expect(summary.Satisfied).To(HaveValue(Equal(tt.released)))
+			g.Expect(summary.Failed).To(HaveValue(Equal(tt.failed)))
+		})
+	}
 }
