@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   name: nodereadinessrules.readiness.node.x-k8s.io
 spec:
   group: readiness.node.x-k8s.io
@@ -483,6 +483,48 @@ spec:
                 format: int64
                 minimum: 1
                 type: integer
+              summary:
+                description: |-
+                  summary provides aggregated node counts for quick consumption by
+                  clients such as kubectl printer columns and UI dashboards.
+                  The controller computes these counts during reconciliation from
+                  nodeEvaluations and failedNodes.
+                properties:
+                  failedNodes:
+                    description: |-
+                      failedNodes is the number of nodes where rule evaluation encountered
+                      an error.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  heldNodes:
+                    description: |-
+                      heldNodes is the number of matched nodes where the taint is Present
+                      (conditions not yet satisfied).
+                      Corresponds to node_readiness_rule_nodes{state="held"}.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  matchedNodes:
+                    description: |-
+                      matchedNodes is the total number of nodes matching the rule's nodeSelector.
+                      Corresponds to the node_readiness_rule_matched_nodes Prometheus metric.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  releasedNodes:
+                    description: |-
+                      releasedNodes is the number of matched nodes where the taint is Absent
+                      (conditions satisfied, taint removed).
+                      Corresponds to node_readiness_rule_nodes{state="released"}.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                required:
+                - heldNodes
+                - matchedNodes
+                - releasedNodes
+                type: object
             type: object
         required:
         - spec

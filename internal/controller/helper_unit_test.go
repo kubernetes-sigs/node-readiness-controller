@@ -170,6 +170,31 @@ func TestGetApplicableRulesForNode_DeepCopy(t *testing.T) {
 	g.Expect(cachedRule.Status.AppliedNodes).To(Equal([]string{"node-1"}))
 }
 
+func TestComputeSummary(t *testing.T) {
+	g := NewWithT(t)
+
+	rule := &readinessv1alpha1.NodeReadinessRule{
+		Status: readinessv1alpha1.NodeReadinessRuleStatus{
+			NodeEvaluations: []readinessv1alpha1.NodeEvaluation{
+				{NodeName: "node-1", TaintStatus: readinessv1alpha1.TaintStatusPresent},
+				{NodeName: "node-2", TaintStatus: readinessv1alpha1.TaintStatusAbsent},
+				{NodeName: "node-3", TaintStatus: readinessv1alpha1.TaintStatusPresent},
+			},
+			FailedNodes: []readinessv1alpha1.NodeFailure{
+				{NodeName: "node-4"},
+			},
+		},
+	}
+
+	computeSummary(rule)
+
+	g.Expect(rule.Status.Summary).NotTo(BeNil())
+	g.Expect(rule.Status.Summary.MatchedNodes).To(Equal(int32(4)))
+	g.Expect(rule.Status.Summary.HeldNodes).To(Equal(int32(2)))
+	g.Expect(rule.Status.Summary.ReleasedNodes).To(Equal(int32(1)))
+	g.Expect(rule.Status.Summary.FailedNodes).To(Equal(int32(1)))
+}
+
 func TestApplyNodeStatusDelta(t *testing.T) {
 	g := NewWithT(t)
 
@@ -195,6 +220,8 @@ func TestApplyNodeStatusDelta(t *testing.T) {
 		g.Expect(rule.Status.NodeEvaluations[0].NodeName).To(Equal("node-1"))
 		g.Expect(rule.Status.FailedNodes).To(HaveLen(1))
 		g.Expect(rule.Status.FailedNodes[0].NodeName).To(Equal("node-1"))
+		g.Expect(rule.Status.Summary).NotTo(BeNil())
+		g.Expect(rule.Status.Summary.MatchedNodes).To(Equal(int32(2)))
 	})
 
 	t.Run("merges evaluation updates and new evaluations in sorted order", func(t *testing.T) {
@@ -222,6 +249,9 @@ func TestApplyNodeStatusDelta(t *testing.T) {
 		g.Expect(rule.Status.NodeEvaluations[1].NodeName).To(Equal("node-2"))
 		g.Expect(rule.Status.NodeEvaluations[2].NodeName).To(Equal("node-3"))
 		g.Expect(rule.Status.NodeEvaluations[2].TaintStatus).To(Equal(readinessv1alpha1.TaintStatusAbsent))
+		g.Expect(rule.Status.Summary).NotTo(BeNil())
+		g.Expect(rule.Status.Summary.HeldNodes).To(Equal(int32(2)))
+		g.Expect(rule.Status.Summary.ReleasedNodes).To(Equal(int32(1)))
 	})
 
 	t.Run("merges failures and clears failure when nil in delta", func(t *testing.T) {
