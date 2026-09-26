@@ -189,4 +189,29 @@ func applyNodeStatusDelta(rule *readinessv1alpha1.NodeReadinessRule, delta nodeS
 	}
 
 	sortStatusByNodeName(rule)
+	computeSummary(rule)
 }
+
+// computeSummary recomputes status.summary from status.nodeEvaluations and
+// status.failedNodes. It is called after every status mutation so the summary
+// stays consistent with the per-node arrays.
+func computeSummary(rule *readinessv1alpha1.NodeReadinessRule) {
+	var held, released int32
+	for _, eval := range rule.Status.NodeEvaluations {
+		if eval.TaintStatus == readinessv1alpha1.TaintStatusPresent {
+			held++
+		} else {
+			released++
+		}
+	}
+	failed := int32(len(rule.Status.FailedNodes))
+	matched := held + released + failed
+
+	rule.Status.Summary = &readinessv1alpha1.NodeReadinessRuleSummary{
+		MatchedNodes:  matched,
+		HeldNodes:     held,
+		ReleasedNodes: released,
+		FailedNodes:   failed,
+	}
+}
+

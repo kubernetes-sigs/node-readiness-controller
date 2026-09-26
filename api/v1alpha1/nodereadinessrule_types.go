@@ -219,6 +219,14 @@ type NodeReadinessRuleStatus struct {
 	//
 	// +optional
 	DryRunResults DryRunResults `json:"dryRunResults,omitempty,omitzero"`
+
+	// summary provides aggregated node counts for quick consumption by
+	// clients such as kubectl printer columns and UI dashboards.
+	// The controller computes these counts during reconciliation from
+	// nodeEvaluations and failedNodes.
+	//
+	// +optional
+	Summary *NodeReadinessRuleSummary `json:"summary,omitempty"`
 }
 
 // NodeFailure provides diagnostic details for Nodes that could not be successfully evaluated by the rule.
@@ -352,6 +360,41 @@ type DryRunResults struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=4096
 	Summary string `json:"summary,omitempty"`
+}
+
+// NodeReadinessRuleSummary provides pre-computed counts of nodes in each
+// evaluation state for a rule. Field names align with the existing Prometheus
+// metrics (node_readiness_rule_matched_nodes, node_readiness_rule_nodes).
+type NodeReadinessRuleSummary struct {
+	// matchedNodes is the total number of nodes matching the rule's nodeSelector.
+	// Corresponds to the node_readiness_rule_matched_nodes Prometheus metric.
+	//
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	MatchedNodes int32 `json:"matchedNodes"`
+
+	// heldNodes is the number of matched nodes where the taint is Present
+	// (conditions not yet satisfied).
+	// Corresponds to node_readiness_rule_nodes{state="held"}.
+	//
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	HeldNodes int32 `json:"heldNodes"`
+
+	// releasedNodes is the number of matched nodes where the taint is Absent
+	// (conditions satisfied, taint removed).
+	// Corresponds to node_readiness_rule_nodes{state="released"}.
+	//
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	ReleasedNodes int32 `json:"releasedNodes"`
+
+	// failedNodes is the number of nodes where rule evaluation encountered
+	// an error.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	FailedNodes int32 `json:"failedNodes,omitempty"`
 }
 
 // +kubebuilder:object:root=true
