@@ -88,6 +88,23 @@ Total number of failure events recorded by the controller.
 | `rule` | `NodeReadinessRule` name | Any rule name |
 | `reason` | Failure label recorded by the controller | `EvaluationError`, `AddTaintError`, `RemoveTaintError` |
 
+### `node_readiness_condition_failures_total`
+
+Total number of failed condition evaluations by rule and condition.
+
+| Property | Value |
+| --- | --- |
+| Type | `counter` |
+| Labels | `rule`, `condition` |
+| Recorded when | The controller evaluates a rule against a node and a required condition is not satisfied |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `rule` | `NodeReadinessRule` name | Any rule name |
+| `condition` | Condition type declared in `spec.conditions` | Any condition type declared by the rule |
+
 ### `node_readiness_build_info`
 
 *Available starting from the v0.6.0 release.*
@@ -143,6 +160,23 @@ Number of currently-held nodes against blocking conditions per `NodeReadinessRul
 | --- | --- | --- |
 | `rule` | `NodeReadinessRule` name | Any non-dry-run rule name |
 | `condition` | Condition type declared in `spec.conditions` | Any condition type declared by the rule |
+
+### `node_readiness_nodes_by_state`
+
+Number of nodes in each readiness state per `NodeReadinessRule`, published only when the controller runs with `--enable-node-state-metrics`.
+
+| Property | Value |
+| --- | --- |
+| Type | `gauge` |
+| Labels | `rule`, `state` |
+| Recorded when | The controller updates a rule's status after reconciling the rule or a node |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `rule` | `NodeReadinessRule` name | Any rule name |
+| `state` | Readiness state of nodes evaluated by the rule | `ready`, `not_ready`, `bootstrapping` |
 
 ### `node_readiness_rule_matched_nodes`
 
@@ -216,6 +250,39 @@ Total number of nodes that have completed bootstrap.
 | --- | --- | --- |
 | `rule` | `NodeReadinessRule` name | Any rule name |
 
+### `node_readiness_bootstrap_duration_seconds`
+
+Time from node creation to bootstrap completion for nodes under a bootstrap-only rule.
+
+| Property | Value |
+| --- | --- |
+| Type | `histogram` |
+| Labels | `rule` |
+| Buckets | `1, 5, 10, 30, 60, 120, 300, 600, 1200` seconds |
+| Recorded when | The controller removes the taint from a node created after its bootstrap-only rule |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `rule` | `NodeReadinessRule` name | Any rule name |
+
+### `node_readiness_rule_last_reconciliation_timestamp_seconds`
+
+Unix timestamp of the last rule reconciliation.
+
+| Property | Value |
+| --- | --- |
+| Type | `gauge` |
+| Labels | `rule` |
+| Recorded when | The controller finishes reconciling a rule |
+
+#### Labels
+
+| Label | Description | Values |
+| --- | --- | --- |
+| `rule` | `NodeReadinessRule` name | Any rule name |
+
 ## Reporter Metrics
 
 The `readiness-condition-reporter` serves its own Prometheus metrics on `/metrics`, on the address configured by `METRICS_BIND_ADDRESS`. See [Reporter Configuration](../reference/reporter-configuration.md) for deployment details.
@@ -245,7 +312,7 @@ Duration of health probe checks.
 | Type | `histogram` |
 | Labels | none |
 | Buckets | `0.005, 0.1, 0.25, 0.5, 1, 2.5, 5, 10` seconds |
-| Recorded when | The reporter completes a health check request to `CHECK_ENDPOINT` |
+| Recorded when | The reporter completes a health check request to `CHECK_ENDPOINT`, including failed or timed-out requests |
 
 ### `node_readiness_reporter_checks_total`
 
