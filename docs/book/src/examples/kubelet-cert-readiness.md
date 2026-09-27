@@ -30,7 +30,7 @@ We can use the Node Readiness Controller to enforce a kubelet certificate readin
 
 > [!NOTE]
 > All manifests referenced in this guide are available in the
-> [`examples/kubelet-cert-readiness/manifests`](https://github.com/kubernetes-sigs/node-readiness-controller/tree/main/examples/kubelet-cert-readiness/manifests)
+> [`examples/kubelet-cert-readiness/manifests`](https://github.com/kubernetes-sigs/node-readiness-controller/tree/59e86f6521f930e4c38049ce1f159f5800330560/examples/kubelet-cert-readiness/manifests)
 > directory.
 
 ### Prerequisites
@@ -43,7 +43,7 @@ Before starting, ensure the Node Readiness Controller is deployed. See the [Inst
 
 This example requires at least one worker node with the startup taint. 
 
-For kind clusters, save the provided configuration in [`examples/kubelet-cert-readiness/kind-config.yaml`](https://github.com/kubernetes-sigs/node-readiness-controller/blob/main/examples/kubelet-cert-readiness/kind-config.yaml) to a file, then create the cluster using the following command:
+For kind clusters, save the provided configuration in [`examples/kubelet-cert-readiness/kind-config.yaml`](https://github.com/kubernetes-sigs/node-readiness-controller/blob/59e86f6521f930e4c38049ce1f159f5800330560/examples/kubelet-cert-readiness/kind-config.yaml) to a file, then create the cluster using the following command:
 
 ```sh
 kind create cluster --config <your-kind-config-file.yaml>
