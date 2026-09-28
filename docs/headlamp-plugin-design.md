@@ -28,7 +28,7 @@ The project answers two main questions:
 
 ### Relationship to Term 2 Observability
 
-The Term 2 observability project delivered Prometheus metrics (`node_readiness_rule_nodes{state}`, `node_readiness_rule_matched_nodes`, etc.) via scrape-time collectors and a Grafana dashboard for fleet-wide SLO monitoring. This plugin complements that work by answering **per-object** questions that metrics cannot: _which_ node is failing _which_ rule's _which_ condition, and what the failure reason is. The two systems serve different personas — Grafana for SREs monitoring trends over time, Headlamp for operators debugging a specific node right now. The backend data that powers both is the same (the controller's informer cache and CRD status fields), and the proposed `status.summary` field would bring the same aggregated counts that Prometheus already exposes into the CRD status for direct UI consumption without requiring a Prometheus dependency.
+The Term 2 observability project delivered Prometheus metrics (`node_readiness_rule_nodes{state}`, `node_readiness_rule_matched_nodes`, etc.) via scrape-time collectors and a Grafana dashboard for fleet-wide SLO monitoring. This plugin complements that work by answering **per-object** questions that metrics cannot: _which_ node is failing _which_ rule's _which_ condition, and what the failure reason is. The two systems serve different personas — Grafana for SREs monitoring trends over time, Headlamp for operators debugging a specific node right now.
 
 ## Design
 
@@ -36,19 +36,19 @@ The Term 2 observability project delivered Prometheus metrics (`node_readiness_r
 
 We design the UI around the same distinct personas used in the controller observability design.
 
-1. **Infrastructure Owners (Cluster Operators):** They run the cluster and manage the node lifecycle. They need a Landing Page to confirm the controller is active and see fleet-wide enforcement status without leaving the dashboard.
-2. **Component / Rule Owners:** They own the infrastructure components that gate node readiness (CNI, GPU drivers, CSI). They need the Rule Details View to see how their rule propagates and which nodes are failing.
-3. **Workload Owners (Application Developers):** They run pods. They need the Node Detail Extension to understand why their pods are not scheduling on a specific node.
+1. **Infrastructure Owners (Cluster Operators):** They run the cluster and manage the node lifecycle. They need a Landing Page to confirm the controller is active and see fleet-wide enforcement status without leaving the dashboard. This is presented via high-level summary cards (e.g., Total Active Rules, Targeted Nodes, Satisfied Nodes, Failed Nodes) without requiring heavy per-node data fetching (see Section 7.1).
+2. **Component / Rule Owners:** They own the infrastructure components that gate node readiness (CNI, GPU drivers, CSI). They need the Rule Details View to see how their rule propagates. *(Note: To identify specific failing nodes, the plugin will rely exclusively on the new `NodeReadinessEvaluation` (NRE) objects, bypassing legacy fields entirely. We plan to explore optimal ways to list failing NREs per rule—such as via NRE label selectors—without fetching all NREs globally.)*
+3. **Workload Owners (Application Developers):** They run pods. They need the Node Detail Extension and the `NodeReadinessEvaluation` (NRE) Details View to understand exactly which conditions or rules are preventing their pods from scheduling on a specific node.
 
 ---
 
 ### 2. Code Organization
 
-The project spans two repositories. All plugin UI code (React components, styles, tests) lives in the Headlamp plugins repository. Design documentation and any backend API changes live in the NRC repository.
+The project spans two repositories. All plugin UI code (React components, styles, tests) lives in the [Headlamp plugins repository](https://github.com/headlamp-k8s/plugins/tree/main/node-readiness-controller). Design documentation and any backend API changes live in the [NRC repository](https://github.com/kubernetes-sigs/node-readiness-controller).
 
 | Repository | Contents |
 |---|---|
-| `headlamp-k8s/plugins` | Plugin source (`src/`), `package.json`, unit tests, `CODEOWNERS`, Artifact Hub metadata. Reviewed by Headlamp maintainers. |
+| `headlamp-k8s/plugins/node-readiness-controller` | Plugin source (`src/`), `package.json`, unit tests, `CODEOWNERS`, Artifact Hub metadata. Reviewed by Headlamp and NRC maintainers. |
 | `kubernetes-sigs/node-readiness-controller` | This design document (`docs/`), backend changes (e.g., `status.summary` on `NodeReadinessRule`). Reviewed by NRC maintainers. |
 
 All PRs are cross-referenced against [Issue #327](https://github.com/kubernetes-sigs/node-readiness-controller/issues/327) for traceability.
@@ -68,36 +68,32 @@ The plugin reads from the `readiness.node.x-k8s.io/v1alpha1` API group. Both cus
 | `metadata.deletionTimestamp` | `Time` | Rule List (Terminating status) |
 | `spec.enforcementMode` | `bootstrap-only` or `continuous` | Rule List (chip), Rule Details |
 | `spec.dryRun` | `bool` | Rule List (amber chip), Rule Details |
-| `spec.nodeSelector.matchLabels` | `map[string]string` | Rule List (count + tooltip), Rule Details |
-| `spec.nodeSelector.matchExpressions` | `[]LabelSelectorRequirement` | Rule Details |
+| `spec.nodeSelector.matchLabels` | `map[string]string` | Rule List, Rule Details |
+| `spec.nodeSelector.matchExpressions` | `[]LabelSelectorRequirement` | Rule List, Rule Details |
 | `spec.conditionPolicy` | `allOf` or `anyOf` | Rule List (chip), Rule Details |
 | `spec.taint.key` | `string` | Rule List, Rule Details |
 | `spec.taint.effect` | `NoSchedule` / `PreferNoSchedule` / `NoExecute` | Rule List (chip), Rule Details |
 | `spec.conditions[].type` | `string` | Rule Details (conditions table) |
 | `spec.conditions[].requiredStatus` | `True` / `False` / `Unknown` | Rule Details (conditions table) |
 | `spec.conditions[].defaultStatus` | `True` / `False` / `Unknown` | Rule Details (conditions table) |
-| `status.appliedNodes` | `[]string` (max 5000) | Rule Details (satisfied count) |
-| `status.failedNodes[].nodeName` | `string` | Rule Details (failed count) |
-| `status.failedNodes[].reason` | `string` | Rule Details (failure reason) |
-| `status.failedNodes[].message` | `string` | Rule Details (failure message) |
-| `status.nodeEvaluations[].nodeName` | `string` | Rule Details (per-node audit) |
-| `status.nodeEvaluations[].taintStatus` | `Present` / `Absent` | Rule Details |
-| `status.nodeEvaluations[].conditionResults[]` | `[]ConditionEvaluationResult` | Rule Details |
+| `status.summary.targetedNodes` | `int32` | Rule Details, Rule List (targeted count) |
+| `status.summary.satisfiedNodes` | `int32` | Rule Details, Rule List (satisfied count) |
+| `status.summary.failedNodes` | `int32` | Rule Details, Rule List (failed count) |
 | `status.dryRunResults.affectedNodes` | `*int32` | Rule Details (dry-run preview) |
 | `status.dryRunResults.taintsToAdd` | `*int32` | Rule Details (dry-run preview) |
 | `status.dryRunResults.taintsToRemove` | `*int32` | Rule Details (dry-run preview) |
 | `status.dryRunResults.riskyOperations` | `*int32` | Rule Details (dry-run preview) |
 | `status.dryRunResults.summary` | `string` | Rule Details (dry-run preview) |
 
-Note: `status.nodeEvaluations` is planned for deprecation. The UI will migrate to a `status.summary` field with pre-computed aggregated counts once available upstream. Until then, the UI reads `status.appliedNodes.length` and `status.failedNodes.length` for counts.
+Note: The plugin will explicitly target the upcoming `status.summary` field for aggregated counts and the `NodeReadinessEvaluation` (NRE) CRD for per-node details, bypassing the legacy array fields (`status.appliedNodes`, `status.failedNodes`, `status.nodeEvaluations`) entirely since they are being deprecated in the v0.6.0 release cycle.
 
 #### NodeReadinessEvaluation fields consumed
 
-The `NodeReadinessEvaluation` (NRE) CRD is a per-node evaluation object currently under development ([PR in review](https://github.com/kubernetes-sigs/node-readiness-controller/issues/327)). It is targeted to ship as **experimental in NRC v0.6.0** and stabilize in **v0.7.0**. The existing `node_controller.go` is being extended to produce NRE updates (no separate controller).
+The `NodeReadinessEvaluation` (NRE) CRD is a per-node evaluation object currently under development ([PR in review](https://github.com/kubernetes-sigs/node-readiness-controller/issues/327)). It is targeted to ship as **experimental in NRC v0.6.0** and stabilize in **v0.7.0**.
 
 The Headlamp plugin will serve as the first consumer of NRE, acting as a soaking test to validate the API design and uncover bugs before NRE graduates to stable. The NRE views (Sections 6.4 and 6.5) will be implemented once NRE merges.
 
-#### Node fields consumed (for Node Extension)
+#### Kubernetes Node object fields consumed
 
 | JSON path | Used for |
 |---|---|
@@ -156,7 +152,7 @@ flowchart LR
 
 The UI must stay in sync with cluster state. When an operator modifies, creates, or deletes a rule via `kubectl`, the UI must update without page reloads.
 
-**Decision:** No custom polling or WebSockets. The plugin relies on Headlamp's `KubeObject.useList()` and `KubeObject.useItem()` hooks exclusively. These hooks use the Kubernetes Watch API under the hood and trigger React re-renders on standard watch events:
+**Decision:** No custom polling or WebSockets. The plugin relies on Headlamp's high-level native components (like `ResourceListView` and `DetailsView`), which manage data fetching via the `useList()` and `useItem()` hooks. These leverage the Kubernetes Watch API under the hood and automatically trigger React re-renders on standard watch events:
 
 * **`ADDED`:** New row appears in the list view automatically.
 * **`MODIFIED`:** Changed fields (status counts, spec edits) re-render in place.
@@ -176,7 +172,6 @@ Fetching every node evaluation to count satisfied/failed nodes on the frontend c
 |---|---|
 | **Lazy initial load.** The Landing Page verifies CRD existence only. It does not list rules or evaluations. | Prevents API blast on plugin open. |
 | **Backend aggregation.** Node counts (matched, held, released) will be read from a `status.summary` field on `NodeReadinessRule` once available upstream. | Avoids client-side pagination through thousands of node evaluations. The Term 2 scrape-time collector already computes `node_readiness_rule_nodes{state}` and `node_readiness_rule_matched_nodes` from the informer cache. A `status.summary` field on the CRD provides the same data without Prometheus. |
-| **Interim client-side counting.** Until `status.summary` is available, the UI reads `status.appliedNodes.length` and `status.failedNodes.length`. | Provides usable data immediately. |
 | **Cardinality-aware filtering.** Columns like Name, Node Selector, and Taint are filterable but high-cardinality. Filters will use exact-match or substring search, not dropdown enums. Low-cardinality columns (Mode, Effect, Dry-Run) use dropdown filters. | Prevents loading thousands of unique filter values into memory. |
 
 ---
@@ -203,9 +198,9 @@ Table of all `NodeReadinessRule` objects.
 | Mode | `spec.enforcementMode` | Yes (dropdown) | Chip/badge |
 | Dry-Run | `spec.dryRun` | Yes (true/false dropdown) | Amber chip "Dry Run" if true, subtle "-" if false |
 | Status | Computed from `status` | Yes (all satisfied / not all satisfied) | `✅ {satisfied} / {targeted} nodes satisfied` or `⚠️`. Show `⚠️ Terminating` if `metadata.deletionTimestamp` is present |
-| Failed Nodes | `status.failedNodes.length` | Yes (has failure / no failure) | Show count if > 0, else "-". Optional column |
+| Failed Nodes | `status.summary.failedNodes` | Yes (has failure / no failure) | Show count if > 0, else "-". Optional column |
 | Missing Conditions | Computed | Yes (has missing / no missing) | Count of nodes where a required condition is absent. Optional column |
-| Node Selector | `spec.nodeSelector.matchLabels` | Yes (substring, cardinality concern) | Optional column |
+| Node Selector | `spec.nodeSelector` (`matchLabels` & `matchExpressions`) | Yes (substring, cardinality concern) | Optional column |
 | Taint | `spec.taint.key` | Yes (substring, cardinality concern) | |
 | Effect | `spec.taint.effect` | Yes (dropdown) | Chip/badge |
 | Condition Policy | `spec.conditionPolicy` | Yes (dropdown) | Chip/badge. Optional column |
@@ -222,7 +217,7 @@ Deep dive into a single `NodeReadinessRule`.
 * Dry-Run — 🟡 Yes / No.
 * Condition Policy.
 * Taint Managed — formatted as `taint.key:taint.effect`.
-* Node Status — chips in a row (like Deployment replicas): Total targeted: `{count}`, Satisfied: `{count}`, Unsatisfied: `{count}`, Evaluation Failed: `{count}`. (Requires `status.summary` upstream update, interim uses `status.appliedNodes.length` / `status.failedNodes.length`.)
+* Node Status — chips in a row (like Deployment replicas): Total targeted: `{count}`, Satisfied: `{count}`, Unsatisfied: `{count}`, Evaluation Failed: `{count}`. (Powered exclusively by the upcoming `status.summary` upstream update).
 
 **Conditions Table:**
 
@@ -421,12 +416,14 @@ The plugin is developed and merged incrementally. Each milestone corresponds to 
 
 | Milestone | Deliverable | Target | Dependencies |
 |---|---|---|---|
-| **Scaffolding** | Plugin directory, `CODEOWNERS`, routing, sidebar registration. | Done | None |
-| **Core Views** | Rule List and Rule Details views with full spec/status rendering. | Week 4 | Scaffolding merged |
-| **Design Doc** | This document, submitted as a PR to `node-readiness-controller/docs/`. | Week 4 | None |
-| **Evaluation Views** | NRE List and NRE Details with expandable rule evaluation rows. | After NRC v0.6.0 | NRE CRD merged (experimental) |
-| **Node Extension** | Node Details injection (taint grouping, lifecycle-conditions panel). | Week 6 | Core Views merged |
-| **API Optimization** | `status.summary` integration, finalized Landing Page with infographics. | Week 7 | Backend `status.summary` PR |
-| **Forms & RBAC** | Headlamp Form for creating NRR. RBAC error handling for Details pages. | Week 8 | Core Views merged |
-| **Polish** | Accessibility audit, unit/integration tests, scale documentation. | Week 10 | All views merged |
-| **Publish** | `artifacthub-pkg.yml`, CI/CD, v1.0.0 published to Artifact Hub. | Week 12 | Tests passing |
+| **M1: Foundation** | Scaffolding, `package.json`, routing, sidebar registration, and basic CRD detection. | Done | None |
+| **M2: Dashboards & Design**| Design Doc approval. Landing Page with infographics and empty states. | Week 3 | None |
+| **M3: Core Observability** | Rule List and Rule Details views with full spec/status rendering. | Week 5 | M2 merged |
+| **M4: Node Extension** | Node Details injection (NRC taint grouping, lifecycle-conditions panel). | Week 6 | M3 merged |
+| **Alpha Release** | Cut `v0.1.0-alpha` release for initial maintainer/community testing. | Week 7 | M4 merged |
+| **M5: NRE Integration** | NRE List and Details views. *(Pivot: if NRE is delayed upstream, prioritize M6).* | After NRC v0.6.0 | NRE CRD merged |
+| **M6: Rule Management** | Headlamp Form for creating/editing NRRs. RBAC permission boundaries. | Week 9 | M3 merged |
+| **Beta Release** | Cut `v0.5.0-beta` release. Initiate community bug-bash. | Week 10 | M6 merged |
+| **M7: Topology Map (Optional)** | Visual cluster map view showing nodes and rule enforcement states. | Week 11 | M3 merged |
+| **M8: Polish & Automation**| Unit tests (Vitest), accessibility (a11y) audit, dark/light theme validation, CI/CD. | Week 11 | All features merged |
+| **M9: Publish** | Stable `v1.0.0` published to Artifact Hub. | Week 12 | Beta feedback resolved |
