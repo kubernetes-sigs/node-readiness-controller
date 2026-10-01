@@ -41,3 +41,4 @@ data:
       echo "kubelet serving certificate not yet present at $CERT_PATH"
       exit 1
     fi
+

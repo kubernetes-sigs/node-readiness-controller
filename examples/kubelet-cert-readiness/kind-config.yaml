@@ -15,3 +15,4 @@
           nodeRegistration:
             kubeletExtraArgs:
               register-with-taints: "readiness.k8s.io/KubeletServingCertNotReady=pending:NoSchedule"
+

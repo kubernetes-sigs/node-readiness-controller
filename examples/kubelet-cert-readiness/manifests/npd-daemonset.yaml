@@ -56,3 +56,4 @@ spec:
         - name: kubelet-pki
           hostPath:
             path: /var/lib/kubelet/pki
+
