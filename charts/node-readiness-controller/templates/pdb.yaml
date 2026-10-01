@@ -13,6 +13,9 @@ spec:
   {{- if or .Values.podDisruptionBudget.maxUnavailable (eq (toString .Values.podDisruptionBudget.maxUnavailable) "0") }}
   maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
   {{- end }}
+  {{- if and .Values.podDisruptionBudget.unhealthyPodEvictionPolicy (semverCompare ">=1.27-0" .Capabilities.KubeVersion.Version) }}
+  unhealthyPodEvictionPolicy: {{ .Values.podDisruptionBudget.unhealthyPodEvictionPolicy }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "node-readiness-controller.selectorLabels" . | nindent 6 }}

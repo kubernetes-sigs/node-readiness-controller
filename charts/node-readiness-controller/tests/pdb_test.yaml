@@ -6,6 +6,10 @@ templates:
 release:
   name: node-readiness-controller
 
+capabilities:
+  majorVersion: 1
+  minorVersion: 29
+
 tests:
   - it: does not create PDB by default
     asserts:
@@ -66,3 +70,25 @@ tests:
       - equal:
           path: spec.selector.matchLabels['app.kubernetes.io/instance']
           value: node-readiness-controller
+
+  - it: sets unhealthyPodEvictionPolicy by default
+    set:
+      podDisruptionBudget:
+        enabled: true
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - equal:
+          path: spec.unhealthyPodEvictionPolicy
+          value: AlwaysAllow
+
+  - it: omits unhealthyPodEvictionPolicy when empty
+    set:
+      podDisruptionBudget:
+        enabled: true
+        unhealthyPodEvictionPolicy: ""
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - isNull:
+          path: spec.unhealthyPodEvictionPolicy
