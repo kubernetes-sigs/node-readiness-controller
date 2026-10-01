@@ -1,0 +1,121 @@
+suite: Test ServiceMonitor Template
+templates:
+  - servicemonitor.yaml
+
+tests:
+  - it: does not render when metrics.enabled is false
+    set:
+      metrics:
+        enabled: false
+        serviceMonitor:
+          enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: You enabled metrics.serviceMonitor.enabled, but metrics.enabled is false. Please enable metrics to use the ServiceMonitor.
+
+  - it: does not render when metrics.serviceMonitor.enabled is false
+    set:
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not render when monitoring.coreos.com/v1 capability is missing
+    set:
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders correctly when both flags are true (assumes monitoring.coreos.com/v1 exists)
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
+    set:
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: true
+    asserts:
+      - isKind:
+          of: ServiceMonitor
+      - equal:
+          path: apiVersion
+          value: monitoring.coreos.com/v1
+      - equal:
+          path: spec.endpoints[0].port
+          value: http
+      - equal:
+          path: spec.endpoints[0].interval
+          value: 30s
+      - equal:
+          path: spec.endpoints[0].scrapeTimeout
+          value: 10s
+
+  - it: uses https scheme, bearer token, and injects custom tlsConfig when secure is true
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
+    set:
+      metrics:
+        enabled: true
+        secure: true
+        serviceMonitor:
+          enabled: true
+          bearerTokenFile: /custom/path/to/token
+          tlsConfig:
+            insecureSkipVerify: true
+    asserts:
+      - equal:
+          path: spec.endpoints[0].port
+          value: https
+      - equal:
+          path: spec.endpoints[0].scheme
+          value: https
+      - equal:
+          path: spec.endpoints[0].bearerTokenFile
+          value: /custom/path/to/token
+      - equal:
+          path: spec.endpoints[0].tlsConfig.insecureSkipVerify
+          value: true
+
+  - it: merges custom labels
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
+    set:
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: true
+          labels:
+            release: prometheus
+    asserts:
+      - equal:
+          path: metadata.labels.release
+          value: prometheus
+
+  - it: applies custom interval and timeout
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
+    set:
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: true
+          interval: 1m
+          scrapeTimeout: 30s
+    asserts:
+      - equal:
+          path: spec.endpoints[0].interval
+          value: 1m
+      - equal:
+          path: spec.endpoints[0].scrapeTimeout
+          value: 30s
