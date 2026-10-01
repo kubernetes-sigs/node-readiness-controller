@@ -193,6 +193,1002 @@
 			}
 		},
 		{
+			"id": 18,
+			"type": "row",
+			"title": "Rule Health & Blocking",
+			"collapsed": false,
+			"gridPos": {
+				"h": 1,
+				"w": 24,
+				"x": 0,
+				"y": 9
+			},
+			"panels": []
+		},
+		{
+			"id": 19,
+			"type": "table",
+			"title": "Blocking Conditions",
+			"description": "Checks which conditions are currently blocking nodes, and how long they've been blocked. A node can appear under multiple conditions.",
+			"gridPos": {
+				"h": 9,
+				"w": 24,
+				"x": 0,
+				"y": 10
+			},
+			"datasource": {
+				"type": "prometheus",
+				"uid": "${datasource}"
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "max by (rule, condition) (node_readiness_blocked_nodes{rule=~\"$rule\"})",
+					"refId": "A",
+					"format": "table",
+					"instant": true
+				},
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "min_over_time(max by (rule, condition) (node_readiness_blocked_nodes{rule=~\"$rule\"})[30m:1m]) and count_over_time(max by (rule, condition) (node_readiness_blocked_nodes{rule=~\"$rule\"})[30m:1m]) >= 29",
+					"refId": "B",
+					"format": "table",
+					"instant": true
+				},
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "100 * max by (rule, condition) (node_readiness_blocked_nodes{rule=~\"$rule\"}) / on (rule) group_left () (max by (rule) (node_readiness_rule_nodes{state=\"held\",rule=~\"$rule\"}) > 0)",
+					"refId": "C",
+					"format": "table",
+					"instant": true
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"custom": {
+						"align": "auto",
+						"filterable": false,
+						"cellOptions": {
+							"type": "auto"
+						}
+					},
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{
+								"color": "text",
+								"value": null
+							}
+						]
+					},
+					"mappings": []
+				},
+				"overrides": [
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "Rule"
+						},
+						"properties": [
+							{
+								"id": "custom.width",
+								"value": 330
+							}
+						]
+					},
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "Condition"
+						},
+						"properties": [
+							{
+								"id": "custom.width",
+								"value": 360
+							}
+						]
+					},
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "Blocked now"
+						},
+						"properties": [
+							{
+								"id": "custom.width",
+								"value": 130
+							},
+							{
+								"id": "unit",
+								"value": "short"
+							},
+							{
+								"id": "decimals",
+								"value": 0
+							},
+							{
+								"id": "thresholds",
+								"value": {
+									"mode": "absolute",
+									"steps": [
+										{
+											"color": "dark-green",
+											"value": null
+										},
+										{
+											"color": "dark-orange",
+											"value": 1
+										}
+									]
+								}
+							},
+							{
+								"id": "custom.cellOptions",
+								"value": {
+									"type": "color-background",
+									"mode": "gradient"
+								}
+							},
+							{
+								"id": "color",
+								"value": {
+									"mode": "thresholds"
+								}
+							},
+							{
+								"id": "description",
+								"value": "Nodes held right now that don't meet this check yet."
+							}
+						]
+					},
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "Blocked for 30m+"
+						},
+						"properties": [
+							{
+								"id": "custom.width",
+								"value": 170
+							},
+							{
+								"id": "unit",
+								"value": "short"
+							},
+							{
+								"id": "decimals",
+								"value": 0
+							},
+							{
+								"id": "thresholds",
+								"value": {
+									"mode": "absolute",
+									"steps": [
+										{
+											"color": "dark-green",
+											"value": null
+										},
+										{
+											"color": "dark-red",
+											"value": 1
+										}
+									]
+								}
+							},
+							{
+								"id": "custom.cellOptions",
+								"value": {
+									"type": "color-background",
+									"mode": "gradient"
+								}
+							},
+							{
+								"id": "color",
+								"value": {
+									"mode": "thresholds"
+								}
+							},
+							{
+								"id": "mappings",
+								"value": [
+									{
+										"type": "special",
+										"options": {
+											"match": "null",
+											"result": {
+												"text": "warming up",
+												"color": "rgba(216, 216, 209, 0.55)",
+												"index": 0
+											}
+										}
+									}
+								]
+							},
+							{
+								"id": "description",
+								"value": "Nodes that have failed this check continuously for 30 minutes. 'warming up' means there isn't enough history yet."
+							}
+						]
+					},
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "% of held nodes"
+						},
+						"properties": [
+							{
+								"id": "custom.width",
+								"value": 190
+							},
+							{
+								"id": "unit",
+								"value": "percent"
+							},
+							{
+								"id": "decimals",
+								"value": 1
+							},
+							{
+								"id": "mappings",
+								"value": [
+									{
+										"type": "special",
+										"options": {
+											"match": "null",
+											"result": {
+												"text": "n/a",
+												"color": "rgba(216, 216, 209, 0.55)",
+												"index": 0
+											}
+										}
+									}
+								]
+							},
+							{
+								"id": "description",
+								"value": "Share of the rule's held nodes failing this check. n/a means the rule isn't holding any nodes right now."
+							}
+						]
+					}
+				]
+			},
+			"options": {
+				"showHeader": true,
+				"cellHeight": "sm",
+				"sortBy": [
+					{
+						"displayName": "Blocked now",
+						"desc": true
+					},
+					{
+						"displayName": "Blocked for 30m+",
+						"desc": true
+					}
+				]
+			},
+			"transformations": [
+				{
+					"id": "merge",
+					"options": {}
+				},
+				{
+					"id": "organize",
+					"options": {
+						"excludeByName": {
+							"Time": true,
+							"__name__": true,
+							"container": true,
+							"endpoint": true,
+							"instance": true,
+							"job": true,
+							"namespace": true,
+							"pod": true,
+							"service": true
+						},
+						"indexByName": {
+							"rule": 0,
+							"condition": 1,
+							"Value #A": 2,
+							"Value #B": 3,
+							"Value #C": 4
+						},
+						"renameByName": {
+							"rule": "Rule",
+							"condition": "Condition",
+							"Value #A": "Blocked now",
+							"Value #B": "Blocked for 30m+",
+							"Value #C": "% of held nodes"
+						}
+					}
+				}
+			]
+		},
+		{
+			"id": 21,
+			"type": "table",
+			"title": "Rule Bottleneck Ranking",
+			"description": "Shows how each rule is performing, including blocked nodes, taint failures, and release latency. Bottlenecks are ranked by how many nodes they're blocking.",
+			"gridPos": {
+				"h": 8,
+				"w": 24,
+				"x": 0,
+				"y": 19
+			},
+			"datasource": {
+				"type": "prometheus",
+				"uid": "${datasource}"
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "group by (rule) (node_readiness_rule_nodes{rule=~\"$rule\"})",
+					"refId": "A",
+					"format": "table",
+					"instant": true
+				},
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "100 * sum by (rule) (rate(node_readiness_enforcement_latency_seconds_bucket{operation=\"remove\",le=~\"60(\\\\.0)?\",rule=~\"$rule\"}[15m])) / (sum by (rule) (rate(node_readiness_enforcement_latency_seconds_count{operation=\"remove\",rule=~\"$rule\"}[15m])) > 0) and on (rule) group by (rule) (node_readiness_rule_nodes{rule=~\"$rule\"})",
+					"refId": "B",
+					"format": "table",
+					"instant": true
+				},
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "histogram_quantile(0.99, sum by (le, rule) (rate(node_readiness_enforcement_latency_seconds_bucket{operation=\"remove\",rule=~\"$rule\"}[15m]))) and on (rule) (sum by (rule) (rate(node_readiness_enforcement_latency_seconds_count{operation=\"remove\",rule=~\"$rule\"}[15m])) > 0) and on (rule) group by (rule) (node_readiness_rule_nodes{rule=~\"$rule\"})",
+					"refId": "C",
+					"format": "table",
+					"instant": true
+				},
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "((sum by (rule) (increase(node_readiness_failures_total{rule=~\"$rule\",reason=~\"(?i)(add|remove)_?taint_?(error|conflict_?exhausted)\"}[10m])) and on (rule) group by (rule) (node_readiness_rule_nodes{rule=~\"$rule\"})) or on (rule) (0 * group by (rule) (node_readiness_rule_nodes{rule=~\"$rule\"})))",
+					"refId": "D",
+					"format": "table",
+					"instant": true
+				},
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "100 * (sum by (rule) (increase(node_readiness_failures_total{rule=~\"$rule\",reason=~\"(?i)(add|remove)_?taint_?(error|conflict_?exhausted)\"}[15m])) or on (rule) (0 * sum by (rule) (increase(node_readiness_taint_operations_total{rule=~\"$rule\"}[15m])))) / (((sum by (rule) (increase(node_readiness_taint_operations_total{rule=~\"$rule\"}[15m])) or on (rule) (0 * sum by (rule) (increase(node_readiness_failures_total{rule=~\"$rule\",reason=~\"(?i)(add|remove)_?taint_?(error|conflict_?exhausted)\"}[15m])))) + (sum by (rule) (increase(node_readiness_failures_total{rule=~\"$rule\",reason=~\"(?i)(add|remove)_?taint_?(error|conflict_?exhausted)\"}[15m])) or on (rule) (0 * sum by (rule) (increase(node_readiness_taint_operations_total{rule=~\"$rule\"}[15m]))))) > 0) and on (rule) group by (rule) (node_readiness_rule_nodes{rule=~\"$rule\"})",
+					"refId": "E",
+					"format": "table",
+					"instant": true
+				},
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "((sum by (rule) (increase(node_readiness_taint_operations_total{rule=~\"$rule\"}[30m])) and on (rule) group by (rule) (node_readiness_rule_nodes{rule=~\"$rule\"})) or on (rule) (0 * group by (rule) (node_readiness_rule_nodes{rule=~\"$rule\"})))",
+					"refId": "F",
+					"format": "table",
+					"instant": true
+				},
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "((sum by (rule) (increase(node_readiness_enforcement_latency_seconds_count{operation=\"remove\",rule=~\"$rule\"}[15m])) and on (rule) group by (rule) (node_readiness_rule_nodes{rule=~\"$rule\"})) or on (rule) (0 * group by (rule) (node_readiness_rule_nodes{rule=~\"$rule\"})))",
+					"refId": "G",
+					"format": "table",
+					"instant": true
+				},
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "((max by (rule) (node_readiness_rule_nodes{state=\"held\",rule=~\"$rule\"}) and on (rule) group by (rule) (node_readiness_rule_nodes{rule=~\"$rule\"})) or on (rule) (0 * group by (rule) (node_readiness_rule_nodes{rule=~\"$rule\"})))",
+					"refId": "H",
+					"format": "table",
+					"instant": true
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"custom": {
+						"align": "auto",
+						"filterable": false,
+						"cellOptions": {
+							"type": "auto"
+						}
+					},
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{
+								"color": "text",
+								"value": null
+							}
+						]
+					},
+					"mappings": []
+				},
+				"overrides": [
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "Rule"
+						},
+						"properties": [
+							{
+								"id": "custom.minWidth",
+								"value": 190
+							}
+						]
+					},
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "Held now"
+						},
+						"properties": [
+							{
+								"id": "custom.width",
+								"value": 85
+							},
+							{
+								"id": "unit",
+								"value": "short"
+							},
+							{
+								"id": "decimals",
+								"value": 0
+							},
+							{
+								"id": "description",
+								"value": "Nodes this rule is holding back right now."
+							}
+						]
+					},
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "Taint churn (30m)"
+						},
+						"properties": [
+							{
+								"id": "custom.width",
+								"value": 135
+							},
+							{
+								"id": "unit",
+								"value": "short"
+							},
+							{
+								"id": "decimals",
+								"value": 0
+							},
+							{
+								"id": "description",
+								"value": "Successful taint adds and removes in the last 30 minutes. High churn can mean nodes are flapping."
+							}
+						]
+					},
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "Taint failures (10m)"
+						},
+						"properties": [
+							{
+								"id": "custom.width",
+								"value": 175
+							},
+							{
+								"id": "unit",
+								"value": "short"
+							},
+							{
+								"id": "decimals",
+								"value": 0
+							},
+							{
+								"id": "thresholds",
+								"value": {
+									"mode": "absolute",
+									"steps": [
+										{
+											"color": "dark-green",
+											"value": null
+										},
+										{
+											"color": "dark-red",
+											"value": 1
+										}
+									]
+								}
+							},
+							{
+								"id": "custom.cellOptions",
+								"value": {
+									"type": "color-background",
+									"mode": "gradient"
+								}
+							},
+							{
+								"id": "color",
+								"value": {
+									"mode": "thresholds"
+								}
+							},
+							{
+								"id": "description",
+								"value": "Taint adds or removes that failed in the last 10 minutes."
+							}
+						]
+					},
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "Failure % (15m)"
+						},
+						"properties": [
+							{
+								"id": "custom.width",
+								"value": 118
+							},
+							{
+								"id": "unit",
+								"value": "percent"
+							},
+							{
+								"id": "decimals",
+								"value": 1
+							},
+							{
+								"id": "mappings",
+								"value": [
+									{
+										"type": "special",
+										"options": {
+											"match": "null",
+											"result": {
+												"text": "n/a",
+												"color": "rgba(216, 216, 209, 0.55)",
+												"index": 0
+											}
+										}
+									}
+								]
+							},
+							{
+								"id": "description",
+								"value": "Extra context, not the doc-backed signal for rule errors \u2014 that's the color on Taint failures (10m). This just shows what share of taint attempts failed in the last 15 minutes. n/a means no attempts in that window."
+							}
+						]
+					},
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "Released ≤60s (%)"
+						},
+						"properties": [
+							{
+								"id": "custom.width",
+								"value": 180
+							},
+							{
+								"id": "unit",
+								"value": "percent"
+							},
+							{
+								"id": "decimals",
+								"value": 1
+							},
+							{
+								"id": "thresholds",
+								"value": {
+									"mode": "absolute",
+									"steps": [
+										{
+											"color": "dark-red",
+											"value": null
+										},
+										{
+											"color": "dark-orange",
+											"value": 90
+										},
+										{
+											"color": "dark-green",
+											"value": 99
+										}
+									]
+								}
+							},
+							{
+								"id": "custom.cellOptions",
+								"value": {
+									"type": "color-background",
+									"mode": "gradient"
+								}
+							},
+							{
+								"id": "color",
+								"value": {
+									"mode": "thresholds"
+								}
+							},
+							{
+								"id": "mappings",
+								"value": [
+									{
+										"type": "special",
+										"options": {
+											"match": "null",
+											"result": {
+												"text": "n/a",
+												"color": "rgba(216, 216, 209, 0.55)",
+												"index": 0
+											}
+										}
+									}
+								]
+							},
+							{
+								"id": "description",
+								"value": "The 60s cutoff is straight from the design doc's release-latency SLO. The 90%/99% color bands for how much of that counts as healthy are our own call, not from the doc. Share of releases in the last 15 minutes that finished within 60 seconds; n/a means no releases in that window."
+							}
+						]
+					},
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "p99 release latency"
+						},
+						"properties": [
+							{
+								"id": "custom.width",
+								"value": 175
+							},
+							{
+								"id": "unit",
+								"value": "suffix: s"
+							},
+							{
+								"id": "decimals",
+								"value": 1
+							},
+							{
+								"id": "mappings",
+								"value": [
+									{
+										"type": "special",
+										"options": {
+											"match": "null",
+											"result": {
+												"text": "n/a",
+												"color": "rgba(216, 216, 209, 0.55)",
+												"index": 0
+											}
+										}
+									},
+									{
+										"type": "range",
+										"options": {
+											"from": 300,
+											"to": 1000000000.0,
+											"result": {
+												"text": "≥300s",
+												"index": 1
+											}
+										}
+									}
+								]
+							},
+							{
+								"id": "description",
+								"value": "p99 release time over the last 15 minutes. ≥300s means 300 seconds or more; n/a means no releases."
+							}
+						]
+					},
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "Releases (15m)"
+						},
+						"properties": [
+							{
+								"id": "custom.width",
+								"value": 112
+							},
+							{
+								"id": "unit",
+								"value": "short"
+							},
+							{
+								"id": "decimals",
+								"value": 0
+							},
+							{
+								"id": "description",
+								"value": "Number of releases used to calculate the latency metrics."
+							}
+						]
+					}
+				]
+			},
+			"options": {
+				"showHeader": true,
+				"cellHeight": "sm",
+				"sortBy": [
+					{
+						"displayName": "Taint failures (10m)",
+						"desc": true
+					},
+					{
+						"displayName": "p99 release latency",
+						"desc": true
+					}
+				]
+			},
+			"transformations": [
+				{
+					"id": "merge",
+					"options": {}
+				},
+				{
+					"id": "organize",
+					"options": {
+						"excludeByName": {
+							"Time": true,
+							"__name__": true,
+							"container": true,
+							"endpoint": true,
+							"instance": true,
+							"job": true,
+							"namespace": true,
+							"pod": true,
+							"service": true,
+							"Value #A": true
+						},
+						"indexByName": {
+							"rule": 0,
+							"Value #H": 1,
+							"Value #F": 2,
+							"Value #D": 3,
+							"Value #E": 4,
+							"Value #B": 5,
+							"Value #C": 6,
+							"Value #G": 7
+						},
+						"renameByName": {
+							"rule": "Rule",
+							"Value #H": "Held now",
+							"Value #F": "Taint churn (30m)",
+							"Value #D": "Taint failures (10m)",
+							"Value #E": "Failure % (15m)",
+							"Value #B": "Released ≤60s (%)",
+							"Value #C": "p99 release latency",
+							"Value #G": "Releases (15m)"
+						}
+					}
+				}
+			]
+		},
+		{
+			"id": 22,
+			"type": "table",
+			"title": "Failure Breakdown",
+			"description": "Shows what types of failures each rule is encountering, and how often they occur.",
+			"gridPos": {
+				"h": 7,
+				"w": 24,
+				"x": 0,
+				"y": 27
+			},
+			"datasource": {
+				"type": "prometheus",
+				"uid": "${datasource}"
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "sum by (rule, reason) (increase(node_readiness_failures_total{rule=~\"$rule\",reason!~\"(?i)evaluation_?error\"}[$__range]))",
+					"refId": "A",
+					"format": "table",
+					"instant": true
+				},
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "${datasource}"
+					},
+					"expr": "sum by (rule, reason) (increase(node_readiness_failures_total{rule=~\"$rule\",reason!~\"(?i)evaluation_?error\"}[10m]))",
+					"refId": "B",
+					"format": "table",
+					"instant": true
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"custom": {
+						"align": "auto",
+						"filterable": false,
+						"cellOptions": {
+							"type": "auto"
+						}
+					},
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{
+								"color": "text",
+								"value": null
+							}
+						]
+					},
+					"mappings": []
+				},
+				"overrides": [
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "Total (time range)"
+						},
+						"properties": [
+							{
+								"id": "custom.width",
+								"value": 175
+							},
+							{
+								"id": "unit",
+								"value": "short"
+							},
+							{
+								"id": "decimals",
+								"value": 0
+							},
+							{
+								"id": "thresholds",
+								"value": {
+									"mode": "absolute",
+									"steps": [
+										{
+											"color": "green",
+											"value": null
+										},
+										{
+											"color": "red",
+											"value": 1
+										}
+									]
+								}
+							},
+							{
+								"id": "custom.cellOptions",
+								"value": {
+									"type": "color-text"
+								}
+							},
+							{
+								"id": "description",
+								"value": "Failures during the selected time range."
+							}
+						]
+					},
+					{
+						"matcher": {
+							"id": "byName",
+							"options": "Last 10m"
+						},
+						"properties": [
+							{
+								"id": "custom.width",
+								"value": 110
+							},
+							{
+								"id": "unit",
+								"value": "short"
+							},
+							{
+								"id": "decimals",
+								"value": 0
+							},
+							{
+								"id": "thresholds",
+								"value": {
+									"mode": "absolute",
+									"steps": [
+										{
+											"color": "green",
+											"value": null
+										},
+										{
+											"color": "red",
+											"value": 1
+										}
+									]
+								}
+							},
+							{
+								"id": "custom.cellOptions",
+								"value": {
+									"type": "color-text"
+								}
+							},
+							{
+								"id": "description",
+								"value": "Failures in the last 10 minutes."
+							}
+						]
+					}
+				]
+			},
+			"options": {
+				"showHeader": true,
+				"cellHeight": "sm",
+				"sortBy": [
+					{
+						"displayName": "Total (time range)",
+						"desc": true
+					}
+				]
+			},
+			"transformations": [
+				{
+					"id": "merge",
+					"options": {}
+				},
+				{
+					"id": "organize",
+					"options": {
+						"excludeByName": {
+							"Time": true,
+							"__name__": true,
+							"container": true,
+							"endpoint": true,
+							"instance": true,
+							"job": true,
+							"namespace": true,
+							"pod": true,
+							"service": true
+						},
+						"indexByName": {
+							"rule": 0,
+							"reason": 1,
+							"Value #A": 2,
+							"Value #B": 3
+						},
+						"renameByName": {
+							"rule": "Rule",
+							"reason": "Reason",
+							"Value #A": "Total (time range)",
+							"Value #B": "Last 10m"
+						}
+					}
+				}
+			]
+		},
+		{
 			"id": 8,
 			"type": "row",
 			"title": "Controller Internals",
@@ -201,7 +1197,7 @@
 				"h": 1,
 				"w": 24,
 				"x": 0,
-				"y": 9
+				"y": 34
 			},
 			"panels": []
 		},
@@ -214,7 +1210,7 @@
 				"h": 8,
 				"w": 4,
 				"x": 0,
-				"y": 10
+				"y": 35
 			},
 			"datasource": {
 				"type": "prometheus",
@@ -286,7 +1282,7 @@
 				"h": 8,
 				"w": 10,
 				"x": 4,
-				"y": 10
+				"y": 35
 			},
 			"datasource": {
 				"type": "prometheus",
@@ -396,7 +1392,7 @@
 				"h": 8,
 				"w": 10,
 				"x": 14,
-				"y": 10
+				"y": 35
 			},
 			"datasource": {
 				"type": "prometheus",
@@ -458,7 +1454,7 @@
 				"h": 8,
 				"w": 11,
 				"x": 0,
-				"y": 18
+				"y": 43
 			},
 			"datasource": {
 				"type": "prometheus",
@@ -563,7 +1559,7 @@
 				"h": 8,
 				"w": 5,
 				"x": 19,
-				"y": 18
+				"y": 43
 			},
 			"datasource": {
 				"type": "prometheus",
@@ -620,7 +1616,7 @@
 				"h": 8,
 				"w": 8,
 				"x": 11,
-				"y": 18
+				"y": 43
 			},
 			"datasource": {
 				"type": "prometheus",
@@ -716,6 +1712,28 @@
 				},
 				"includeAll": false,
 				"multi": false
+			},
+			{
+				"name": "rule",
+				"type": "query",
+				"label": "Rule",
+				"datasource": { "type": "prometheus", "uid": "${datasource}" },
+				"definition": "label_values(node_readiness_rule_nodes, rule)",
+				"query": {
+					"query": "label_values(node_readiness_rule_nodes, rule)",
+					"refId": "StandardVariableQuery"
+				},
+				"refresh": 2,
+				"sort": 1,
+				"hide": 0,
+				"current": {
+					"selected": true,
+					"text": ["All"],
+					"value": ["$__all"]
+				},
+				"includeAll": true,
+				"allValue": ".*",
+				"multi": true
 			}
 		]
 	}
