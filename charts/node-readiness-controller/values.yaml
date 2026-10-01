@@ -37,6 +37,16 @@ podDisruptionBudget:
   minAvailable: 1
   # maxUnavailable: 1
 
+# Optional NetworkPolicy isolating the controller pods. Disabled by default:
+# enabling it restricts pod traffic to the generated rules below plus any
+# extra ingress/egress entries, so review them against your cluster first.
+networkPolicy:
+  enabled: false
+  # -- Extra ingress rules appended verbatim to the generated ones.
+  ingress: []
+  # -- Extra egress rules appended verbatim to the generated ones.
+  egress: []
+
 priorityClassName: system-cluster-critical
 
 podAnnotations:

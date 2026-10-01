@@ -1,0 +1,50 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "node-readiness-controller.fullname" . }}
+  namespace: {{ include "node-readiness-controller.namespace" . }}
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "node-readiness-controller.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Kubelet liveness and readiness probes.
+    - ports:
+        - port: 8081
+          protocol: TCP
+    {{- if .Values.webhook.enabled }}
+    # API server admission calls to the webhook server.
+    - ports:
+        - port: {{ .Values.webhook.port }}
+          protocol: TCP
+    {{- end }}
+    {{- if .Values.metrics.enabled }}
+    # Metrics scraping.
+    - ports:
+        - port: {{ .Values.metrics.service.targetPort }}
+          protocol: TCP
+    {{- end }}
+    {{- with .Values.networkPolicy.ingress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  egress:
+    # Kubernetes API server: watches, leases and status updates.
+    - ports:
+        - port: 443
+          protocol: TCP
+    # Cluster DNS resolution.
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- with .Values.networkPolicy.egress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

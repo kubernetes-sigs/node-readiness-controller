@@ -1,0 +1,104 @@
+suite: Test Node Readiness Controller NetworkPolicy
+
+templates:
+  - networkpolicy.yaml
+
+release:
+  name: node-readiness-controller
+
+tests:
+  - it: does not create NetworkPolicy by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: creates NetworkPolicy when enabled
+    set:
+      networkPolicy:
+        enabled: true
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: node-readiness-controller
+      - equal:
+          path: spec.podSelector.matchLabels
+          value:
+            app.kubernetes.io/name: node-readiness-controller
+            app.kubernetes.io/instance: node-readiness-controller
+            control-plane: controller-manager
+      - contains:
+          path: spec.policyTypes
+          content: Ingress
+      - contains:
+          path: spec.policyTypes
+          content: Egress
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 8081
+      - equal:
+          path: spec.egress[0].ports[0].port
+          value: 443
+      - equal:
+          path: spec.egress[1].ports[0].port
+          value: 53
+
+  - it: opens webhook and metrics ports when those servers are enabled
+    set:
+      networkPolicy:
+        enabled: true
+      webhook:
+        enabled: true
+      metrics:
+        enabled: true
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.ingress[1].ports[0].port
+          value: 9443
+      - equal:
+          path: spec.ingress[2].ports[0].port
+          value: 8443
+
+  - it: keeps webhook and metrics ports closed when those servers are disabled
+    set:
+      networkPolicy:
+        enabled: true
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - hasDocuments:
+          count: 1
+      - isNull:
+          path: spec.ingress[1]
+
+  - it: appends custom ingress and egress rules verbatim
+    set:
+      networkPolicy:
+        enabled: true
+        ingress:
+          - from:
+              - podSelector:
+                  matchLabels:
+                    monitoring: prometheus
+            ports:
+              - port: 9090
+                protocol: TCP
+        egress:
+          - to:
+              - ipBlock:
+                  cidr: 10.0.0.0/8
+            ports:
+              - port: 9345
+                protocol: TCP
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.ingress[1].from[0].podSelector.matchLabels.monitoring
+          value: prometheus
+      - equal:
+          path: spec.egress[2].to[0].ipBlock.cidr
+          value: 10.0.0.0/8
