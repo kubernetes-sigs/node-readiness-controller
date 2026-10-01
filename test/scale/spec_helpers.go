@@ -114,6 +114,20 @@ func buildPhaseJSON(q queryResult) PhaseJSON {
 			ConditionFailures:   getInt("condition_failures_total"),
 			OperationalFailures: getInt("operational_failures_total"),
 		},
+		Conflicts: ConflictsJSON{
+			Total:               getInt("api_conflicts_total"),
+			AddTaint:            getInt("api_conflicts_add_taint"),
+			RemoveTaint:         getInt("api_conflicts_remove_taint"),
+			RuleStatusNodeWrite: getInt("api_conflicts_rule_status_node_write"),
+			RuleStatusRuleSweep: getInt("api_conflicts_rule_status_rule_sweep"),
+			RetryExhaustion: RetryExhaustionJSON{
+				AddTaint:        getInt("retry_exhaustion_add_taint"),
+				RemoveTaint:     getInt("retry_exhaustion_remove_taint"),
+				StatusPatch:     getInt("retry_exhaustion_status_patch"),
+				RuleStatusSweep: getInt("retry_exhaustion_rule_status_sweep"),
+			},
+			RuleControllerReconcileErrors: getInt("rule_controller_reconcile_errors"),
+		},
 		APIClient: APIClientJSON{
 			RequestsTotal: getInt("kube_api_requests_total"),
 			RequestsRate:  getRaw("kube_api_requests_rate"),
@@ -216,7 +230,7 @@ func waitForNodeTaints(ctx context.Context, targetTaintedCount int) {
 		g.Expect(err).NotTo(HaveOccurred())
 		By(fmt.Sprintf("Progress: %d/%d nodes tainted", count, cfg.NodeCount))
 		return count
-	}).WithPolling(1 * time.Second).Should(Equal(targetTaintedCount), "Tainted node count did not reach expected target")
+	}).WithPolling(1*time.Second).Should(Equal(targetTaintedCount), "Tainted node count did not reach expected target")
 }
 
 func queryPrometheusInstant(ctx context.Context, query string, ts float64) (string, error) {
@@ -264,19 +278,17 @@ func queryPrometheusInstant(ctx context.Context, query string, ts float64) (stri
 	return valStr, nil
 }
 
-func collectMetricsForPhase(ctx context.Context, phaseStart time.Time, phaseEnd time.Time) map[string]string {
-	// Add a 5-second offset to the query time. Prometheus scrapes metrics asynchronously,
-	// so querying exactly at phaseEnd might miss metrics events that occurred in the last second
-	// of the phase because they haven't been scraped and written to the database yet.
-	queryTime := phaseEnd.Add(5 * time.Second)
+func collectMetricsForPhase(ctx context.Context, phaseStart, phaseEnd, queryEnd time.Time) map[string]string {
+	// Counters use the widened end time so events during the settle period are included.
+	counterTS := float64(queryEnd.UnixNano()) / 1e9
+
+	// Keep the range tight so rates and percentiles don't include the settle period.
+	rangeEnd := phaseEnd.Add(5 * time.Second)
+	rangeTS := float64(rangeEnd.UnixNano()) / 1e9
 
 	// Calculate the range duration (in seconds) from the start of the phase up to our
 	// offset query time. This is used as the range vector window (e.g. [45s]) for gauges and rates.
-	lookbackSecs := int(queryTime.Sub(phaseStart).Seconds())
-
-	// Convert the offset query timestamp into a float64 Unix epoch (seconds with sub-second precision).
-	// The Prometheus API expects the query evaluation time parameter to be formatted as a float.
-	ts := float64(queryTime.UnixNano()) / 1e9
+	lookbackSecs := int(rangeEnd.Sub(phaseStart).Seconds())
 
 	metricsMap := make(map[string]string)
 
@@ -291,9 +303,9 @@ func collectMetricsForPhase(ctx context.Context, phaseStart time.Time, phaseEnd 
 			tsStart := float64(phaseStart.UnixNano()) / 1e9
 			queryStr := fmt.Sprintf(q.QueryTmpl, tsStart)
 
-			// Execute the instant query at the end-of-phase timestamp (ts).
+			// Execute the instant query at the widened end-of-phase timestamp.
 			// This returns: Value(end) - (Value(start) or 0).
-			val, err = queryPrometheusInstant(ctx, queryStr, ts)
+			val, err = queryPrometheusInstant(ctx, queryStr, counterTS)
 			if err != nil {
 				metricsMap[q.Key] = "0"
 				continue
@@ -303,8 +315,8 @@ func collectMetricsForPhase(ctx context.Context, phaseStart time.Time, phaseEnd 
 			// sliding range window defined by lookbackSecs (e.g., avg_over_time(metric[45s])).
 			queryStr := fmt.Sprintf(q.QueryTmpl, lookbackSecs)
 
-			// Query the statistic evaluated at the end-of-phase timestamp (ts).
-			val, err = queryPrometheusInstant(ctx, queryStr, ts)
+			// Query the statistic evaluated at the tight end-of-phase timestamp.
+			val, err = queryPrometheusInstant(ctx, queryStr, rangeTS)
 			if err != nil {
 				metricsMap[q.Key] = "N/A"
 				continue
@@ -363,7 +375,7 @@ func buildReportForPhase(phaseName string, phaseTitle string, phaseStart time.Ti
 
 func collectAndRecordPhaseMetrics(ctx context.Context, phases []phaseStats) {
 	for _, phase := range phases {
-		metricsMap := collectMetricsForPhase(ctx, phase.start, phase.end)
+		metricsMap := collectMetricsForPhase(ctx, phase.start, phase.end, phase.queryEnd)
 		reportStruct := buildReportForPhase(phase.phase, phase.title, phase.start, phase.end, metricsMap)
 		queryResults = append(queryResults, reportStruct)
 	}
