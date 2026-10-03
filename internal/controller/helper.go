@@ -187,6 +187,5 @@ func applyNodeStatusDelta(rule *readinessv1alpha1.NodeReadinessRule, delta nodeS
 		}
 		rule.Status.FailedNodes = merged
 	}
-
 	sortStatusByNodeName(rule)
 }

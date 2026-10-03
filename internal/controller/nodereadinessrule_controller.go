@@ -277,6 +277,13 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 
 		fresh.Status.NodeEvaluations = freshNodeEvaluations
 		fresh.Status.FailedNodes = freshFailedNodes
+
+		summary, sumErr := r.ComputeRuleSummary(ctx, fresh)
+		if sumErr == nil {
+			fresh.Status.EvaluationSummary = summary
+		} else {
+			log.Error(sumErr, "Failed to compute summary for rule after node cleanup", "rule", rule.Name)
+		}
 	})
 }
 
@@ -821,6 +828,13 @@ func (r *RuleReadinessController) updateRuleStatus(ctx context.Context, rule *re
 		latestRule.Status.AppliedNodes = rule.Status.AppliedNodes
 		latestRule.Status.ObservedGeneration = rule.Status.ObservedGeneration
 		latestRule.Status.DryRunResults = rule.Status.DryRunResults
+
+		summary, sumErr := r.ComputeRuleSummary(ctx, latestRule)
+		if sumErr == nil {
+			latestRule.Status.EvaluationSummary = summary
+		} else {
+			log.Error(sumErr, "Failed to compute summary for rule", "rule", rule.Name)
+		}
 	})
 	if err != nil {
 		log.V(1).Info("Failed to patch rule status", "rule", rule.Name, "error", err.Error())
@@ -829,6 +843,85 @@ func (r *RuleReadinessController) updateRuleStatus(ctx context.Context, rule *re
 
 	log.V(1).Info("Successfully patched rule status", "rule", rule.Name)
 	return nil
+}
+
+// ComputeRuleSummary computes the aggregate summary counts for a rule's status.
+// It derives the counts by querying the controller's node cache for nodes that match the rule's
+// nodeSelector, ensuring independence from the bounded and deprecated NodeEvaluations array.
+func (r *RuleReadinessController) ComputeRuleSummary(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) (*readinessv1alpha1.NodeReadinessRuleSummary, error) {
+	selector, err := parseNodeSelector(rule)
+	if err != nil {
+		return nil, err
+	}
+
+	nodeList := &corev1.NodeList{}
+	if err := r.List(ctx, nodeList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		return nil, err
+	}
+
+	var held, released, failed int32
+	//nolint:gosec // G115: node count will not exceed math.MaxInt32
+	matched := int32(len(nodeList.Items))
+
+	// Track failed nodes to prevent them from being double-counted as held or released.
+	failedMap := make(map[string]bool, len(rule.Status.FailedNodes))
+	for _, fn := range rule.Status.FailedNodes {
+		failedMap[fn.NodeName] = true
+	}
+
+	for i := range nodeList.Items {
+		node := &nodeList.Items[i]
+		if failedMap[node.Name] {
+			failed++
+			continue // Handled separately
+		}
+
+		if rule.Spec.DryRun {
+			if r.nodeSatisfiesRuleConditions(node, rule) {
+				released++
+			} else {
+				held++
+			}
+		} else {
+			if r.hasTaintBySpec(node, rule.Spec.Taint) {
+				held++
+			} else {
+				released++
+			}
+		}
+	}
+
+	return &readinessv1alpha1.NodeReadinessRuleSummary{
+		Targeted:    &matched,
+		Unsatisfied: &held,
+		Satisfied:   &released,
+		Failed:      &failed,
+	}, nil
+}
+
+// nodeSatisfiesRuleConditions evaluates if a node satisfies the rule's conditions.
+func (r *RuleReadinessController) nodeSatisfiesRuleConditions(node *corev1.Node, rule *readinessv1alpha1.NodeReadinessRule) bool {
+	conditionPolicy := rule.Spec.GetConditionPolicy()
+	allSatisfied := true
+	anySatisfied := false
+
+	for _, condReq := range rule.Spec.Conditions {
+		currentStatus, _ := r.getConditionStatus(
+			node,
+			condReq.Type,
+			condReq.GetDefaultStatus(),
+		)
+		if currentStatus != condReq.RequiredStatus {
+			allSatisfied = false
+		} else {
+			anySatisfied = true
+		}
+	}
+
+	if conditionPolicy == readinessv1alpha1.ConditionPolicyAnyOf {
+		return anySatisfied
+	}
+	return allSatisfied
 }
 
 // processDryRun processes dry run for a rule.
@@ -984,7 +1077,7 @@ func (r *RuleReconciler) ensureFinalizer(ctx context.Context, rule *readinessv1a
 }
 
 // getPreviousNodeEvaluation retrieves the previous evaluation result for a specific node from the rule status.
-// It returns nil (if the node is evaluated for the first time) otherwsie, return the previously evaluated node data.
+// It returns nil (if the node is evaluated for the first time) otherwise, return the previously evaluated node data.
 func (r *RuleReadinessController) getPreviousNodeEvaluation(rule *readinessv1alpha1.NodeReadinessRule, nodeName string) *readinessv1alpha1.NodeEvaluation {
 	for i := range rule.Status.NodeEvaluations {
 		if rule.Status.NodeEvaluations[i].NodeName == nodeName {
