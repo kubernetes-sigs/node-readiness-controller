@@ -1,0 +1,118 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: npd-staticpods-config
+  namespace: kube-system
+data:
+  staticpods-plugin.json: |
+    {
+      "plugin": "custom",
+      "pluginConfig": {
+        "invoke_interval": "30s",
+        "timeout": "10s",
+        "max_output_length": 80,
+        "concurrency": 1
+      },
+      "source": "staticpods-monitor",
+      "conditions": [
+        {
+          "type": "StaticPodsMissing",
+          "reason": "AllStaticPodsMirrored",
+          "message": "All static pods have mirror pods in API server"
+        }
+      ],
+      "rules": [
+        {
+          "type": "permanent",
+          "condition": "StaticPodsMissing",
+          "reason": "StaticPodsNotMirrored",
+          "path": "/config/plugin/check-staticpods.sh"
+        }
+      ]
+    }
+  
+  check-staticpods.sh: |
+    #!/bin/bash
+
+    set -euo pipefail
+
+    # Exit code constants
+    readonly OK=0
+    readonly NONOK=1
+    readonly UNKNOWN=2
+    
+    STATIC_PODS_DIR="/etc/kubernetes/manifests"
+    NODE_NAME="${NODE_NAME:-$(hostname)}"
+    
+    
+    # Check required tools
+    for tool in kubectl yq jq; do
+      if ! command -v $tool &> /dev/null; then
+        echo "$tool not found in PATH"
+        exit $UNKNOWN
+      fi
+    done
+    
+    parse_json_manifest() {
+
+        # The yaml file might be a multi-document yaml , but given that kubelet
+        # only reads the first document we will skip the rest.
+        NAME=$(jq -r '.metadata.name' $1) 
+        NAMESPACE=$(jq -r '.metadata.namespace // "default"' $1) 
+
+        # if NAME is empty , we'll suppose that the file is 
+        # syntaxically incorrect and exit.
+        if [ "$NAME" = "" ];then 
+          echo "manifest $1 is invalid"
+          exit $UNKNOWN
+        fi
+
+        FNAME="$NAME-$NODE_NAME"
+
+        RESULT=$(kubectl get pod "$FNAME" -n "$NAMESPACE" -o=jsonpath='{.metadata.name}' 2>/dev/null)
+        if [ "$RESULT" = "" ];then
+            echo "Static pod $FNAME is missing a mirror pod"
+            exit "$NONOK"
+        fi
+    }
+
+
+    parse_yaml_manifest() {
+
+        NAME=$(yq -r '.metadata.name' $1 | head -1) 
+        NAMESPACE=$(yq -r '.metadata.namespace // "default"' $1 | head -1)
+
+        # if NAME is empty , we'll suppose that the file is 
+        # syntaxically incorrect and exit.
+        if [ "$NAME" = "" ];then 
+            echo "manifest $1 is invalid"
+            exit $UNKNOWN
+        fi
+
+        FNAME="$NAME-$NODE_NAME"
+
+        RESULT=$(kubectl get pod "$FNAME" -n "$NAMESPACE" -o=jsonpath='{.metadata.name}' 2>/dev/null)
+        if [ "$RESULT" = "" ];then
+            echo "Static pod $FNAME is missing a mirror pod"
+            exit "$NONOK"
+        fi
+    }
+
+    for file in "$STATIC_PODS_DIR"/*
+    do
+        # we read the first non blank line , if it starts with '{'
+        # after trimming then it's json , otherwise we will consider it
+        # as yaml. (It's not 100% accurate , but it's a good guess work).
+
+        # we read the first line and strip the leading whitespaces
+        fline=$(grep -m 1 . $file | awk '{$1=$1};1')
+
+        fchar="${fline:0:1}"
+        if [ $fchar = "{" ]; then
+            parse_json_manifest "$file"    
+        else
+            parse_yaml_manifest "$file"
+        fi
+
+    done
+    exit $OK
