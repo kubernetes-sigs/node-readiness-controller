@@ -11,6 +11,8 @@ helm install my-release --namespace nrr-system --create-namespace ./charts/node-
 ```
 
 > Published chart releases via `registry.k8s.io` OCI are WIP.
+>
+> **Note on Secure Metrics and ServiceMonitors:** If you enable secure metrics (`metrics.secure: true`), the Prometheus Operator requires RBAC permissions to scrape the `/metrics` endpoint. This Helm chart does *not* automatically create a `ClusterRoleBinding` for Prometheus. The cluster administrator must manually bind the `metrics-reader` ClusterRole (or equivalent) to the Prometheus ServiceAccount in their monitoring namespace.
 
 ## Introduction
 
@@ -93,6 +95,14 @@ The following table lists the configurable parameters of the _node-readiness-con
 | `metrics.service.targetPort`             | The target port for the metrics service                                                                                         | `8443`                                                            |
 | `metrics.certDir`                        | Directory for metrics server certificates                                                                                       | `/tmp/k8s-metrics-server/metrics-certs`                           |
 | `metrics.certSecretName`                 | Name of the secret containing metrics server certificates                                                                       | `metrics-server-cert`                                             |
+| `metrics.serviceMonitor.enabled`         | Deploy a Prometheus Operator ServiceMonitor to scrape metrics (requires `monitoring.coreos.com/v1` CRD installed)               | `false`                                                           |
+| `metrics.serviceMonitor.labels`          | Additional labels for the ServiceMonitor                                                                                        | `{}`                                                              |
+| `metrics.serviceMonitor.interval`        | Scrape interval                                                                                                                 | `30s`                                                             |
+| `metrics.serviceMonitor.scrapeTimeout`   | Scrape timeout                                                                                                                  | `10s`                                                             |
+| `metrics.serviceMonitor.bearerTokenFile` | Bearer token file for authenticating with secure metrics endpoints                                                              | `""` (defaults to Prometheus token)                               |
+| `metrics.serviceMonitor.tlsConfig`       | TLS configuration for scraping secure metrics (e.g. providing a `caFile`)                                       | `{"insecureSkipVerify": true}`                                    |
+| `metrics.serviceMonitor.metricRelabelings`| Metric relabeling configs                                                                                                      | `[]`                                                              |
+| `metrics.serviceMonitor.relabelings`     | Relabeling configs                                                                                                              | `[]`                                                              |
 | `webhook.enabled`                        | Enable the webhook server                                                                                                       | `false`                                                           |
 | `webhook.port`                           | The port for the webhook server                                                                                                 | `9443`                                                            |
 | `webhook.service.port`                   | The port exposed by the webhook service                                                                                         | `443`                                                             |

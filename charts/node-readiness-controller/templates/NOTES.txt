@@ -1,0 +1,24 @@
+Thanks for installing the {{ template "node-readiness-controller.fullname" . }} chart!
+
+To verify that the controller pods are running, execute:
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "node-readiness-controller.name" . }}
+
+{{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
+{{- if not (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+
+===================================================================================
+WARNING: Prometheus ServiceMonitor requested but CRD is missing!
+===================================================================================
+You have enabled `metrics.serviceMonitor.enabled: true`, but the Kubernetes
+API server does not report the `monitoring.coreos.com/v1` API as available.
+
+The ServiceMonitor resource was NOT created.
+
+If you are using offline rendering (e.g., `helm template`), this warning is
+expected because Helm cannot detect cluster capabilities offline. You can
+bypass this warning and force rendering by passing:
+  --api-versions "monitoring.coreos.com/v1"
+===================================================================================
+
+{{- end }}
+{{- end }}
