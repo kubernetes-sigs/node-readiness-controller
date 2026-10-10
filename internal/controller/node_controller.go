@@ -210,6 +210,8 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 
 		err := r.patchRuleStatusWithOptimisticLock(ctx, rule.Name, func(latestRule *readinessv1alpha1.NodeReadinessRule) {
 			applyNodeStatusDelta(latestRule, delta)
+			latestRule.Status.EvaluationSummary = computeSummaryFromEvaluations(latestRule)
+
 			successfullyPatchedRule = latestRule
 		})
 

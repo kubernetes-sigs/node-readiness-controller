@@ -17,6 +17,24 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
+    - description: Total nodes matching the rule's nodeSelector.
+      jsonPath: .status.evaluationSummary.targeted
+      name: Targeted
+      type: integer
+    - description: Matched nodes where the taint has been removed.
+      jsonPath: .status.evaluationSummary.satisfied
+      name: Satisfied
+      type: integer
+    - description: Matched nodes where the taint is present.
+      jsonPath: .status.evaluationSummary.unsatisfied
+      name: Unsatisfied
+      priority: 1
+      type: integer
+    - description: Nodes where rule evaluation encountered an error.
+      jsonPath: .status.evaluationSummary.failed
+      name: Failed
+      priority: 1
+      type: integer
     - description: 'The enforcement mode of the rule: bootstrap-only or continuous.'
       jsonPath: .spec.enforcementMode
       name: Mode
@@ -341,6 +359,42 @@ spec:
                     type: integer
                 required:
                 - summary
+                type: object
+              evaluationSummary:
+                description: |-
+                  summary provides aggregated node counts for quick consumption by
+                  clients such as kubectl printer columns and UI dashboards.
+                properties:
+                  failed:
+                    description: |-
+                      failed is the number of nodes where rule evaluation encountered
+                      an error.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  satisfied:
+                    description: |-
+                      satisfied is the number of matched nodes where the taint is Absent
+                      (conditions satisfied, taint removed).
+                      Corresponds to node_readiness_rule_nodes{state="released"}.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  targeted:
+                    description: |-
+                      targeted is the total number of nodes matching the rule's nodeSelector.
+                      Corresponds to the node_readiness_rule_matched_nodes Prometheus metric.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  unsatisfied:
+                    description: |-
+                      unsatisfied is the number of matched nodes where the taint is Present
+                      (conditions not yet satisfied).
+                      Corresponds to node_readiness_rule_nodes{state="held"}.
+                    format: int32
+                    minimum: 0
+                    type: integer
                 type: object
               failedNodes:
                 description: |-

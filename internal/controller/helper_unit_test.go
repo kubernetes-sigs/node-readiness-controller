@@ -342,3 +342,26 @@ func TestListRuleInventory(t *testing.T) {
 		{EnforcementMode: "continuous", DryRun: true}:      1,
 	}))
 }
+
+func TestComputeSummaryFromEvaluations(t *testing.T) {
+	rule := &readinessv1alpha1.NodeReadinessRule{
+		Status: readinessv1alpha1.NodeReadinessRuleStatus{
+			NodeEvaluations: []readinessv1alpha1.NodeEvaluation{
+				{NodeName: "node-1", TaintStatus: readinessv1alpha1.TaintStatusPresent},
+				{NodeName: "node-2", TaintStatus: readinessv1alpha1.TaintStatusAbsent},
+				{NodeName: "node-3", TaintStatus: readinessv1alpha1.TaintStatusAbsent},
+			},
+			FailedNodes: []readinessv1alpha1.NodeFailure{
+				{NodeName: "node-4"},
+			},
+		},
+	}
+
+	summary := computeSummaryFromEvaluations(rule)
+	g := NewWithT(t)
+	g.Expect(summary).NotTo(BeNil())
+	g.Expect(*summary.Targeted).To(Equal(int32(4)))
+	g.Expect(*summary.Unsatisfied).To(Equal(int32(1)))
+	g.Expect(*summary.Satisfied).To(Equal(int32(2)))
+	g.Expect(*summary.Failed).To(Equal(int32(1)))
+}

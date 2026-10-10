@@ -187,6 +187,31 @@ func applyNodeStatusDelta(rule *readinessv1alpha1.NodeReadinessRule, delta nodeS
 		}
 		rule.Status.FailedNodes = merged
 	}
-
 	sortStatusByNodeName(rule)
+}
+
+// computeSummaryFromEvaluations aggregates counts directly from the rule's status arrays.
+func computeSummaryFromEvaluations(rule *readinessv1alpha1.NodeReadinessRule) *readinessv1alpha1.RuleEvaluationSummary {
+	var targeted, satisfied, unsatisfied, failed int32
+
+	//nolint:gosec // G115: Kubernetes limits nodes to 5000, which easily fits in int32.
+	failed = int32(len(rule.Status.FailedNodes))
+
+	for _, eval := range rule.Status.NodeEvaluations {
+		switch eval.TaintStatus {
+		case readinessv1alpha1.TaintStatusPresent:
+			unsatisfied++
+		case readinessv1alpha1.TaintStatusAbsent:
+			satisfied++
+		}
+	}
+
+	targeted = satisfied + unsatisfied + failed
+
+	return &readinessv1alpha1.RuleEvaluationSummary{
+		Targeted:    &targeted,
+		Satisfied:   &satisfied,
+		Unsatisfied: &unsatisfied,
+		Failed:      &failed,
+	}
 }

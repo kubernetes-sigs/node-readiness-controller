@@ -277,6 +277,7 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 
 		fresh.Status.NodeEvaluations = freshNodeEvaluations
 		fresh.Status.FailedNodes = freshFailedNodes
+		fresh.Status.EvaluationSummary = computeSummaryFromEvaluations(fresh)
 	})
 }
 
@@ -821,6 +822,7 @@ func (r *RuleReadinessController) updateRuleStatus(ctx context.Context, rule *re
 		latestRule.Status.AppliedNodes = rule.Status.AppliedNodes
 		latestRule.Status.ObservedGeneration = rule.Status.ObservedGeneration
 		latestRule.Status.DryRunResults = rule.Status.DryRunResults
+		latestRule.Status.EvaluationSummary = computeSummaryFromEvaluations(latestRule)
 	})
 	if err != nil {
 		log.V(1).Info("Failed to patch rule status", "rule", rule.Name, "error", err.Error())
@@ -835,7 +837,7 @@ func (r *RuleReadinessController) updateRuleStatus(ctx context.Context, rule *re
 //
 //nolint:unparam // Keep error return for future extensibility and API stability.
 func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) error {
-	var affectedNodes, taintsToAdd, taintsToRemove, riskyOps int32
+	var affectedNodes, taintsToAdd, taintsToRemove, riskyOps, satisfied, unsatisfied int32
 	var summaryParts []string
 
 	for _, node := range nodeList.Items {
@@ -871,6 +873,13 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 		if conditionPolicy == readinessv1alpha1.ConditionPolicyAnyOf {
 			shouldRemoveTaint = anySatisfied
 		}
+
+		if shouldRemoveTaint {
+			satisfied++
+		} else {
+			unsatisfied++
+		}
+
 		currentlyHasTaint := r.hasTaintBySpec(&node, rule.Spec.Taint)
 
 		if shouldRemoveTaint && currentlyHasTaint {
@@ -908,6 +917,13 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 		TaintsToRemove:  &taintsToRemove,
 		RiskyOperations: &riskyOps,
 		Summary:         summary,
+	}
+	var failed int32
+	rule.Status.EvaluationSummary = &readinessv1alpha1.RuleEvaluationSummary{
+		Targeted:    &affectedNodes,
+		Satisfied:   &satisfied,
+		Unsatisfied: &unsatisfied,
+		Failed:      &failed,
 	}
 	return nil
 }
@@ -984,7 +1000,7 @@ func (r *RuleReconciler) ensureFinalizer(ctx context.Context, rule *readinessv1a
 }
 
 // getPreviousNodeEvaluation retrieves the previous evaluation result for a specific node from the rule status.
-// It returns nil (if the node is evaluated for the first time) otherwsie, return the previously evaluated node data.
+// It returns nil (if the node is evaluated for the first time) otherwise, return the previously evaluated node data.
 func (r *RuleReadinessController) getPreviousNodeEvaluation(rule *readinessv1alpha1.NodeReadinessRule, nodeName string) *readinessv1alpha1.NodeEvaluation {
 	for i := range rule.Status.NodeEvaluations {
 		if rule.Status.NodeEvaluations[i].NodeName == nodeName {
