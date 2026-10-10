@@ -79,3 +79,46 @@ jobs:
       
       - name: Run chart-testing (install)
         run: ct install --config=.github/ci/ct.yaml
+
+      # The pre-install guard calls Helm's lookup, which returns nothing during
+      # `helm template` and `--dry-run`, so the chart unit tests cannot cover it.
+      # Exercise it against the live kind cluster instead.
+      #
+      # The signal is the controller Deployment, not the CRD: Helm applies crds/
+      # before rendering, so keying on the CRD would refuse every first install.
+      - name: Verify the duplicate-install pre-install check
+        run: |
+          set -euo pipefail
+          CHART=charts/node-readiness-controller
+
+          echo "::group::a fresh install into an empty cluster succeeds with the guard ON"
+          # This is the path the CRD-based guard broke: crds/ is applied before the
+          # templates render, so the check must not trip on this install's own CRD.
+          helm install nrc-guard "$CHART" \
+            --namespace nrc-guard --create-namespace --wait --timeout 5m
+          echo "::endgroup::"
+
+          echo "::group::a second install is refused while the first is running"
+          if helm install nrc-guard-2 "$CHART" \
+               --namespace nrc-guard-2 --create-namespace 2>guard.err; then
+            echo "expected the second install to be refused, but it succeeded"
+            exit 1
+          fi
+          cat guard.err
+          grep -q "already installed in this cluster" guard.err
+          echo "::endgroup::"
+
+          echo "::group::escape hatch allows a second install anyway"
+          helm install nrc-guard-2 "$CHART" \
+            --namespace nrc-guard-2 --create-namespace \
+            --set crds.preInstallCheck=false --wait --timeout 5m
+          echo "::endgroup::"
+
+          echo "::group::upgrade of the first release is not blocked, with the guard enabled"
+          helm upgrade nrc-guard "$CHART" \
+            --namespace nrc-guard --wait --timeout 5m
+          echo "::endgroup::"
+
+          helm uninstall nrc-guard-2 --namespace nrc-guard-2
+          helm uninstall nrc-guard --namespace nrc-guard
+          kubectl delete namespace nrc-guard nrc-guard-2

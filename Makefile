@@ -146,6 +146,17 @@ vet: ## Run go vet against code.
 .PHONY: manifests
 manifests: $(CONTROLLER_GEN) ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(MAKE) sync-chart-crds
+
+.PHONY: sync-chart-crds
+sync-chart-crds: ## Regenerate the chart's CRD copy from config, stamping the Helm installer label. Run by `manifests`.
+	# The chart ships the CRD from crds/ (which Helm does not template), so its only
+	# difference from controller-gen output is the standard app.kubernetes.io/managed-by
+	# installer label: kustomize in config/, helm in the chart. Never hand-edit the
+	# chart CRD; `make manifests` regenerates it and verify-chart-drift.sh checks it in.
+	sed 's#\(app.kubernetes.io/managed-by:\) kustomize#\1 helm#' \
+		config/crd/bases/readiness.node.x-k8s.io_nodereadinessrules.yaml \
+		> charts/node-readiness-controller/crds/nodereadinessrules.readiness.node.x-k8s.io.yaml
 
 .PHONY: generate
 generate: $(CONTROLLER_GEN) ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
