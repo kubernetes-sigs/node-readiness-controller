@@ -193,6 +193,404 @@
 			}
 		},
 		{
+			"id": 6,
+			"type": "row",
+			"title": "Fleet Detail",
+			"collapsed": false,
+			"gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+			"panels": []
+		},
+		{
+			"id": 7,
+			"type": "table",
+			"title": "Nodes by Rule",
+			"description": "Shows how many nodes each rule is blocking or has released. A node covered by multiple rules appears under each rule.",
+			"gridPos": { "h": 8, "w": 16, "x": 0, "y": 10 },
+			"datasource": { "type": "prometheus", "uid": "${datasource}" },
+			"targets": [
+				{
+					"datasource": { "type": "prometheus", "uid": "${datasource}" },
+					"expr": "group by (rule) (node_readiness_rule_nodes{rule=~\"$rule\"})",
+					"format": "table",
+					"instant": true,
+					"range": false,
+					"refId": "A"
+				},
+				{
+					"datasource": { "type": "prometheus", "uid": "${datasource}" },
+					"expr": "max by (rule) (node_readiness_rule_nodes{state=\"held\",rule=~\"$rule\"})",
+					"format": "table",
+					"instant": true,
+					"range": false,
+					"refId": "B"
+				},
+				{
+					"datasource": { "type": "prometheus", "uid": "${datasource}" },
+					"expr": "max by (rule) (node_readiness_rule_nodes{state=\"released\",rule=~\"$rule\"})",
+					"format": "table",
+					"instant": true,
+					"range": false,
+					"refId": "C"
+				},
+				{
+					"datasource": { "type": "prometheus", "uid": "${datasource}" },
+					"expr": "sum by (rule) (max by (rule, state) (node_readiness_rule_nodes{rule=~\"$rule\"}))",
+					"format": "table",
+					"instant": true,
+					"range": false,
+					"refId": "D"
+				},
+				{
+					"datasource": { "type": "prometheus", "uid": "${datasource}" },
+					"expr": "100 * max by (rule) (node_readiness_rule_nodes{state=\"held\",rule=~\"$rule\"}) / (sum by (rule) (max by (rule, state) (node_readiness_rule_nodes{rule=~\"$rule\"})) > 0)",
+					"format": "table",
+					"instant": true,
+					"range": false,
+					"refId": "E"
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"custom": { "align": "auto", "filterable": false },
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [{ "color": "text", "value": null }]
+					}
+				},
+				"overrides": [
+					{
+						"matcher": { "id": "byName", "options": "Rule" },
+						"properties": [{ "id": "custom.minWidth", "value": 170 }]
+					},
+					{
+						"matcher": {
+							"id": "byRegexp",
+							"options": "^(Blocked|Released|Nodes|% blocked)$"
+						},
+						"properties": [
+							{ "id": "custom.minWidth", "value": 80 },
+							{ "id": "custom.width", "value": 80 }
+						]
+					},
+					{
+						"matcher": { "id": "byName", "options": "Blocked" },
+						"properties": [
+							{ "id": "custom.minWidth", "value": 90 },
+							{ "id": "custom.width", "value": 90 },
+							{
+								"id": "custom.cellOptions",
+								"value": { "type": "color-background", "mode": "gradient" }
+							},
+							{ "id": "color", "value": { "mode": "thresholds" } },
+							{
+								"id": "thresholds",
+								"value": {
+									"mode": "absolute",
+									"steps": [
+										{ "color": "dark-green", "value": null },
+										{ "color": "dark-red", "value": 1 }
+									]
+								}
+							}
+						]
+					},
+					{
+						"matcher": { "id": "byName", "options": "Nodes" },
+						"properties": [
+							{ "id": "custom.minWidth", "value": 60 },
+							{ "id": "custom.width", "value": 60 }
+						]
+					},
+					{
+						"matcher": { "id": "byName", "options": "% blocked" },
+						"properties": [
+							{ "id": "custom.width", "value": 104 },
+							{ "id": "unit", "value": "percent" },
+							{ "id": "decimals", "value": 1 },
+							{ "id": "min", "value": 0 },
+							{ "id": "max", "value": 100 },
+							{
+								"id": "mappings",
+								"value": [
+									{
+										"type": "special",
+										"options": {
+											"match": "null",
+											"result": { "text": "n/a" }
+										}
+									}
+								]
+							}
+						]
+					}
+				]
+			},
+			"options": {
+				"showHeader": true,
+				"sortBy": [{ "displayName": "Blocked", "desc": true }]
+			},
+			"transformations": [
+				{
+					"id": "joinByField",
+					"options": { "byField": "rule", "mode": "outer" }
+				},
+				{
+					"id": "organize",
+					"options": {
+						"excludeByName": {
+							"Time": true,
+							"Time 1": true,
+							"Time 2": true,
+							"Time 3": true,
+							"Time 4": true,
+							"Time 5": true,
+							"Value #A": true
+						},
+						"indexByName": {
+							"rule": 0,
+							"Value #B": 1,
+							"Value #C": 2,
+							"Value #D": 3,
+							"Value #E": 4
+						},
+						"renameByName": {
+							"rule": "Rule",
+							"Value #B": "Blocked",
+							"Value #C": "Released",
+							"Value #D": "Nodes",
+							"Value #E": "% blocked"
+						}
+					}
+				}
+			]
+		},
+		{
+			"id": 15,
+			"type": "table",
+			"title": "Rule Inventory",
+			"description": "Shows how many rules use enforcement mode and whether they are running in dry-run mode.",
+			"gridPos": { "h": 8, "w": 8, "x": 16, "y": 10 },
+			"datasource": { "type": "prometheus", "uid": "${datasource}" },
+			"targets": [
+				{
+					"datasource": { "type": "prometheus", "uid": "${datasource}" },
+					"expr": "max by (enforcement_mode, dry_run) (node_readiness_rules)",
+					"format": "table",
+					"instant": true,
+					"range": false,
+					"refId": "A"
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"custom": { "align": "auto", "filterable": false },
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [{ "color": "text", "value": null }]
+					}
+				},
+				"overrides": [
+					{
+						"matcher": { "id": "byName", "options": "Mode" },
+						"properties": [{ "id": "custom.minWidth", "value": 100 }]
+					},
+					{
+						"matcher": { "id": "byName", "options": "Dry run" },
+						"properties": [
+							{ "id": "custom.width", "value": 75 },
+							{
+								"id": "mappings",
+								"value": [
+									{
+										"type": "value",
+										"options": {
+											"true": { "text": "Yes" },
+											"false": { "text": "No" }
+										}
+									}
+								]
+							}
+						]
+					},
+					{
+						"matcher": { "id": "byName", "options": "Rules" },
+						"properties": [{ "id": "custom.width", "value": 70 }]
+					}
+				]
+			},
+			"options": {
+				"showHeader": true,
+				"sortBy": [{ "displayName": "Rules", "desc": true }]
+			},
+			"transformations": [
+				{
+					"id": "organize",
+					"options": {
+						"excludeByName": { "Time": true },
+						"indexByName": { "enforcement_mode": 0, "dry_run": 1, "Value": 2 },
+						"renameByName": {
+							"enforcement_mode": "Mode",
+							"dry_run": "Dry run",
+							"Value": "Rules"
+						}
+					}
+				}
+			]
+		},
+		{
+			"id": 16,
+			"type": "timeseries",
+			"title": "Taint Churn",
+			"description": "Taints added and removed by each rule over the last 30 minutes. Frequent adds and removes may indicate nodes are flapping.",
+			"gridPos": { "h": 11, "w": 12, "x": 0, "y": 18 },
+			"datasource": { "type": "prometheus", "uid": "${datasource}" },
+			"targets": [
+				{
+					"datasource": { "type": "prometheus", "uid": "${datasource}" },
+					"expr": "sum by (rule, operation) (increase(node_readiness_taint_operations_total{rule=~\"$rule\"}[30m]))",
+					"legendFormat": "{{rule}} · {{operation}}",
+					"refId": "A"
+				},
+				{
+					"datasource": { "type": "prometheus", "uid": "${datasource}" },
+					"expr": "sum(increase(node_readiness_taint_operations_total{rule=~\"$rule\"}[30m])) or vector(0)",
+					"legendFormat": "all rules",
+					"refId": "B"
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"unit": "short",
+					"decimals": 0,
+					"min": 0,
+					"custom": {
+						"drawStyle": "line",
+						"lineInterpolation": "linear",
+						"lineWidth": 2,
+						"fillOpacity": 0,
+						"showPoints": "never",
+						"spanNulls": false,
+						"axisPlacement": "auto"
+					},
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [{ "color": "text", "value": null }]
+					}
+				},
+				"overrides": [
+					{
+						"matcher": { "id": "byRegexp", "options": ".* · add$" },
+						"properties": [
+							{
+								"id": "custom.lineStyle",
+								"value": { "fill": "solid" }
+							}
+						]
+					},
+					{
+						"matcher": { "id": "byRegexp", "options": ".* · remove$" },
+						"properties": [
+							{
+								"id": "custom.lineStyle",
+								"value": {
+									"fill": "dash",
+									"dash": [10, 6]
+								}
+							}
+						]
+					},
+					{
+						"matcher": { "id": "byName", "options": "all rules" },
+						"properties": [
+							{
+								"id": "color",
+								"value": { "mode": "fixed", "fixedColor": "gray" }
+							},
+							{ "id": "custom.lineWidth", "value": 1 }
+						]
+					}
+				]
+			},
+			"options": {
+				"legend": {
+					"displayMode": "list",
+					"placement": "bottom",
+					"calcs": []
+				},
+				"tooltip": { "mode": "multi", "sort": "desc" }
+			}
+		},
+		{
+			"id": 17,
+			"type": "state-timeline",
+			"title": "Blocked Nodes Over Time",
+			"description": "Shows how many nodes each rule has blocked over time. Green means none are blocked. Red means nodes are blocked. A red bar that stays for a long time usually means those nodes are stuck.",
+			"gridPos": { "h": 11, "w": 12, "x": 12, "y": 18 },
+			"datasource": { "type": "prometheus", "uid": "${datasource}" },
+			"targets": [
+				{
+					"datasource": { "type": "prometheus", "uid": "${datasource}" },
+					"expr": "max by (rule) (node_readiness_rule_nodes{state=\"held\",rule=~\"$rule\"})",
+					"legendFormat": "{{rule}}",
+					"refId": "A"
+				}
+			],
+			"fieldConfig": {
+				"defaults": {
+					"unit": "short",
+					"decimals": 0,
+					"min": 0,
+					"color": { "mode": "fixed", "fixedColor": "green" },
+					"custom": {
+						"fillOpacity": 80,
+						"lineWidth": 0,
+						"insertNulls": 120000,
+						"hideFrom": { "legend": false, "tooltip": false, "viz": false }
+					},
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{ "color": "green", "value": null },
+							{ "color": "red", "value": 1 }
+						]
+					},
+					"mappings": [
+						{
+							"type": "range",
+							"options": {
+								"from": 0,
+								"to": 0,
+								"result": { "color": "green", "index": 0 }
+							}
+						},
+						{
+							"type": "range",
+							"options": {
+								"from": 1,
+								"to": 1000000000,
+								"result": { "color": "red", "index": 1 }
+							}
+						}
+					]
+				},
+				"overrides": []
+			},
+			"options": {
+				"mergeValues": true,
+				"showValue": "auto",
+				"alignValue": "center",
+				"rowHeight": 0.9,
+				"legend": { "showLegend": false, "displayMode": "list", "placement": "bottom" },
+				"tooltip": { "mode": "single", "sort": "none" }
+			},
+			"transformations": [
+				{
+					"id": "prepareTimeSeries",
+					"options": { "format": "multi" }
+				}
+			]
+		},
+		{
 			"id": 8,
 			"type": "row",
 			"title": "Controller Internals",
@@ -201,7 +599,7 @@
 				"h": 1,
 				"w": 24,
 				"x": 0,
-				"y": 9
+				"y": 29
 			},
 			"panels": []
 		},
@@ -214,7 +612,7 @@
 				"h": 8,
 				"w": 4,
 				"x": 0,
-				"y": 10
+				"y": 30
 			},
 			"datasource": {
 				"type": "prometheus",
@@ -286,7 +684,7 @@
 				"h": 8,
 				"w": 10,
 				"x": 4,
-				"y": 10
+				"y": 30
 			},
 			"datasource": {
 				"type": "prometheus",
@@ -396,7 +794,7 @@
 				"h": 8,
 				"w": 10,
 				"x": 14,
-				"y": 10
+				"y": 30
 			},
 			"datasource": {
 				"type": "prometheus",
@@ -458,7 +856,7 @@
 				"h": 8,
 				"w": 11,
 				"x": 0,
-				"y": 18
+				"y": 38
 			},
 			"datasource": {
 				"type": "prometheus",
@@ -563,7 +961,7 @@
 				"h": 8,
 				"w": 5,
 				"x": 19,
-				"y": 18
+				"y": 38
 			},
 			"datasource": {
 				"type": "prometheus",
@@ -620,7 +1018,7 @@
 				"h": 8,
 				"w": 8,
 				"x": 11,
-				"y": 18
+				"y": 38
 			},
 			"datasource": {
 				"type": "prometheus",
@@ -716,6 +1114,28 @@
 				},
 				"includeAll": false,
 				"multi": false
+			},
+			{
+				"name": "rule",
+				"type": "query",
+				"label": "Rule",
+				"datasource": { "type": "prometheus", "uid": "${datasource}" },
+				"definition": "label_values(node_readiness_rule_nodes, rule)",
+				"query": {
+					"query": "label_values(node_readiness_rule_nodes, rule)",
+					"refId": "StandardVariableQuery"
+				},
+				"refresh": 2,
+				"sort": 1,
+				"hide": 0,
+				"current": {
+					"selected": true,
+					"text": ["All"],
+					"value": ["$__all"]
+				},
+				"includeAll": true,
+				"allValue": ".*",
+				"multi": true
 			}
 		]
 	}
