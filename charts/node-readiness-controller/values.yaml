@@ -36,6 +36,9 @@ podDisruptionBudget:
   enabled: false
   minAvailable: 1
   # maxUnavailable: 1
+  # -- How unhealthy pods are treated during voluntary evictions. Rendered
+  # only on clusters >= 1.27 where the field is supported.
+  unhealthyPodEvictionPolicy: AlwaysAllow
 
 priorityClassName: system-cluster-critical
 
