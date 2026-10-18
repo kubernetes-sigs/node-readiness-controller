@@ -1,0 +1,76 @@
+suite: Test MutatingAdmissionPolicy Templates
+templates:
+  - templates/mutatingadmissionpolicy.yaml
+  - templates/mutatingadmissionpolicybinding.yaml
+  - templates/rbac.yaml
+
+release:
+  name: node-readiness-controller
+  namespace: test-namespace
+
+tests:
+  - it: does not render policy or binding by default
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/mutatingadmissionpolicy.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/mutatingadmissionpolicybinding.yaml
+
+  - it: renders mutatingadmissionpolicy when enabled
+    set:
+      mutatingAdmissionPolicy:
+        enabled: true
+    template: templates/mutatingadmissionpolicy.yaml
+    asserts:
+      - isKind:
+          of: MutatingAdmissionPolicy
+      - equal:
+          path: metadata.name
+          value: node-readiness-controller-inject-daemonset-tolerations
+      - equal:
+          path: spec.failurePolicy
+          value: Ignore
+      - equal:
+          path: spec.paramKind.kind
+          value: ConfigMap
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources[0]
+          value: daemonsets
+
+  - it: renders mutatingadmissionpolicybinding when enabled
+    set:
+      mutatingAdmissionPolicy:
+        enabled: true
+        configMapName: custom-readiness-taints
+    template: templates/mutatingadmissionpolicybinding.yaml
+    asserts:
+      - isKind:
+          of: MutatingAdmissionPolicyBinding
+      - equal:
+          path: metadata.name
+          value: node-readiness-controller-inject-daemonset-tolerations-binding
+      - equal:
+          path: spec.policyName
+          value: node-readiness-controller-inject-daemonset-tolerations
+      - equal:
+          path: spec.paramRef.name
+          value: custom-readiness-taints
+      - equal:
+          path: spec.paramRef.namespace
+          value: test-namespace
+      - equal:
+          path: spec.paramRef.parameterNotFoundAction
+          value: Allow
+
+  - it: always renders configmap role and rolebinding
+    template: templates/rbac.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["configmaps"]
+            verbs: ["get", "list", "watch", "create", "patch", "update"]
+          any: true

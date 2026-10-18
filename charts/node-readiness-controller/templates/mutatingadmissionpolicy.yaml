@@ -1,0 +1,56 @@
+{{- if .Values.mutatingAdmissionPolicy.enabled }}
+apiVersion: {{ if .Capabilities.APIVersions.Has "admissionregistration.k8s.io/v1/MutatingAdmissionPolicy" }}admissionregistration.k8s.io/v1{{ else }}admissionregistration.k8s.io/v1beta1{{ end }}
+kind: MutatingAdmissionPolicy
+metadata:
+  name: {{ include "node-readiness-controller.fullname" . }}-inject-daemonset-tolerations
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Ignore
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["daemonsets"]
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  variables:
+    - name: optedOut
+      expression: |
+        (has(object.metadata.annotations) &&
+         object.metadata.annotations.exists(k, k == "readiness.k8s.io/auto-tolerate" && object.metadata.annotations[k] == "false")) ||
+        (has(object.spec.template.metadata.annotations) &&
+         object.spec.template.metadata.annotations.exists(k, k == "readiness.k8s.io/auto-tolerate" && object.spec.template.metadata.annotations[k] == "false"))
+    - name: existingTolerations
+      expression: |
+        has(object.spec.template.spec.tolerations) ?
+          object.spec.template.spec.tolerations : []
+    - name: taintKeys
+      expression: |
+        has(params.data) && ("taint-keys" in params.data) && params.data["taint-keys"] != "" ?
+          params.data["taint-keys"].split(",").filter(key, key != "") : []
+    - name: tolerationsToInject
+      expression: |
+        variables.taintKeys
+          .filter(key, !variables.existingTolerations.exists(t, (has(t.key) && t.key == key) || ((!has(t.key) || t.key == "") && has(t.operator) && t.operator == "Exists" && (!has(t.effect) || t.effect == "NoSchedule"))))
+          .map(key, {
+            "key": key,
+            "operator": "Exists",
+            "effect": "NoSchedule"
+          })
+  mutations:
+    - patchType: JSONPatch
+      jsonPatch:
+        expression: |
+          !variables.optedOut && size(variables.tolerationsToInject) > 0 ?
+          [
+            JSONPatch{
+              op: has(object.spec.template.spec.tolerations) ? "replace" : "add",
+              path: "/spec/template/spec/tolerations",
+              value: variables.existingTolerations + variables.tolerationsToInject
+            }
+          ] : []
+  reinvocationPolicy: {{ .Values.mutatingAdmissionPolicy.reinvocationPolicy | default "Never" }}
+{{- end }}

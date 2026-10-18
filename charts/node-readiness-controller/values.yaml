@@ -198,3 +198,13 @@ nodeReadinessRules: []
   #   nodeSelector:
   #     matchLabels:
   #       kubernetes.io/os: linux
+
+# -- Settings for the optional MutatingAdmissionPolicy to auto-tolerate DaemonSets
+mutatingAdmissionPolicy:
+  # -- Enables the MutatingAdmissionPolicy and binding to auto-inject readiness tolerations into DaemonSets
+  enabled: false
+  # -- Name of the ConfigMap used to sync active readiness taints
+  configMapName: "readiness-taints"
+  # -- Reinvocation policy for the mutating admission policy (Never or IfNeeded)
+  reinvocationPolicy: Never
+
