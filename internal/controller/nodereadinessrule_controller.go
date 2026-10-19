@@ -671,6 +671,18 @@ func (r *RuleReadinessController) ListBlockedNodes(ctx context.Context, nodes []
 			if !held {
 				return
 			}
+			// For anyOf rules, a node satisfying at least one condition is
+			// not blocked, even if it still carries the taint (e.g. dryRun
+			// or pending removal). Counting its unsatisfied conditions
+			// pollutes rule_blocked_conditions_total (issue #458).
+			if rule.Spec.GetConditionPolicy() == readinessv1alpha1.ConditionPolicyAnyOf {
+				for _, cond := range rule.Spec.Conditions {
+					effectiveStatus, _ := r.getConditionStatus(node, cond.Type, cond.GetDefaultStatus())
+					if effectiveStatus == cond.RequiredStatus {
+						return
+					}
+				}
+			}
 			counts := result[rule.Name]
 			for _, cond := range rule.Spec.Conditions {
 				effectiveStatus, _ := r.getConditionStatus(node, cond.Type, cond.GetDefaultStatus())
