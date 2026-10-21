@@ -6,7 +6,7 @@ This project brings native UI visibility to the Node Readiness Controller (NRC) 
 
 The project answers two main questions:
 
-1. **Per-object readiness state:** Why is this specific node not accepting workloads? Which rule, condition, or taint is holding it back? Today this requires `kubectl describe node`, controller logs, or raw YAML parsing.
+1. **Per-node readiness state:** Why is this specific node not accepting workloads? Which rule, condition, or taint is holding it back? Today this requires `kubectl describe node`, controller logs, or raw YAML parsing.
 2. **Fleet-wide rule enforcement:** Across all rules, how many nodes are matched, held by taints, or free of taints? Which rules report evaluation failures? Today this is answered only through Prometheus queries and the Grafana dashboard built in Term 2.
 
 ## Goals
@@ -58,7 +58,7 @@ The plugin reads from the `readiness.node.x-k8s.io/v1alpha1` API group. Both cus
 
 The plugin consumes `NodeReadinessRule` resources to extract rule specifications (`enforcementMode`, `conditionPolicy`, `taint`, `conditions`, `nodeSelector`, `dryRun`) and controller status (`dryRunResults`, `nodeEvaluations`, `failedNodes`, `appliedNodes`, `observedGeneration`). Detailed UI column- and section-level mappings are specified in Section 5.
 
-* **Scale & Payload Boundary:** The NRR CRD schema permits up to 5,000 items in each of `status.nodeEvaluations`, `status.failedNodes`, and `status.appliedNodes`. Standard Kubernetes list requests (`GET /apis/.../nodereadinessrules`) return full JSON objects including these status arrays. While Headlamp table pagination defers browser DOM rendering, it does *not* reduce network payload size or React client memory consumption. For clusters with extensive rule sets and wide node selectors, server-side summary aggregation (`status.evaluationSummary`) or server-side projection is recognized as an upstream optimization to eliminate client payload bloat.
+* **Scale & Payload Boundary:** The NRR CRD schema permits up to 5,000 items in each of `status.nodeEvaluations`, `status.failedNodes`, and `status.appliedNodes`. Standard Kubernetes list requests (`GET /apis/.../nodereadinessrules`) return full JSON objects including these status arrays. While Headlamp table pagination defers browser DOM rendering, it does *not* reduce network payload size or React client memory consumption. For clusters with extensive rule sets and wide node selectors, server-side summary aggregation (`status.evaluationSummary`) is recognized as a necessary optimization; ultimately, as NRE graduates and takes over granular per-node reporting, completely deprecating and removing `status.nodeEvaluations` from the NRR API will permanently eliminate rule-level payload bloat.
 * **Stale Status Detection (`observedGeneration`):** When an operator modifies rule specifications (`spec`), Kubernetes immediately increments `metadata.generation`. Until the controller reconciles the update, `status.observedGeneration` reflects earlier specifications. When `status.observedGeneration < metadata.generation`, the UI treats displayed evaluation data as provisional/stale, rendering a `"Reconciling / Spec Modified"` indicator so operators are not misled by out-of-date evaluation records reflecting earlier rule generations. If `observedGeneration` is absent, the UI falls back to standard evaluation display without asserting reconciliation staleness.
 
 #### 3.2 NodeReadinessEvaluation - Dependency Management & Data Contract
@@ -123,10 +123,10 @@ We define six primary user interfaces. Status is conveyed through text and seman
 
 The entry point for the plugin. The Landing Page provides immediate orientation for operators, acting as a lightweight summary before drilling down into the Rule List. It performs a single `NodeReadinessRule` list request.
 
-* **CRD & Endpoint Detection:** No separate CRD metadata fetch is performed. The single `NodeReadinessRule` list request serves as initial API detection: the plugin distinguishes unserved API endpoint / CRD-not-installed states (`404` or unserved endpoint error on list) from permission errors (`403`) and empty-resource states (`200` with zero items). If the list request indicates that the resource endpoint is not served, show an appropriate unavailable state (e.g., a Headlamp `<EmptyContent>` component with the message: `"Node Readiness Controller CRDs not installed"`, alongside a standard Headlamp `<Link>` pointing to the [NRC installation documentation](https://node-readiness-controller.sigs.k8s.io/getting-started/)). If the plugin client cannot definitively distinguish an unserved API group from an endpoint routing anomaly, it renders a neutral message (`"Node Readiness Controller API unavailable"`).
-* **Controller Health Limitation:** CRD/API availability confirms that the resource API is available but does not guarantee that the controller is healthy or actively reconciling. Controller health detection is outside the initial plugin scope.
-* **Summary Cards:** Use Headlamp's standard summary-card/layout pattern, providing high-level context without attempting complex cluster-wide unique node analytics. 
-  * **Total Rules:** Count of `NodeReadinessRule` objects.
+* **CRD & Endpoint Detection:** No separate CRD metadata fetch is performed via `CustomResourceDefinition.useGet`. In enterprise multi-tenant clusters, non-admin users often lack RBAC permissions to read `apiextensions.k8s.io/v1 CustomResourceDefinition` (returning `403 Forbidden`), even when granted read access to custom resources. Furthermore, because the Landing Page requires `NodeReadinessRule` data to populate summary cards, the single `NodeReadinessRule` list request serves dual purpose: it distinguishes unserved API endpoint / CRD-not-installed states (`404` or unserved endpoint error on list) from permission errors (`403`) and empty-resource states (`200` with zero items) in a single network round-trip. If the list request indicates that the resource endpoint is not served, the UI renders an informative `<EmptyContent>` component with a link to the [NRC installation documentation](https://node-readiness-controller.sigs.k8s.io/getting-started/).
+* **Controller Deployment Health:** To confirm controller reconciliation health beyond CRD availability, the Landing Page optionally inspects the controller `Deployment` (`K8s.ResourceClasses.Deployment.useGet` targeting the controller manager in its installation namespace) to verify `status.readyReplicas > 0`. If the current user lacks RBAC permissions to read Deployments in that namespace or if the deployment is not found, the controller health badge gracefully degrades without failing the Landing Page.
+* **Summary Cards:** Use Headlamp's standard summary-card/layout pattern, providing high-level context without attempting complex cluster-wide unique node analytics. All card metrics are computed **client-side in React directly from the in-memory Kubernetes `NodeReadinessRule` list response**, rather than querying Prometheus metrics (such as `node_readiness_rules` from Term 2). This ensures the plugin functions standalone on any cluster without external monitoring or Prometheus server dependencies:
+  * **Total Rules:** In-memory count of fetched `NodeReadinessRule` objects (`rules.length`).
   * **Rules with Taints Present:** Count of non-dry-run rules (`spec.dryRun !== true`) where at least one node evaluation currently reports `taintStatus === 'Present'`. Rules with `spec.dryRun: true` are strictly excluded from this count because they do not actively enforce or apply taints. (Reflects physical taint observation; logical satisfaction is evaluated via NRE).
   * **Rules with Evaluation Errors:** Count of rules where `failedNodes` is not empty (applies to both live and dry-run rules, as controller failures to evaluate nodes represent actionable errors).
   * **Counting Semantics & Partial/Stale Data:**
@@ -145,11 +145,12 @@ Table of all `NodeReadinessRule` objects, utilizing Headlamp's native `ResourceL
 |---|---|---|---|
 | Name | `metadata.name` | Yes | Standard Headlamp `<Link>` to the Rule Details page. If `spec.dryRun: true`, a "Dry Run" chip/badge is rendered beneath the link. |
 | Enforcement | `spec.enforcementMode` & `spec.conditionPolicy` | Yes | Shows the enforcement mode (e.g., `continuous`). When `conditionPolicy: anyOf`, also displays `Policy: anyOf` (omitted for the default `allOf`). |
-| Status | Computed from `nodeEvaluations`, `failedNodes`, & `observedGeneration` | Yes | Headlamp `<StatusLabel>`. Computed in canonical precedence: **Terminating** (`metadata.deletionTimestamp` present) > **Reconciling** (`status.observedGeneration < metadata.generation`; warning pill indicating spec was modified) > **Eval Error** (`failedNodes` non-empty) > **Dry-Run Evaluated** (for dry-run rules with populated simulation output; neutral grey pill) > **Taint Present** (when any evaluated node reports `taintStatus === 'Present'`; warning pill) > **Taint Absent** (when all evaluated nodes report `taintStatus === 'Absent'`; neutral grey pill, reserving semantic success styling for verified logical satisfaction in NRE) > **Status Unknown** (when records exist but contain missing or unrecognized status values) > **Evaluation Pending** (when evaluation records are absent). *Populated simulation results indicate that simulation output exists rather than asserting a successful readiness outcome. Do not infer 'Healthy' or 'Satisfied' solely from an absent taint (especially for bootstrap-only rules where taints remain absent post-bootstrap). Concrete taint states ('Taint Present' / 'Taint Absent') are reported directly; logical 'Satisfied'/'Unsatisfied' classifications are reserved for Phase 2 NRE.* |
+| Status | Computed from `nodeEvaluations`, `failedNodes`, & `observedGeneration` | Yes | Headlamp `<StatusLabel>`. Computed in canonical precedence: **Terminating** (`metadata.deletionTimestamp` present) > **Reconciling** (`status.observedGeneration < metadata.generation`; warning pill indicating spec was modified) > **Eval Error** (`failedNodes` non-empty; error red pill) > **Dry-Run Evaluated** (for dry-run rules with populated simulation output; neutral grey pill) > **Fleet Satisfaction Ratio (`{satisfied}/{targeted} Satisfied`)** (numerical progress representation: green success pill when 100% of targeted nodes are satisfied e.g., `5/5 Satisfied`; warning orange pill when partially satisfied e.g., `3/5 Satisfied` or `0/5 Satisfied`; neutral grey pill for the `0/0 Satisfied` edge case where `nodeSelector` matches 0 nodes in the cluster) > **Evaluation Pending** (when evaluation records are absent and rule is newly created). *Note: Rather than reporting a single binary "Taint Present / Absent" label on a rule—which is misleading when a rule targets multiple nodes with varying taint states—the rule status conveys fleet-wide readiness progress via the numerical `{satisfied}/{targeted} Satisfied` ratio, while concrete taint counts are tracked in the adjacent column.* |
 | Taints Present Nodes | Count where `taintStatus === 'Present'` (non-dry-run only) | Yes | For non-dry-run rules: standard text displaying the integer count if > 0, or literal `"-"` if 0. For dry-run rules (`spec.dryRun: true`): displays `"N/A"` (or `"—"`), as dry-run rules do not actively enforce or apply taints. Simulated affected nodes are displayed separately in the Dry-Run Results section. |
 | Evaluation Errors | `failedNodes.length` | Yes | Standard text displaying the integer count if > 0. If 0, renders a literal `"-"`. |
 | Node Selector | `spec.nodeSelector` | No | A flex row of summary chips. For `matchLabels`: `"{count} Labels"`. For `matchExpressions`: `"{count} Expressions"`. Wrapped in a tooltip revealing full JSON on hover. |
-| Taint | `spec.taint` | Yes | Standard outlined chip. Text format: `{key}={value}:{effect}` when `spec.taint.value` is set, or `{key}:{effect}` when value is empty. |
+| Taint Key | `spec.taint.key` | Yes | Outlined chip showing the qualified taint key (e.g., `readiness.k8s.io/gpu-not-ready`). Formatted as `key=value` when `spec.taint.value` is set. |
+| Taint Effect | `spec.taint.effect` | Yes | Dedicated column displaying the scheduling effect (`NoSchedule`, `PreferNoSchedule`, `NoExecute`). Filterable so operators can quickly isolate disruptive `NoExecute` eviction rules. |
 | Age | `metadata.creationTimestamp` | No | Headlamp's standard relative-time formatting. |
 
 *(Note on filtering: Columns should expose filter/sort-friendly primitive values where supported by Headlamp's table APIs, rather than dictating exact dropdowns or substring implementations in the design).*
@@ -177,13 +178,13 @@ Rendered using Headlamp's standard resource details/header components.
 | Taint Managed | `spec.taint` | Standard text. Format: `{key}={value}:{effect}` when value is set, or `{key}:{effect}` when value is empty. |
 
 **Node Status Section:**
-A container displaying a flex row of metric chips:
-  * **Rule Evaluations:** `{count}` (default chip; total count from `status.nodeEvaluations.length`)
-  * **Taint Absent:** `{count}` (neutral default grey chip; count where `taintStatus === 'Absent'`. An absent taint indicates physical taint absence and does not by itself prove node health or condition satisfaction)
-  * **Taint Present:** `{count}` (warning chip; count where `taintStatus === 'Present'`. For dry-run rules with `spec.dryRun: true`, displays `"N/A"` because dry-run rules do not actively apply or remove live taints)
-  * **Evaluation Errors:** `{count}` (error chip; computed from `status.failedNodes.length`)
+A container displaying a flex row of metric chips, mapping directly to the original Matched, Released, and Held operational requirements:
+  * **Targeted (Matched):** `{count}` (default neutral chip; total nodes matched by rule selector, from `status.nodeEvaluations.length`).
+  * **Released (Satisfied / Taint Absent):** `{count}` (success green chip; count where `taintStatus === 'Absent'`, indicating the node met rule conditions and is released from scheduling gates).
+  * **Held (Tainted / Taint Present):** `{count}` (warning orange chip; count where `taintStatus === 'Present'`. For dry-run rules with `spec.dryRun: true`, displays `"N/A"` because dry-run rules do not actively apply or remove live taints).
+  * **Evaluation Errors:** `{count}` (error red chip; computed from `status.failedNodes.length`).
 
-When `status.observedGeneration < metadata.generation`, a `<StatusLabel>` with `status="warning"` and text `"Reconciling"` is displayed, indicating that the controller has not yet updated status for the latest spec changes. If `status.nodeEvaluations` is absent for a non-dry-run rule, the UI clearly distinguishes that evaluation is pending rather than displaying zero counts. For dry-run rules, live taint satisfaction metrics display `"N/A"` and simulated node impact is displayed in the dedicated Dry-Run Results Section below.
+When `status.observedGeneration < metadata.generation`, a `<StatusLabel>` with `status="warning"` and text `"Reconciling"` is displayed, indicating that the controller has not yet updated status for the latest spec changes. If `status.nodeEvaluations` is empty (`[]`), the UI distinguishes an unreconciled rule (where `observedGeneration` is absent or `< metadata.generation`, displaying `"Evaluation Pending"`) from a reconciled rule whose `nodeSelector` simply matches zero nodes in the cluster (displaying `Targeted: 0`). For dry-run rules, live taint metrics display `"N/A"` and simulated node impact is displayed in the dedicated Dry-Run Results Section below.
 
 **Configured Rule Conditions:**
 Rendered using Headlamp's shared `<SimpleTable>` component, presenting the conditions specified in `spec.conditions` that the controller enforces (distinct from dynamic per-node evaluation states).
@@ -198,7 +199,7 @@ Rendered using Headlamp's shared `<SimpleTable>` component, presenting the condi
 To prevent client-side DOM rendering bottlenecks on large clusters, the Rule Details view focuses strictly on rule definitions, high-level status metrics, and controller reconciliation failures, avoiding an unbounded per-node evaluation list. Unbounded per-node exploration is deferred to the dedicated NRE List and Details views (Sections 5.4–5.5), with an `[Explore Node Evaluations in NRE]` navigation action linking operators directly to filtered evaluations.
 
 **Evaluation Errors Table (Conditional):**
-Rendered when `status.failedNodes` is non-empty, providing diagnostic details for nodes that could not be evaluated by the controller.
+Rendered when `status.failedNodes` is non-empty, providing diagnostic details for nodes that could not be evaluated by the controller. To prevent browser freezing or page hangs on large clusters with up to 5,000 failed nodes, this table is rendered using Headlamp's `<SimpleTable>` with client-side pagination (default: 10 rows per page, selectable: `[10, 25, 50]`) and client-side node search filtering. This guarantees that DOM nodes remain strictly bounded to $\le 50$ elements at all times.
 
 | Column | Source | Component & Style |
 |---|---|---|
@@ -234,8 +235,8 @@ Table of all `NodeReadinessEvaluation` objects, utilizing Headlamp's native `Res
 
 | Column | Source | Filterable | Exact Component & Style |
 |---|---|---|---|
-| Name | `metadata.name` | Yes (substring) | Headlamp `<Link>` to the NRE Details page. *(Note: The current proposal uses the target node name as the NRE name; this is subject to the final API design)*. Beneath it: a smaller `"View Node"` `<Link>` pointing to Headlamp's native Node details page. |
-| State | `status.state` | Yes (dropdown) | Headlamp `<StatusLabel>` using `status="success"` for `"Available"` or `status="error"` for `"Not Available"` (provisional UI contract subject to finalized CRD values). |
+| Name | `metadata.name` | Yes (substring) | Headlamp `<Link>` to the NRE Details page. *(Note: The current proposal uses the target node name as the NRE name; this is subject to the final API design)*. Beneath it: a smaller `"View Node"` `<Link>` pointing to Headlamp's native Node details page, rendered conditionally via Headlamp's `<AuthVisible>` permission check for core `nodes`; if the user lacks node read permissions, this secondary link is omitted to prevent 403 navigation errors. |
+| State | `status.state` | Yes (dropdown) | Headlamp `<StatusLabel>` using `status="success"` for `"Available"` or `status="error"` for `"NotAvailable"` (rendered directly from the CRD enum without extra string-mapping). |
 | Rules Status | Computed (Satisfied vs Total, where Total is `status.rules.length`) | Yes (dropdown: all satisfied / not all) | Headlamp `<StatusLabel>`. Uses `status="success"` for `"OK (N/N)"`, `status="warning"` for `"Not Ready (X/N)"`, or `"Evaluation Pending"` when `status` is `{}` (empty). *Note: "Evaluation Pending" is a provisional client-side UI fallback heuristic displayed when the controller has not yet written evaluation records, not an authoritative controller lifecycle condition.* |
 | Age | `metadata.creationTimestamp` | No | Simple `<Typography>` text rendered via Headlamp's standard relative-time/age formatting. |
 
@@ -252,70 +253,73 @@ Deep dive into a single node's evaluation. **Blocked on the NRE API becoming ava
 * If RBAC denies access, renders a custom `<EmptyContent>` explaining the lack of read permissions for `nodereadinessevaluations`.
 
 **Basic Info:**
-* **Target Node:** Rendered as a `"Visit Node"` CTA `<Link>` pointing to Headlamp's native Node details page. If the user lacks read permissions for core `nodes`, renders the node name as plain text without crashing.
-* **State:** Headlamp `<StatusLabel>` (`status="success"` for `"Available"`, `status="error"` for `"Not Available"`; provisional mapping).
+* **Target Node:** Rendered as a `"Visit Node"` CTA `<Link>` pointing to Headlamp's native Node details page when permitted via `<AuthVisible>`; if the user lacks read permissions for core `nodes`, renders the node name as plain text without the link.
+* **State:** Headlamp `<StatusLabel>` (`status="success"` for `"Available"`, `status="error"` for `"NotAvailable"`; rendered directly from the CRD enum).
 * **Active Taints:** Sourced from the target Kubernetes Node object (`Node.spec.taints`). If none, visually indicate absence. If present, a flex row of standard chips. Format: `{key}={value}:{effect}` when value is set, or `{key}:{effect}` when value is empty. If the user lacks read permissions for core `Node` resources, displays `"—"` rather than failing the NRE Details view.
 * **Rule Status:** A flex row of metric chips for Total, Satisfied, and Unsatisfied counts.
 
 **Rule Evaluations & Per-Condition Evaluation Table:**
 Each applicable rule displays its evaluation outcome, expandable into a concrete per-condition table reflecting `status.rules[].readinessConditions[]` and `status.conditions` from NRE PR #345:
 
-* **Rule Row Summary:**
-  * **Rule Name** (`Typography`), **Rule Status** (`<StatusLabel>`: `"Satisfied"`, `"Unsatisfied"`, or `"Failed"`), **Taint Managed** (outlined chip), **Policy** (text), **Timestamps** (`firstEvaluatedAt`, `lastEvaluatedAt` rendered with Headlamp's date formatting).
-* **Per-Condition Evaluation Breakdown (Expanded Table):**
+* **Rule Row Summary (Top-Level Row):**
+  Rendered using Headlamp's `<SimpleTable>` expandable row pattern:
+
+| Column | Source | Component & Style |
+|---|---|---|
+| Rule Name | `status.rules[].ruleName` | Rule name (`Typography`), with a `"Visit rule"` CTA `<Link>` on the secondary line pointing directly to that Rule's details page. |
+| Enforcement Mode | `status.rules[].enforcementMode` | Standard text (`continuous` / `bootstrap-only`). |
+| Status | `status.rules[].status` | Headlamp `<StatusLabel>` directly from the CRD (`Satisfied`, `Unsatisfied`, `Failed`). |
+| Taint | Rule taint presence on node | Outlined chip if active on this node; literal `"—"` if taint is absent. |
+| Conditions | Computed satisfaction progress | Compact progress ratio: `{satisfied}/{total}` with semantic indicator (`✅` / `<StatusLabel status="success">` if satisfied, warning if unsatisfied). Appends `[anyOf]` only if `conditionPolicy === 'anyOf'`; omitted for default `allOf`. |
+* **Rule Evaluation Details (Expanded Drawer):**
+  When an operator clicks to expand a rule row, an inspection panel reveals detailed diagnostic messages and lifecycle timing above the per-condition breakdown:
+  * **Diagnostics:**
+    * **Reason:** `status.rules[].reason` (e.g., `"ConditionsNotMet"` or `"AllConditionsSatisfied"`).
+    * **Message:** `status.rules[].message` (controller diagnostic string explaining the evaluation outcome).
+  * **Lifecycle Timing & Durations:**
+    * **Duration Metric:** Displays `"⏱️ Unblock Duration: {duration}"` when the rule is satisfied (time elapsed from taint addition to condition satisfaction), or `"⏳ Currently Blocked: {duration}"` when actively held by the taint.
+    * **Evaluation Timestamps:** `First Evaluated At` (`firstEvaluatedAt`) and `Last Evaluated At` (`lastEvaluatedAt`) rendered via Headlamp's relative date formatting.
+    * **Taint Lifecycle Timestamps:** `Taint Observed At`, `Taint Added At`, and `Taint Removed At` (rendered via Headlamp date/time formatting).
+
+* **Per-Condition Evaluation Breakdown (Nested Table):**
   A nested Headlamp `<SimpleTable>` detailing the granular condition assessment for that rule:
 
 | Column | Source | Component & Style |
 |---|---|---|
-| Condition Type | `readinessConditions[].type` | Standard text (e.g., `CNIReady`, `GPUDriverReady`). |
-| Required Status | `readinessConditions[].requiredStatus` | Standard text (`True`, `False`, `Unknown`). |
-| Current Status | `readinessConditions[].currentStatus` | Semantic `<StatusLabel>` or text (`True`, `False`, `Unknown`, or `NotAvailable` rendered as `"Not Available"`). |
-| Condition Match | Derived (`currentStatus === requiredStatus`) | `<StatusLabel status="success">` `"Matched"` or `<StatusLabel status="error">` `"Unmatched"`. |
-| First Evaluated | `readinessConditions[].firstEvaluatedAt` | Relative date/time label. |
-| Last Evaluated | `readinessConditions[].lastEvaluatedAt` | Relative date/time label. |
+| Type | `readinessConditions[].type` | Standard text (e.g., `CNIReady`, `GPUDriverReady`). |
+| Satisfied | Derived (`currentStatus === requiredStatus`) | Headlamp `<StatusLabel>`: semantic success badge `"Satisfied"` if condition criteria are met; error badge `"Unsatisfied"` if not. |
+| Current Status | `readinessConditions[].currentStatus` | Semantic `<StatusLabel>` or text (`True`, `False`, `Unknown`, or `NotAvailable`). |
+| Required Status | `readinessConditions[].requiredStatus` | Standard neutral text or default chip (`True`, `False`, `Unknown`). |
+| Default Status | `readinessConditions[].defaultStatus` | Standard neutral text or default chip. If field is absent, displays text `"Unknown (implicit)"`. |
 
 * **Evaluation Semantics & Edge Cases:**
   * **Absent Taint $\neq$ Satisfied:** An absent taint on the node must **never** be used as a proxy for logical satisfaction. For `bootstrap-only` rules, taints remain absent post-bootstrap regardless of ongoing node state; satisfaction is evaluated strictly against `readinessConditions`.
-  * **Missing vs. Zero:** Missing evaluation data is rendered as `"Not Available"` (API: `NotAvailable`), clearly distinguished from zero counts or empty arrays.
+  * **Node Scheduling State vs. Missing Data:** `status.state` reflects the node's workload scheduling availability (`Available` vs. `NotAvailable`), asserting whether the node is ready to accept pods. Genuinely missing or unpopulated evaluation fields are rendered as literal `"—"` (or `"Evaluation Pending"`), strictly distinguishing missing controller data from legitimate zero counts (`0`) or explicit readiness states.
 
 #### 5.6 Node Details Extension
 
 Injected into Headlamp's native Node details page via `registerDetailsViewSection`.
 
-**Identity & Node Fetch Avoidance:** The Node Extension derives the target Node identity from the resource passed by Headlamp rather than performing an additional `GET /api/v1/nodes/:name` lookup, preventing redundant API calls.
+**Identity & Single-Fetch Strategy:** The Node Extension derives the target Node identity directly from the resource passed by Headlamp rather than performing an additional `GET /api/v1/nodes/:name` lookup. To keep the implementation clean and avoid redundant network round-trips, the extension relies on standard error handling during the direct resource fetch (`useGet`) rather than issuing separate preflight authorization requests (`SelfSubjectAccessReview`).
 
-**Authorization & RBAC:** Headlamp provides authorization checks for custom resource classes via `<AuthVisible>` and `KubeObject.getAuthorization` (demonstrated in [Kueue](https://github.com/headlamp-k8s/plugins/blob/main/kueue/src/components/common/KueueAdminResourceAccess.tsx)). The plugin leverages these checks to conditionally display the section without spamming the API server with unauthorized requests when a user lacks access:
-* **Silent Omission (`null` return):** The extension returns `null` (rendering nothing on the Node Details page) in the following cases:
+* **Silent Omission (`null` return):** The extension gracefully catches fetch errors and returns `null` (rendering nothing on the Node Details page) in the following cases:
   1. The NRE CRD is not installed on the cluster (`404` on CRD endpoint).
-  2. The current user lacks RBAC permissions to read `nodereadinessevaluations` (preflighted via `AuthVisible` / `403 Forbidden`).
-  3. No `NodeReadinessEvaluation` resource exists for the target node (individual GET returns `404`).
-* **Pending Evaluation:** When an NRE object exists for the node but its `status` is empty (`{}`) or evaluations have not yet completed, the extension renders a neutral `"Evaluation Pending"` status chip rather than returning `null` or displaying misleading zero counts.
+  2. The current user lacks RBAC permissions to read `nodereadinessevaluations` (`403 Forbidden` caught on fetch).
+  3. No `NodeReadinessEvaluation` resource exists for the target node (individual GET returns `404`, indicating the node is unmanaged by NRC).
+* **Pending Evaluation:** When an NRE object exists for the node but its `status` is empty (`{}`) or evaluations have not yet completed, the extension renders a neutral `"Evaluation in progress"` status chip rather than returning `null` or displaying misleading zero counts.
 
 **Node Readiness Section:**
-This section introduces a unified lifecycle-conditions panel. Standard Kubernetes conditions will be shown alongside conditions referenced by NRC rules for a holistic view of the node's health. The conditions configured in NRC's rules are read from the Node object's `status.conditions`; they are grouped separately from the standard kubelet conditions for presentation only.
+Injected into the native Node Details view as a dedicated card. Because Headlamp already provides a native "Node Conditions" table rendering standard Kubelet conditions (`Ready`, `MemoryPressure`, `DiskPressure`, `PIDPressure`), this extension avoids duplicating standard conditions and focuses strictly on NRC readiness enforcement:
 
-*Example rendering layout:*
-```text
-Node Conditions
-Standard Kubernetes Conditions
---------------------------------
-Ready              True
-MemoryPressure     False
-DiskPressure       False
-PIDPressure        False
-
-Conditions Referenced by NRC Rules
---------------------------------
-CNIReady           False
-GPUReady           True
-CSIReady           Unknown
-```
-* **State:** Headlamp `<StatusLabel>` (`status="success"` or `status="error"`).
-* **Link:** A `"View Full Evaluation"` `<Link>` pointing to the NRE Details page.
+* **Summary Bar:**
+  * **State:** Headlamp `<StatusLabel>` (`Available`, `NotAvailable`, or `"Evaluation in progress"`).
+  * **Active Taints:** Outlined chips displaying taints actively placed on this node by NRC rules (or indicating `"None"` if no NRC taints are active).
+  * **Link:** A `"View Full Evaluation"` `<Link>` pointing to the dedicated NRE Details page for granular condition inspection.
 * **Rules Table:** Headlamp `<SimpleTable>` with the following columns:
-  * **Rule Name:** `<Typography>` text.
-  * **Status:** `<StatusLabel>`.
-  * **Taint:** Standard outlined chip.
+  * **Rule Name:** `<Typography>` text with a `<Link>` pointing to Rule Details.
+  * **Enforcement Mode:** Standard text (`continuous` / `bootstrap-only`).
+  * **Status:** Headlamp `<StatusLabel>` (`Satisfied`, `Unsatisfied`, `Failed`).
+  * **Taint:** Standard outlined chip if active on this node; literal `"—"` if taint is absent.
   * **Reason:** Truncated when necessary, with access to the full message.
 
 
@@ -329,8 +333,8 @@ CSIReady           Unknown
 | **RBAC Denied on CRDs (`403`)** | List views render Headlamp's native permission error banner; resource details pages render `<EmptyContent>` detailing missing read permissions (`nodereadinessrules` or `nodereadinessevaluations`). |
 | **Core `Node` Access Denied (`403`)** | Node names in NRR/NRE views render as plain text rather than clickable links; active taints in NRE Details render as `"—"`; Node Extension is silently omitted. NRR and NRE views remain fully functional. |
 | **Rule Spec Modified (`status.observedGeneration < metadata.generation`)** | Rule List and Rule Details show `<StatusLabel status="warning">` `"Reconciling"`, signaling that displayed status evaluations reflect the prior spec generation before recent edits. |
-| **Evaluation Pending / Empty Status (`{}`)** | When `status` is empty or unpopulated, displays neutral `"Pending"` (NRR) or `"Evaluation Pending"` (NRE/Node Extension) with `"—"` chips, strictly avoiding false zero counts or failed error states. |
-| **Controller Evaluation Errors (`status.failedNodes`)** | Rules with non-empty `failedNodes` render `<StatusLabel status="error">` `"Eval Error"` on Rule List and display diagnostic node failure breakdowns in the Rule Details Evaluation Errors Table. |
+| **Evaluation Pending (`observedGeneration` absent / status `{}`)** | When a rule is newly created and `status.observedGeneration` is absent or unpopulated, displays neutral `"Evaluation Pending"` (NRR/NRE) or `"Evaluation in progress"` (Node Extension) with `"—"` chips. Once reconciled (`status.observedGeneration === metadata.generation`), an empty `nodeEvaluations` list legitimately represents `Targeted: 0` (no nodes matched by `nodeSelector`), strictly distinguishing pending evaluation from zero matched nodes. |
+| **Controller Evaluation Errors (`status.failedNodes`)** | Rules with non-empty `failedNodes` render `<StatusLabel status="error">` `"Eval Error"` on Rule List and display diagnostic node failure breakdowns in the Rule Details Evaluation Errors Table (paginated with search filtering to safely handle up to 5,000 failed nodes without browser freezing). |
 | **Dry-Run Mode (`spec.dryRun: true`)** | Rule List displays a `"Dry Run"` chip with neutral `"Dry-Run Evaluated"`; live taint metrics display `"N/A"` (strictly excluded from live unsatisfied counts). Rule Details isolates simulated impact metrics in the Dry-Run Results card. |
 | **Node Missing NRE Resource** | Node Details Extension silently returns `null` to avoid cluttering unmanaged node views, distinguishing missing objects from pending evaluation records (`status: {}`). |
 
@@ -338,17 +342,16 @@ CSIReady           Unknown
 
 ### 7. Validation & Ecosystem
 
-* **Incremental Test Matrix:** Tests accompany each feature rather than being deferred to final polish:
-  * Unit tests (Vitest + React Testing Library) validate status calculations, failure precedence, dry-run isolation, and empty/error states.
-  * Integration tests on a local `kind` cluster verify live watch updates, cluster switching, and RBAC permission denials (`403 Forbidden`).
-  * Continuous accessibility: Keyboard navigation, semantic status indicators, light/dark theme contrast (using Headlamp theme tokens), and translatable strings (`pluginI18n`) are verified incrementally.
-* **Measurable Scale & Stress Validation:** 
-  Client-side table pagination defers DOM rendering but does *not* reduce network payload size or browser memory consumption. To validate scale boundaries, the plugin will be tested using **KWOK (Kubernetes WithOut Kubelet)** and Headlamp's `load-tests/` framework:
-  * **Benchmark Target:** 500+ simulated nodes and 20+ rules with overlapping label selectors.
-  * **Measured Metrics:** Total JSON payload size (target < 2 MB), initial render latency (target < 300 ms), browser heap memory consumption (target < 50 MB), and resilience under watch-update bursts.
-* **Developer Quickstart & Sample Manifests:**
-  * The repository includes a `test-files/` folder with realistic YAML manifests covering healthy rules, dry-run simulation, and evaluation failure scenarios.
-  * A clear "Getting Started" guide in `README.md` provides reproducible instructions for developers to install, run, and test the plugin locally against kind or minikube.
+* **Testing:**
+  * **Unit Tests (Vitest + React Testing Library):** Validate status calculations, failure precedence, dry-run isolation, and empty/error states.
+  * **Integration Tests (local `kind`):** Verify live watch updates, cluster switching, and RBAC permission handling (`403 Forbidden`).
+  * **Accessibility & Theming:** Verify keyboard navigation, Headlamp light/dark theme contrast tokens, and translatable strings (`pluginI18n`).
+* **Scale Testing (KWOK):**
+  * Validate UI responsiveness and table pagination under simulated scale (500+ nodes, 20+ rules using KWOK) to ensure DOM rendering remains smooth.
+  * Verify watch-update resilience during concurrent condition changes to ensure batched React state updates do not drop UI frames.
+* **Developer Quickstart & Samples:**
+  * Provide sample manifests in `test-files/` covering healthy rules, dry-run mode, and evaluation errors.
+  * Include clear setup instructions in `README.md` for local testing on `kind` or `minikube`.
 
 ---
 
