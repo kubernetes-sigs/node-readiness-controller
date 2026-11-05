@@ -2526,7 +2526,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			nodeList := &corev1.NodeList{Items: []corev1.Node{*failNode}}
 			_, err := failController.processAllNodesForRule(ctx, rule, nodeList)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).To(MatchError(ContainSubstring("fail-path-node")))
 
 			Expect(rule.Status.AppliedNodes).NotTo(ContainElement("fail-path-node"))
 
@@ -2905,6 +2905,78 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(res).To(Equal(reconcile.Result{}))
 			Expect(res.RequeueAfter).To(Equal(time.Duration(0)))
+		})
+
+		It("should persist failedNodes and return the error when a node evaluation fails", func() {
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "eval-error-reconcile-rule",
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/eval-error-test",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"role": "eval-error"},
+					},
+				},
+			}
+
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "eval-error-node",
+					Labels: map[string]string{"role": "eval-error"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "Ready", Status: corev1.ConditionFalse},
+					},
+				},
+			}
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(node, rule).
+				WithStatusSubresource(rule).
+				Build()
+			errClient := &errorInjectingClient{
+				Client:        fc,
+				failNodeNames: map[string]bool{"eval-error-node": true},
+			}
+
+			controller := &RuleReadinessController{
+				Client:        errClient,
+				Scheme:        scheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: events.NewFakeRecorder(10),
+			}
+
+			reconciler := &RuleReconciler{
+				Client:     errClient,
+				Scheme:     scheme,
+				Controller: controller,
+			}
+
+			res, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: rule.Name},
+			})
+			Expect(err).To(MatchError(ContainSubstring("eval-error-node")))
+			Expect(res).To(Equal(reconcile.Result{}))
+
+			final := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: rule.Name}, final)).To(Succeed())
+			failedNames := make([]string, 0, len(final.Status.FailedNodes))
+			for _, f := range final.Status.FailedNodes {
+				failedNames = append(failedNames, f.NodeName)
+			}
+			Expect(failedNames).To(ContainElement("eval-error-node"),
+				"status should be persisted before the evaluation error is returned")
 		})
 	})
 
