@@ -44,6 +44,7 @@ const (
 	envConditionType       = "CONDITION_TYPE"
 	envCheckEndpoint       = "CHECK_ENDPOINT"
 	envCheckInterval       = "CHECK_INTERVAL"
+	envCheckTimeout        = "CHECK_TIMEOUT"
 	envImpersonateNode     = "IMPERSONATE_NODE"
 	envHeartbeatPeriod     = "HEARTBEAT_PERIOD"
 	envMetricsBindAddress  = "METRICS_BIND_ADDRESS"
@@ -114,6 +115,7 @@ func main() {
 	}
 
 	interval := parseDurationWithDefault(os.Getenv(envCheckInterval), defaultCheckInterval, "check interval")
+	checkTimeout := parseDurationWithDefault(os.Getenv(envCheckTimeout), defaultHTTPTimeout, "check timeout")
 	heartbeatPeriod := parseDurationWithDefault(os.Getenv(envHeartbeatPeriod), defaultHeartbeatPeriod, "heartbeat period")
 
 	metricsBindAddrStr := os.Getenv(envMetricsBindAddress)
@@ -141,7 +143,7 @@ func main() {
 	}
 
 	httpClient := &http.Client{
-		Timeout: defaultHTTPTimeout,
+		Timeout: checkTimeout,
 	}
 
 	mux := http.NewServeMux()
@@ -164,7 +166,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
-	klog.InfoS("Starting readiness condition reporter", "node", nodeName, "condition", conditionType, "interval", interval, "metricsBindAddress", metricsBindAddr)
+	klog.InfoS("Starting readiness condition reporter", "node", nodeName, "condition", conditionType, "interval", interval, "timeout", checkTimeout, "metricsBindAddress", metricsBindAddr)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
