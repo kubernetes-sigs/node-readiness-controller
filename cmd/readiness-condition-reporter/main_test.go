@@ -20,6 +20,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -585,6 +586,57 @@ func TestParseDurationWithDefault(t *testing.T) {
 			result := parseDurationWithDefault(tt.input, defaultVal, "test duration")
 			if result != tt.expected {
 				t.Errorf("parseDurationWithDefault(%q) = %v, expected %v", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCheckTimeoutConfiguration(t *testing.T) {
+	tests := []struct {
+		name        string
+		envValue    string
+		setEnv      bool
+		wantTimeout time.Duration
+	}{
+		{
+			name:        "default when unset",
+			setEnv:      false,
+			wantTimeout: defaultHTTPTimeout,
+		},
+		{
+			name:        "custom valid timeout",
+			envValue:    "5s",
+			setEnv:      true,
+			wantTimeout: 5 * time.Second,
+		},
+		{
+			name:        "invalid timeout falls back to default",
+			envValue:    "invalid",
+			setEnv:      true,
+			wantTimeout: defaultHTTPTimeout,
+		},
+		{
+			name:        "negative timeout falls back to default",
+			envValue:    "-5s",
+			setEnv:      true,
+			wantTimeout: defaultHTTPTimeout,
+		},
+		{
+			name:        "zero timeout falls back to default",
+			envValue:    "0s",
+			setEnv:      true,
+			wantTimeout: defaultHTTPTimeout,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setEnv {
+				t.Setenv(envCheckTimeout, tt.envValue)
+			}
+			timeout := parseDurationWithDefault(os.Getenv(envCheckTimeout), defaultHTTPTimeout, "check timeout")
+			if timeout != tt.wantTimeout {
+				t.Errorf("timeout = %v, want %v", timeout, tt.wantTimeout)
 			}
 		})
 	}

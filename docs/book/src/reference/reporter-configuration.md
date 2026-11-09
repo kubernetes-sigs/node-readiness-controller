@@ -16,6 +16,7 @@ and [Security Agent](../examples/security-agent-readiness.md) for examples.
 | `CHECK_ENDPOINT` | The HTTP endpoint the reporter polls to determine component health, e.g. `http://localhost:9099/healthz`. | (required) |
 | `CONDITION_TYPE` | The Node Readiness condition written by the reporter, e.g. `projectcalico.org/CalicoReady`. | (required) |
 | `CHECK_INTERVAL` | How often the reporter polls `CHECK_ENDPOINT`. | `30s` |
+| `CHECK_TIMEOUT` | The timeout for each health check HTTP request to `CHECK_ENDPOINT`. Accepts Go duration strings like `5s`, `10s`. Invalid values are logged and fall back to the default. | `10s` |
 | `HEARTBEAT_PERIOD` | The maximum time the reporter can go without writing to the Node's condition if component health hasn't changed. See [Optimizing node status writes](../user-guide/concepts.md#optimizing-node-status-writes). Accepts Go duration strings like `30s`, `2m`, `1h`. Invalid values are logged and fall back to the default. | `5m` |
 | `IMPERSONATE_NODE` | When set to `"true"`, the reporter sends `Impersonate-User: system:node:<nodeName>` headers on every request, enabling the constrained impersonation authorization flow. Requires Kubernetes **v1.35+** for [Constrained Impersonation](https://kubernetes.io/docs/reference/access-authn-authz/user-impersonation/#constrained-impersonation) feature. See [Security](../operations/security.md#reporter-configuration) for details. | unset (uses the reporter's own ServiceAccount identity) |
 | `METRICS_BIND_ADDRESS` | The bind address for the reporter's `/metrics` (Prometheus) and `/healthz` HTTP endpoints. | `:9445` |
@@ -34,6 +35,8 @@ env:
     value: "projectcalico.org/CalicoReady"
   - name: CHECK_INTERVAL
     value: "30s"
+  - name: CHECK_TIMEOUT
+    value: "10s"
   - name: HEARTBEAT_PERIOD
     value: "5m"
 ```
