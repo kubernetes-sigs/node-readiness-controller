@@ -12,4 +12,4 @@ processor:
 
 render:
   # Version of Kubernetes to use when generating links to Kubernetes API documentation.
-  kubernetesVersion: 1.35
+  kubernetesVersion: 1.36
