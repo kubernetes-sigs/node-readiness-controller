@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -141,6 +142,7 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	// Handle dry run
 	var delta nodeStatusDelta
+	var processErr error
 	if rule.Spec.DryRun {
 		if err := r.Controller.processDryRun(ctx, rule, nodeList); err != nil {
 			log.Error(err, "Failed to process dry run", "rule", rule.Name)
@@ -150,12 +152,11 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		// Clear previous dry run results
 		rule.Status.DryRunResults = readinessv1alpha1.DryRunResults{}
 
-		// Process all applicable nodes for this rule
-		var err error
-		delta, err = r.Controller.processAllNodesForRule(ctx, rule, nodeList)
-		if err != nil {
-			log.Error(err, "Failed to process nodes for rule", "rule", rule.Name)
-			return ctrl.Result{}, err
+		// Process all applicable nodes for this rule. On node evaluation errors,
+		// still persist status (including FailedNodes) before returning the error.
+		delta, processErr = r.Controller.processAllNodesForRule(ctx, rule, nodeList)
+		if processErr != nil {
+			log.Error(processErr, "Failed to process nodes for rule", "rule", rule.Name)
 		}
 	}
 
@@ -178,7 +179,8 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		r.Controller.SyncNodeStateMetrics(ctx, rule)
 	}
 
-	return ctrl.Result{}, nil
+	// Requeue with backoff if any node evaluation failed.
+	return ctrl.Result{}, processErr
 }
 
 // reconcileDelete handles the rules deletion, It performs following actions
@@ -284,8 +286,6 @@ func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule 
 // and additionally returns a nodeStatusDelta describing exactly which nodes' status are changed.
 // so updateRuleStatus can merge those changes into the latest stored status
 // instead of replacing NodeEvaluations/FailedNodes wholesale.
-//
-//nolint:unparam // Keep error return for future extensibility and API stability.
 func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) (nodeStatusDelta, error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -297,6 +297,7 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 	}
 
 	var appliedNodes []string
+	var errs []error
 	for _, node := range nodeList.Items {
 		if !r.ruleAppliesTo(ctx, rule, &node) {
 			continue
@@ -307,6 +308,7 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 			log.Error(err, "Failed to evaluate node for rule", "rule", rule.Name, "node", node.Name)
 			r.recordNodeFailure(rule, node.Name, string(metrics.FailureReasonEvaluationError), err.Error())
 			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonEvaluationError)).Inc()
+			errs = append(errs, err)
 
 			for _, f := range rule.Status.FailedNodes {
 				if f.NodeName == node.Name {
@@ -344,7 +346,7 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 	}
 
 	log.Info("Completed processing nodes for rule", "rule", rule.Name, "processedCount", len(appliedNodes))
-	return delta, nil
+	return delta, errors.Join(errs...)
 }
 
 // evaluateRuleForNode evaluates a single rule against a single node.
@@ -922,7 +924,7 @@ func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule
 		return nil
 	}
 
-	var errors []string
+	var errMsgs []string
 	for _, node := range nodeList.Items {
 		if !selector.Matches(labels.Set(node.Labels)) {
 			continue
@@ -936,13 +938,13 @@ func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule
 				"taint", rule.Spec.Taint.Key)
 
 			if err := r.removeTaintBySpec(ctx, &node, rule.Spec.Taint, rule.Name); err != nil {
-				errors = append(errors, fmt.Sprintf("node %s: %v", node.Name, err))
+				errMsgs = append(errMsgs, fmt.Sprintf("node %s: %v", node.Name, err))
 			}
 		}
 	}
 
-	if len(errors) > 0 {
-		return fmt.Errorf("failed to cleanup taints on some nodes: %s", strings.Join(errors, "; "))
+	if len(errMsgs) > 0 {
+		return fmt.Errorf("failed to cleanup taints on some nodes: %s", strings.Join(errMsgs, "; "))
 	}
 
 	return nil
