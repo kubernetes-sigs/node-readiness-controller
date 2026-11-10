@@ -84,25 +84,34 @@ func conditionsEqual(a, b []corev1.NodeCondition) bool {
 	return true
 }
 
-// taintsEqual checks if two taint slices are equal.
+// taintIdentity is the equality-relevant identity of a taint for
+// taintsEqual. TimeAdded is intentionally excluded: the predicate in
+// node_controller.go only cares whether the taint set changed semantically.
+type taintIdentity struct {
+	Key    string
+	Value  string
+	Effect corev1.TaintEffect
+}
+
+// taintsEqual checks if two taint slices are equal as multisets.
 func taintsEqual(a, b []corev1.Taint) bool {
 	if len(a) != len(b) {
 		return false
 	}
 
-	// Create map for quick lookup
-	aMap := make(map[string]corev1.Taint)
+	counts := make(map[taintIdentity]int, len(a))
 	for _, taint := range a {
-		key := taint.Key + string(taint.Effect)
-		aMap[key] = taint
+		k := taintIdentity{Key: taint.Key, Value: taint.Value, Effect: taint.Effect}
+		counts[k]++
 	}
 
 	for _, taint := range b {
-		key := taint.Key + string(taint.Effect)
-		oldTaint, exists := aMap[key]
-		if !exists || oldTaint.Value != taint.Value {
+		k := taintIdentity{Key: taint.Key, Value: taint.Value, Effect: taint.Effect}
+		c, ok := counts[k]
+		if !ok || c == 0 {
 			return false
 		}
+		counts[k] = c - 1
 	}
 
 	return true

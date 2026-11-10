@@ -58,6 +58,106 @@ func TestLegacyBootstrapAnnotationKey(t *testing.T) {
 	g.Expect(key).To(Equal("readiness.k8s.io/bootstrap-completed-my-rule"))
 }
 
+func TestTaintsEqual(t *testing.T) {
+	taint := func(key, value string, effect corev1.TaintEffect) corev1.Taint {
+		return corev1.Taint{Key: key, Value: value, Effect: effect}
+	}
+
+	tests := []struct {
+		name     string
+		a        []corev1.Taint
+		b        []corev1.Taint
+		expected bool
+	}{
+		{
+			name:     "both empty",
+			a:        nil,
+			b:        nil,
+			expected: true,
+		},
+		{
+			name:     "identical single taint",
+			a:        []corev1.Taint{taint("k", "v", corev1.TaintEffectNoSchedule)},
+			b:        []corev1.Taint{taint("k", "v", corev1.TaintEffectNoSchedule)},
+			expected: true,
+		},
+		{
+			name:     "order independent",
+			a:        []corev1.Taint{taint("k1", "v1", corev1.TaintEffectNoSchedule), taint("k2", "v2", corev1.TaintEffectNoExecute)},
+			b:        []corev1.Taint{taint("k2", "v2", corev1.TaintEffectNoExecute), taint("k1", "v1", corev1.TaintEffectNoSchedule)},
+			expected: true,
+		},
+		{
+			name:     "different value",
+			a:        []corev1.Taint{taint("k", "v1", corev1.TaintEffectNoSchedule)},
+			b:        []corev1.Taint{taint("k", "v2", corev1.TaintEffectNoSchedule)},
+			expected: false,
+		},
+		{
+			name:     "different effect",
+			a:        []corev1.Taint{taint("k", "v", corev1.TaintEffectNoSchedule)},
+			b:        []corev1.Taint{taint("k", "v", corev1.TaintEffectNoExecute)},
+			expected: false,
+		},
+		{
+			name:     "different length",
+			a:        []corev1.Taint{taint("k", "v", corev1.TaintEffectNoSchedule)},
+			b:        []corev1.Taint{taint("k", "v", corev1.TaintEffectNoSchedule), taint("k2", "v2", corev1.TaintEffectNoSchedule)},
+			expected: false,
+		},
+		{
+			// Regression for issue #400: Key+Effect concatenation collides.
+			// "a"+"PreferNoSchedule" == "aPrefer"+"NoSchedule" as strings,
+			// but they are different taints and must compare unequal.
+			name:     "key-effect concatenation collision",
+			a:        []corev1.Taint{taint("a", "v", "PreferNoSchedule")},
+			b:        []corev1.Taint{taint("aPrefer", "v", "NoSchedule")},
+			expected: false,
+		},
+		{
+			// Map-based implementations collapse duplicates: [X,X] vs [X,Y]
+			// has the same length but different multisets.
+			name: "duplicate collapse distinguished",
+			a: []corev1.Taint{
+				taint("k", "v1", corev1.TaintEffectNoSchedule),
+				taint("k", "v1", corev1.TaintEffectNoSchedule),
+			},
+			b: []corev1.Taint{
+				taint("k", "v1", corev1.TaintEffectNoSchedule),
+				taint("k", "v2", corev1.TaintEffectNoSchedule),
+			},
+			expected: false,
+		},
+		{
+			name: "duplicate taints equal",
+			a: []corev1.Taint{
+				taint("k", "v1", corev1.TaintEffectNoSchedule),
+				taint("k", "v1", corev1.TaintEffectNoSchedule),
+			},
+			b: []corev1.Taint{
+				taint("k", "v1", corev1.TaintEffectNoSchedule),
+				taint("k", "v1", corev1.TaintEffectNoSchedule),
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			g.Expect(taintsEqual(tt.a, tt.b)).To(Equal(tt.expected))
+			g.Expect(taintsEqual(tt.b, tt.a)).To(Equal(tt.expected))
+		})
+	}
+
+	t.Run("ignores TimeAdded", func(t *testing.T) {
+		g := NewWithT(t)
+		a := []corev1.Taint{{Key: "k", Value: "v", Effect: corev1.TaintEffectNoSchedule, TimeAdded: &metav1.Time{}}}
+		b := []corev1.Taint{{Key: "k", Value: "v", Effect: corev1.TaintEffectNoSchedule}}
+		g.Expect(taintsEqual(a, b)).To(BeTrue())
+	})
+}
+
 func TestLabelsEqual(t *testing.T) {
 	tests := []struct {
 		name     string
