@@ -74,3 +74,29 @@ Create the name of the service account to use
     {{ default "default" .Values.serviceAccount.name }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Whether the health probe endpoint is served.
+The controller disables it when --health-probe-bind-address is "0" or empty,
+so the container port and probes must be omitted to match.
+*/}}
+{{- define "node-readiness-controller.healthProbeEnabled" -}}
+{{- $addr := .Values.healthProbeBindAddress | toString | trim -}}
+{{- if and (ne $addr "") (ne $addr "0") -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Port taken from healthProbeBindAddress, so the container port and the
+liveness/readiness probes follow the address the controller actually binds to.
+Accepts ":8081", "0.0.0.0:8081" and "[::]:8081".
+*/}}
+{{- define "node-readiness-controller.healthProbePort" -}}
+{{- $addr := .Values.healthProbeBindAddress | toString | trim -}}
+{{- $match := regexFind ":[0-9]+$" $addr -}}
+{{- if not $match -}}
+{{- fail (printf "healthProbeBindAddress %q must end with \":<port>\"" $addr) -}}
+{{- end -}}
+{{- trimPrefix ":" $match -}}
+{{- end -}}

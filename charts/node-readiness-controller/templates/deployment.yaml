@@ -73,27 +73,33 @@ spec:
             {{- if .Values.controller.pprofBindAddress }}
             - --pprof-bind-address={{ .Values.controller.pprofBindAddress }}
             {{- end }}
+          {{- if or (include "node-readiness-controller.healthProbeEnabled" .) .Values.webhook.enabled }}
           ports:
-                      - name: http
-                        containerPort: 8081
-                        protocol: TCP
-                      {{- if .Values.webhook.enabled }}
-                      - name: webhook-server
-                        containerPort: {{ .Values.webhook.port }}
-                        protocol: TCP
-                      {{- end }}
+            {{- if include "node-readiness-controller.healthProbeEnabled" . }}
+            - name: http
+              containerPort: {{ include "node-readiness-controller.healthProbePort" . }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.webhook.enabled }}
+            - name: webhook-server
+              containerPort: {{ .Values.webhook.port }}
+              protocol: TCP
+            {{- end }}
+          {{- end }}
+          {{- if include "node-readiness-controller.healthProbeEnabled" . }}
           livenessProbe:
             httpGet:
               path: {{ .Values.livenessProbe.path }}
-              port: 8081
+              port: {{ include "node-readiness-controller.healthProbePort" . }}
             initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
             periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
           readinessProbe:
             httpGet:
               path: {{ .Values.readinessProbe.path }}
-              port: 8081
+              port: {{ include "node-readiness-controller.healthProbePort" . }}
             initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
             periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
