@@ -66,6 +66,7 @@ type PhaseJSON struct {
 	Resources       ResourcesJSON  `json:"resources"`
 	Workqueue       WorkqueueJSON  `json:"workqueue"`
 	Operations      OperationsJSON `json:"operations"`
+	Conflicts       ConflictsJSON  `json:"conflicts"`
 	APIClient       APIClientJSON  `json:"api_client"`
 }
 
@@ -113,6 +114,23 @@ type OperationsJSON struct {
 	TaintsRemoved       int64 `json:"taints_removed"`
 	ConditionFailures   int64 `json:"condition_failures"`
 	OperationalFailures int64 `json:"operational_failures"`
+}
+
+type ConflictsJSON struct {
+	Total                         int64               `json:"total"`
+	AddTaint                      int64               `json:"add_taint"`
+	RemoveTaint                   int64               `json:"remove_taint"`
+	RuleStatusNodeWrite           int64               `json:"rule_status_node_write"`
+	RuleStatusRuleSweep           int64               `json:"rule_status_rule_sweep"`
+	RuleControllerReconcileErrors int64               `json:"rule_controller_reconcile_errors"`
+	RetryExhaustion               RetryExhaustionJSON `json:"retry_exhaustion"`
+}
+
+type RetryExhaustionJSON struct {
+	AddTaint        int64 `json:"add_taint"`
+	RemoveTaint     int64 `json:"remove_taint"`
+	StatusPatch     int64 `json:"status_patch"`
+	RuleStatusSweep int64 `json:"rule_status_sweep"`
 }
 
 type APIClientJSON struct {

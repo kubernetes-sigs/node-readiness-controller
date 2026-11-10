@@ -28,10 +28,11 @@ import (
 )
 
 type phaseStats struct {
-	phase string
-	title string
-	start time.Time
-	end   time.Time
+	phase    string
+	title    string
+	start    time.Time
+	end      time.Time
+	queryEnd time.Time
 }
 
 var (
@@ -65,13 +66,6 @@ var _ = Describe("Node Readiness Controller Scalability Test", func() {
 		By("Deleting KWOK's Stage for condition false to avoid conflicting stages")
 		deleteStage(ctx, "security-agent-stage-false")
 
-		phases = append(phases, phaseStats{
-			phase: "add",
-			title: fmt.Sprintf("%d Nodes - Tainting (Add) Phase [Duration: %s]", nodeCount, taintDuration.Round(time.Millisecond)),
-			start: taintStart,
-			end:   taintEnd,
-		})
-
 		By("Sleeping 10 seconds to settle metrics before starting untainting")
 		time.Sleep(10 * time.Second)
 
@@ -81,21 +75,31 @@ var _ = Describe("Node Readiness Controller Scalability Test", func() {
 		untaintStart := time.Now()
 		applyManifest(ctx, securityAgentStageTrueManifest)
 
+		phases = append(phases, phaseStats{
+			phase:    "add",
+			title:    fmt.Sprintf("%d Nodes - Tainting (Add) Phase [Duration: %s]", nodeCount, taintDuration.Round(time.Millisecond)),
+			start:    taintStart,
+			end:      taintEnd,
+			queryEnd: untaintStart,
+		})
+
 		By("Waiting for the controller manager to reconcile and remove taints on all nodes")
 		waitForNodeTaints(ctx, 0)
 
 		untaintEnd := time.Now()
 		untaintDuration := untaintEnd.Sub(untaintStart)
 
-		phases = append(phases, phaseStats{
-			phase: "remove",
-			title: fmt.Sprintf("%d Nodes - Untainting Phase [Duration: %s]", nodeCount, untaintDuration.Round(time.Millisecond)),
-			start: untaintStart,
-			end:   untaintEnd,
-		})
-
 		By("Sleeping 10 seconds to settle metrics before gathering final report")
 		time.Sleep(10 * time.Second)
+		testEnd := time.Now()
+
+		phases = append(phases, phaseStats{
+			phase:    "remove",
+			title:    fmt.Sprintf("%d Nodes - Untainting Phase [Duration: %s]", nodeCount, untaintDuration.Round(time.Millisecond)),
+			start:    untaintStart,
+			end:      untaintEnd,
+			queryEnd: testEnd,
+		})
 
 		collectAndRecordPhaseMetrics(ctx, phases)
 	})
