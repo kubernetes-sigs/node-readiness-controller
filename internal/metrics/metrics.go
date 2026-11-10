@@ -138,7 +138,7 @@ var (
 	ReconciliationLatency = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "node_readiness_reconciliation_latency_seconds",
-			Help:    "End-to-end latency from node condition change to taint operation completion",
+			Help:    "[DEPRECATED] End-to-end latency from node condition change to taint operation completion. Use node_readiness_enforcement_latency_seconds instead.",
 			Buckets: []float64{0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300}, // 10ms to 5min
 		},
 		[]string{"rule", "operation"}, // operation: add_taint, remove_taint
