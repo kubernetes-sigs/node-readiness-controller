@@ -2,6 +2,98 @@
 
 This page details the official releases of the Node Readiness Controller.
 
+## v0.6.0
+
+**Date:** 2026-11-13
+
+This release moves rule validation into the CRD with CEL and adds a `conditionPolicy` field (`allOf`, default, or `anyOf`) to `NodeReadinessRule`. Metrics are reworked: a scrape-time collector exposes per-rule node counts (`rule_nodes`, `rule_matched_nodes`, `blocked_nodes`), a new `enforcement_latency_seconds` histogram tracks taint add and remove latency, and the readiness-condition-reporter now serves its own Prometheus metrics. `reconciliation_latency_seconds` and `node_readiness_rules_total` are deprecated but still emitted; no metric was renamed or removed. Two Grafana dashboards (Fleet Overview and Controller Internals) are added. The rule reconciler now uses optimistic locking on status patches and requeues with backoff when a node evaluation fails instead of dropping the error. The Helm chart gains PodDisruptionBudget, topologySpreadConstraints, and NetworkPolicy options, and several chart fixes land for webhook `caBundle`, leader-election RBAC, and version stamping. Go is bumped to 1.26.11 and grpc, cel-go, golang.org/x/net and OpenTelemetry are upgraded for CVEs.
+
+### Release Notes
+
+#### API Changes
+- Add `conditionPolicy` (`allOf`/`anyOf`) to `NodeReadinessRule` ([#315](https://github.com/kubernetes-sigs/node-readiness-controller/pull/315))
+- Reject `defaultStatus` on conditions when `conditionPolicy` is `anyOf` ([#418](https://github.com/kubernetes-sigs/node-readiness-controller/pull/418))
+- Move bootstrap-only validations from the webhook to CEL ([#451](https://github.com/kubernetes-sigs/node-readiness-controller/pull/451))
+- Reject empty `nodeSelector` with CEL instead of the webhook ([#455](https://github.com/kubernetes-sigs/node-readiness-controller/pull/455))
+- Validate taint `value` format with CEL ([#469](https://github.com/kubernetes-sigs/node-readiness-controller/pull/469))
+
+#### Metrics and Dashboards
+- Add scrape-time metrics collector with `rule_nodes` metric ([#398](https://github.com/kubernetes-sigs/node-readiness-controller/pull/398))
+- Add `blocked_nodes` metric to the scrape-time collector ([#431](https://github.com/kubernetes-sigs/node-readiness-controller/pull/431))
+- Add `rule_matched_nodes` metric and typed failure reasons, including `AnnotationPatchFailed` ([#286](https://github.com/kubernetes-sigs/node-readiness-controller/pull/286))
+- Add `node_readiness_rules` metric with `enforcement_mode` and `dry_run` labels; `node_readiness_rules_total` is deprecated ([#448](https://github.com/kubernetes-sigs/node-readiness-controller/pull/448))
+- Add `enforcement_latency_seconds` histogram with `operation` label; `reconciliation_latency_seconds` is deprecated ([#450](https://github.com/kubernetes-sigs/node-readiness-controller/pull/450), [#489](https://github.com/kubernetes-sigs/node-readiness-controller/pull/489))
+- Clarify `evaluation_duration_seconds` help text to say it includes taint add/remove ([#447](https://github.com/kubernetes-sigs/node-readiness-controller/pull/447))
+- Reporter: add `build_info`, `check_duration_seconds`, `checks_total`, and `condition_writes_total` Prometheus metrics ([#379](https://github.com/kubernetes-sigs/node-readiness-controller/pull/379))
+- Add PodMonitor examples for the reporter metrics ([#419](https://github.com/kubernetes-sigs/node-readiness-controller/pull/419))
+- Add Fleet Overview Grafana dashboard ([#325](https://github.com/kubernetes-sigs/node-readiness-controller/pull/325))
+- Add Controller Internals Grafana dashboard ([#460](https://github.com/kubernetes-sigs/node-readiness-controller/pull/460))
+
+#### Features & Enhancements
+- Reporter: add `CHECK_TIMEOUT` environment variable for the health check HTTP timeout ([#500](https://github.com/kubernetes-sigs/node-readiness-controller/pull/500))
+- Helm: add PodDisruptionBudget ([#411](https://github.com/kubernetes-sigs/node-readiness-controller/pull/411))
+- Helm: set `unhealthyPodEvictionPolicy` on the PodDisruptionBudget ([#487](https://github.com/kubernetes-sigs/node-readiness-controller/pull/487))
+- Helm: add `topologySpreadConstraints` ([#437](https://github.com/kubernetes-sigs/node-readiness-controller/pull/437))
+- Helm: add optional NetworkPolicy ([#486](https://github.com/kubernetes-sigs/node-readiness-controller/pull/486))
+
+#### Bug Fixes
+- Fix CRD CEL validation cost overflow for taint rules on Kubernetes 1.38+ apiservers ([#505](https://github.com/kubernetes-sigs/node-readiness-controller/pull/505))
+- Use optimistic locking on rule status patches ([#343](https://github.com/kubernetes-sigs/node-readiness-controller/pull/343))
+- Return node evaluation errors from the rule reconciler so failed nodes are retried with backoff ([#497](https://github.com/kubernetes-sigs/node-readiness-controller/pull/497))
+- Return an empty result on rule reconcile errors, fixing a `RequeueAfter` warning ([#472](https://github.com/kubernetes-sigs/node-readiness-controller/pull/472))
+- Clear `FailedNodes` on successful node reconciliation ([#381](https://github.com/kubernetes-sigs/node-readiness-controller/pull/381))
+- Compare node taints as a multiset in the update predicate ([#495](https://github.com/kubernetes-sigs/node-readiness-controller/pull/495))
+- Exit at startup if `--kube-api-qps` is set without `--kube-api-burst` ([#466](https://github.com/kubernetes-sigs/node-readiness-controller/pull/466))
+- Reporter: fall back to local kubeconfig, and fix a duplicate rule name in an example ([#457](https://github.com/kubernetes-sigs/node-readiness-controller/pull/457))
+- Helm: inject webhook `caBundle` when cert-manager is disabled ([#470](https://github.com/kubernetes-sigs/node-readiness-controller/pull/470))
+- Helm: honor `leaderElection.namespace` in leader-election RBAC ([#476](https://github.com/kubernetes-sigs/node-readiness-controller/pull/476))
+- Helm: stamp the chart with a real version outside the release pipeline ([#453](https://github.com/kubernetes-sigs/node-readiness-controller/pull/453))
+- Helm: fix chart versioning in the Makefile ([#428](https://github.com/kubernetes-sigs/node-readiness-controller/pull/428))
+
+#### Code Cleanup & Maintenance
+- Bump Go to 1.26.11 and upgrade golang.org/x/net and OpenTelemetry for CVEs; unbreak the periodic govulncheck job ([#503](https://github.com/kubernetes-sigs/node-readiness-controller/pull/503))
+- Helm CI installs the chart from an image built in the workflow ([#504](https://github.com/kubernetes-sigs/node-readiness-controller/pull/504))
+- Bump Go to 1.26.6 and upgrade grpc/cel-go for CVEs ([#475](https://github.com/kubernetes-sigs/node-readiness-controller/pull/475))
+- Fix KubeLinter findings in manager and chart manifests ([#340](https://github.com/kubernetes-sigs/node-readiness-controller/pull/340))
+- Reporter: address review follow-ups on the unchanged-condition skip ([#334](https://github.com/kubernetes-sigs/node-readiness-controller/pull/334))
+- Add e2e coverage for missing conditions and finalizer cleanup ([#359](https://github.com/kubernetes-sigs/node-readiness-controller/pull/359))
+- Add release notes config ([#416](https://github.com/kubernetes-sigs/node-readiness-controller/pull/416))
+- Remove govulncheck script and GitHub Actions workflow ([#434](https://github.com/kubernetes-sigs/node-readiness-controller/pull/434))
+- Remove GitHub Actions lint workflow ([#426](https://github.com/kubernetes-sigs/node-readiness-controller/pull/426))
+
+#### Documentation & Examples
+- Add Helm installation guide ([#388](https://github.com/kubernetes-sigs/node-readiness-controller/pull/388))
+- Add observability design doc ([#344](https://github.com/kubernetes-sigs/node-readiness-controller/pull/344))
+- Add kubelet serving certificate readiness example ([#365](https://github.com/kubernetes-sigs/node-readiness-controller/pull/365))
+- Add static pod mirror readiness example ([#492](https://github.com/kubernetes-sigs/node-readiness-controller/pull/492))
+- Regenerate API reference docs against Kubernetes 1.36 ([#498](https://github.com/kubernetes-sigs/node-readiness-controller/pull/498))
+- Add AI usage guidelines to PR and issue templates ([#391](https://github.com/kubernetes-sigs/node-readiness-controller/pull/391))
+- Point the install guide at the current release ([#396](https://github.com/kubernetes-sigs/node-readiness-controller/pull/396))
+- Remove docs for an unused `gracePeriod` ([#373](https://github.com/kubernetes-sigs/node-readiness-controller/pull/373))
+- Add v0.5.0 release notes ([#441](https://github.com/kubernetes-sigs/node-readiness-controller/pull/441))
+
+### Images
+
+The following container images are published as part of this release.
+
+```
+// Node readiness controller
+registry.k8s.io/node-readiness-controller/node-readiness-controller:v0.6.0
+
+// Report component readiness condition from the node
+registry.k8s.io/node-readiness-controller/node-readiness-reporter:v0.6.0
+```
+
+### Helm Chart
+
+The Helm chart is published as an OCI artifact.
+
+```
+helm install node-readiness-controller \
+  oci://registry.k8s.io/node-readiness-controller/charts/node-readiness-controller \
+  --version 0.6.0 --namespace nrr-system --create-namespace
+```
+
 ## v0.5.0
 
 **Date:** 2026-08-16
