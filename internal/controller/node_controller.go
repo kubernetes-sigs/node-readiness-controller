@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -147,6 +149,16 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 			continue
 		}
 
+		// Recover a missing TaintAppliedAt/TaintObservedAt anchor before evaluating the rule.
+		// Skip repeated recovery checks once attempts are exhausted.
+		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly &&
+			r.hasTaintBySpec(node, rule.Spec.Taint) &&
+			r.taintAnchorMissing(rule, node.Name) &&
+			r.shouldAttemptTaintAppliedAtRecovery(rule.Name, node.Name) {
+			recovered := r.recoverTaintAppliedAtFromAPI(ctx, rule, node.Name)
+			r.recordTaintAppliedAtRecoveryOutcome(rule.Name, node.Name, recovered)
+		}
+
 		log.Info("Evaluating rule for node",
 			"node", node.Name,
 			"rule", rule.Name,
@@ -209,7 +221,7 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 		}
 
 		err := r.patchRuleStatusWithOptimisticLock(ctx, rule.Name, func(latestRule *readinessv1alpha1.NodeReadinessRule) {
-			applyNodeStatusDelta(latestRule, delta)
+			applyNodeStatusDelta(latestRule, preserveTaintAnchors(latestRule, delta))
 			successfullyPatchedRule = latestRule
 		})
 
@@ -235,6 +247,162 @@ func (r *RuleReadinessController) processNodeAgainstAllRules(ctx context.Context
 	}
 
 	return errors.Join(errs...)
+}
+
+// preserveTaintAnchors returns a copy of delta in which each evaluation keeps the
+// TaintAppliedAt/TaintObservedAt already persisted on latest for the same node.
+// Each field is handled independently: a zero value in delta is filled from latest,
+// a non-zero value in delta is never overwritten, and an anchor is never cleared.
+// latest must be the freshly fetched rule inside the patch closure; delta is not mutated,
+// so it is safe to call once per retry attempt.
+func preserveTaintAnchors(latest *readinessv1alpha1.NodeReadinessRule, delta nodeStatusDelta) nodeStatusDelta {
+	if len(delta.evaluations) == 0 {
+		return delta
+	}
+
+	preserved := nodeStatusDelta{
+		evaluations: make(map[string]readinessv1alpha1.NodeEvaluation, len(delta.evaluations)),
+		failures:    delta.failures,
+	}
+	for name, eval := range delta.evaluations {
+		preserved.evaluations[name] = eval
+	}
+
+	for _, existing := range latest.Status.NodeEvaluations {
+		eval, ok := preserved.evaluations[existing.NodeName]
+		if !ok {
+			continue
+		}
+		if eval.TaintAppliedAt.IsZero() && !existing.TaintAppliedAt.IsZero() {
+			eval.TaintAppliedAt = existing.TaintAppliedAt
+		}
+		if eval.TaintObservedAt.IsZero() && !existing.TaintObservedAt.IsZero() {
+			eval.TaintObservedAt = existing.TaintObservedAt
+		}
+		preserved.evaluations[existing.NodeName] = eval
+	}
+	return preserved
+}
+
+const maxTaintAnchorRecoveryAttempts = 2
+
+// Reports whether the cached evaluation is missing TaintAppliedAt or TaintObservedAt.
+func (r *RuleReadinessController) taintAnchorMissing(rule *readinessv1alpha1.NodeReadinessRule, nodeName string) bool {
+	r.ruleCacheMutex.Lock()
+	defer r.ruleCacheMutex.Unlock()
+
+	prevEval := r.getPreviousNodeEvaluation(rule, nodeName)
+	return prevEval == nil || prevEval.TaintAppliedAt.IsZero() && prevEval.TaintObservedAt.IsZero()
+}
+
+// Reports whether recovery should still be attempted.
+func (r *RuleReadinessController) shouldAttemptTaintAppliedAtRecovery(ruleName, nodeName string) bool {
+	r.taintAnchorRecoveryMutex.Lock()
+	defer r.taintAnchorRecoveryMutex.Unlock()
+
+	return r.taintAnchorRecoveryAttempts[ruleName+"/"+nodeName] < maxTaintAnchorRecoveryAttempts
+}
+
+// Records the outcome of a recovery attempt.
+func (r *RuleReadinessController) recordTaintAppliedAtRecoveryOutcome(ruleName, nodeName string, recovered bool) {
+	key := ruleName + "/" + nodeName
+
+	r.taintAnchorRecoveryMutex.Lock()
+	defer r.taintAnchorRecoveryMutex.Unlock()
+
+	if recovered {
+		delete(r.taintAnchorRecoveryAttempts, key)
+		return
+	}
+	if r.taintAnchorRecoveryAttempts == nil {
+		r.taintAnchorRecoveryAttempts = make(map[string]int)
+	}
+	r.taintAnchorRecoveryAttempts[key]++
+}
+
+// Clears recovery tracking for a deleted rule.
+func (r *RuleReadinessController) clearTaintAppliedAtRecoveryForRule(ruleName string) {
+	prefix := ruleName + "/"
+
+	r.taintAnchorRecoveryMutex.Lock()
+	defer r.taintAnchorRecoveryMutex.Unlock()
+
+	for key := range r.taintAnchorRecoveryAttempts {
+		if strings.HasPrefix(key, prefix) {
+			delete(r.taintAnchorRecoveryAttempts, key)
+		}
+	}
+}
+
+// Clears recovery tracking for a rule/node pair.
+func (r *RuleReadinessController) clearTaintAppliedAtRecoveryForNode(ruleName, nodeName string) {
+	r.taintAnchorRecoveryMutex.Lock()
+	defer r.taintAnchorRecoveryMutex.Unlock()
+
+	delete(r.taintAnchorRecoveryAttempts, ruleName+"/"+nodeName)
+}
+
+// Recovers a missing TaintAppliedAt/TaintObservedAt from the API and updates the cached rule.
+// Returns true if an existing anchor was found.
+func (r *RuleReadinessController) recoverTaintAppliedAtFromAPI(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeName string) bool {
+	log := ctrl.LoggerFrom(ctx)
+
+	const (
+		attempts = 3
+		delay    = 500 * time.Millisecond
+	)
+
+	for i := range attempts {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return false
+			case <-time.After(delay):
+			}
+		}
+
+		latestRule := &readinessv1alpha1.NodeReadinessRule{}
+		if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, latestRule); err != nil {
+			log.V(4).Info("Failed to refresh rule for TaintAppliedAt recovery",
+				"rule", rule.Name, "node", nodeName, "error", err.Error())
+			continue
+		}
+
+		for _, eval := range latestRule.Status.NodeEvaluations {
+			if eval.NodeName != nodeName {
+				continue
+			}
+			if eval.TaintAppliedAt.IsZero() && eval.TaintObservedAt.IsZero() {
+				continue
+			}
+
+			r.ruleCacheMutex.Lock()
+			nodeEval := r.getOrCreateNodeEvaluation(rule, nodeName)
+			if nodeEval.TaintAppliedAt.IsZero() && !eval.TaintAppliedAt.IsZero() {
+				nodeEval.TaintAppliedAt = eval.TaintAppliedAt
+			}
+			if nodeEval.TaintObservedAt.IsZero() && !eval.TaintObservedAt.IsZero() {
+				nodeEval.TaintObservedAt = eval.TaintObservedAt
+			}
+
+			if cachedRule, ok := r.ruleCache[rule.Name]; ok {
+				cachedNodeEval := r.getOrCreateNodeEvaluation(cachedRule, nodeName)
+				if cachedNodeEval.TaintAppliedAt.IsZero() && !eval.TaintAppliedAt.IsZero() {
+					cachedNodeEval.TaintAppliedAt = eval.TaintAppliedAt
+				}
+				if cachedNodeEval.TaintObservedAt.IsZero() && !eval.TaintObservedAt.IsZero() {
+					cachedNodeEval.TaintObservedAt = eval.TaintObservedAt
+				}
+			}
+			r.ruleCacheMutex.Unlock()
+
+			log.V(4).Info("Recovered taint anchor(s) from API into stale cache entry",
+				"rule", rule.Name, "node", nodeName,
+				"taintAppliedAt", eval.TaintAppliedAt, "taintObservedAt", eval.TaintObservedAt)
+			return true
+		}
+	}
+	return false
 }
 
 // getConditionStatus gets the status of a condition on a node.
