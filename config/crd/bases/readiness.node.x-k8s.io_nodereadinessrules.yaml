@@ -33,6 +33,16 @@ spec:
       jsonPath: .spec.dryRun
       name: DryRun
       type: boolean
+    - description: The total number of nodes targeted by this rule.
+      jsonPath: .status.evaluationSummary.targeted
+      name: Targeted
+      priority: 1
+      type: integer
+    - description: The number of targeted nodes that satisfy this rule.
+      jsonPath: .status.evaluationSummary.satisfied
+      name: Satisfied
+      priority: 1
+      type: integer
     - description: The age of this resource
       jsonPath: .metadata.creationTimestamp
       name: Age
@@ -341,6 +351,32 @@ spec:
                     type: integer
                 required:
                 - summary
+                type: object
+              evaluationSummary:
+                description: |-
+                  evaluationSummary provides an aggregated summary of node evaluation counts
+                  for the rule.
+                minProperties: 1
+                properties:
+                  satisfied:
+                    description: |-
+                      satisfied is the count of targeted nodes where the rule is being satisfied
+                       (or initial bootstrap has completed in bootstrap-only mode).
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  targeted:
+                    description: targeted is the total number of nodes matching the
+                      rule's nodeSelector.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  unsatisfied:
+                    description: unsatisfied is the count of targeted nodes where
+                      the rule is not being satisfied.
+                    format: int32
+                    minimum: 0
+                    type: integer
                 type: object
               failedNodes:
                 description: |-

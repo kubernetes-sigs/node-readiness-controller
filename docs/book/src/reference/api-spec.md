@@ -207,6 +207,28 @@ _Appears in:_
 | `failedNodes` _[NodeFailure](#nodefailure) array_ | failedNodes lists the Nodes where the rule evaluation encountered an error.<br />This is used for troubleshooting configuration issues, such as invalid selectors during node lookup. |  | MaxItems: 5000 <br />Optional: \{\} <br /> |
 | `nodeEvaluations` _[NodeEvaluation](#nodeevaluation) array_ | nodeEvaluations provides detailed insight into the rule's assessment for individual Nodes.<br />This is primarily used for auditing and debugging why specific Nodes were or<br />were not targeted by the rule. |  | MaxItems: 5000 <br />Optional: \{\} <br /> |
 | `dryRunResults` _[DryRunResults](#dryrunresults)_ | dryRunResults captures the outcome of the rule evaluation when DryRun is enabled.<br />This field provides visibility into the actions the controller would have taken,<br />allowing users to preview taint changes before they are committed. |  | MinProperties: 1 <br />Optional: \{\} <br /> |
+| `evaluationSummary` _[RuleEvaluationSummary](#ruleevaluationsummary)_ | evaluationSummary provides an aggregated summary of node evaluation counts<br />for the rule. |  | MinProperties: 1 <br />Optional: \{\} <br /> |
+
+
+#### RuleEvaluationSummary
+
+
+
+RuleEvaluationSummary provides pre-computed, aggregated node counts for a
+NodeReadinessRule. The counts maintain the invariant:
+targeted == satisfied + unsatisfied.
+
+_Validation:_
+- MinProperties: 1
+
+_Appears in:_
+- [NodeReadinessRuleStatus](#nodereadinessrulestatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `targeted` _integer_ | targeted is the total number of nodes matching the rule's nodeSelector. |  | Minimum: 0 <br />Optional: \{\} <br /> |
+| `satisfied` _integer_ | satisfied is the count of targeted nodes where the rule is being satisfied<br /> (or initial bootstrap has completed in bootstrap-only mode). |  | Minimum: 0 <br />Optional: \{\} <br /> |
+| `unsatisfied` _integer_ | unsatisfied is the count of targeted nodes where the rule is not being satisfied. |  | Minimum: 0 <br />Optional: \{\} <br /> |
 
 
 #### TaintStatus

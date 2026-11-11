@@ -88,8 +88,30 @@ func (r *RuleReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager)
 	concurrency := max(r.MaxConcurrentReconciles, 1)
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("nodereadiness-controller").
-		WithOptions(controller.Options{MaxConcurrentReconciles: concurrency}).
-		For(&readinessv1alpha1.NodeReadinessRule{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: concurrency,
+		}).
+		// Primary watch on NodeReadinessRule.
+		// GenerationChangedPredicate ensures reconciler triggers ONLY on Spec changes,
+		// completely preventing infinite self-trigger loops when patching Status.
+		For(
+			&readinessv1alpha1.NodeReadinessRule{},
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+		).
+		// Secondary watch on corev1.Node.
+		// NodeReadinessChanged drops high-frequency heartbeats, admitting
+		// only condition/taint/label changes. NodeToRuleEventHandler
+		// debounces burst events (2s batch window) so fleet-wide node updates coalesce.
+		Watches(
+			&corev1.Node{},
+			NewNodeToRuleEventHandler(
+				r.Controller.getApplicableRulesForNode,
+				defaultSummaryBatchPeriod,
+			),
+			builder.WithPredicates(
+				NewNodeReadinessChanged(ctrl.LoggerFrom(ctx)),
+			),
+		).
 		Complete(r)
 }
 
@@ -140,6 +162,14 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// Update rule cache (after cleanup)
 	r.Controller.updateRuleCache(ctx, rule)
 
+	// Check if this reconciliation was triggered by a node event to refresh
+	// evaluation summary. When rule.Generation == rule.Status.ObservedGeneration,
+	// spec has not changed, so we skip fleet-wide node re-tainting and only
+	// refresh the evaluation summary.
+	if rule.Status.ObservedGeneration > 0 && rule.Generation == rule.Status.ObservedGeneration {
+		return r.reconcileSummaryOnly(ctx, rule, nodeList)
+	}
+
 	// Handle dry run
 	var delta nodeStatusDelta
 	var processErr error
@@ -158,6 +188,17 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		if processErr != nil {
 			log.Error(processErr, "Failed to process nodes for rule", "rule", rule.Name)
 		}
+	}
+
+	// Compute evaluation summary for the new rule state.
+	rule.Status.EvaluationSummary = r.Controller.computeRuleSummary(ctx, rule, nodeList)
+	if s := rule.Status.EvaluationSummary; s.Targeted != nil {
+		log.V(1).Info(
+			"Computed rule evaluation summary",
+			"targeted", s.Targeted,
+			"satisfied", s.Satisfied,
+			"unsatisfied", s.Unsatisfied,
+		)
 	}
 
 	// Update rule status
@@ -238,6 +279,54 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	//nolint:staticcheck
 	metrics.ReconciliationLatency.DeletePartialMatch(ruleLabel)
 	metrics.EnforcementLatency.DeletePartialMatch(ruleLabel)
+
+	return ctrl.Result{}, nil
+}
+
+// reconcileSummaryOnly re-calculates and refreshes the rule's evaluation summary.
+// Useful when rule.Generation == ObservedGeneration, and the rule's Spec has not changed;
+// we skip the expensive fleet-wide re-tainting.
+func (r *RuleReconciler) reconcileSummaryOnly(
+	ctx context.Context,
+	rule *readinessv1alpha1.NodeReadinessRule,
+	nodeList *corev1.NodeList,
+) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Compute the fresh evaluation summary from the local informer cache.
+	newSummary := r.Controller.computeRuleSummary(ctx, rule, nodeList)
+
+	// Compare existing summary with newSummary. If counts haven't changed, skip
+	// the API patch entirely.
+	if apiequality.Semantic.DeepEqual(rule.Status.EvaluationSummary, newSummary) {
+		log.V(4).Info("Rule evaluation summary unchanged, skipping status patch")
+		return ctrl.Result{}, nil
+	}
+
+	// Counts have changed — patch status using optimistic locking.
+	log.V(2).Info("Updating rule evaluation summary",
+		"targeted", newSummary.Targeted,
+		"satisfied", newSummary.Satisfied,
+		"unsatisfied", newSummary.Unsatisfied,
+	)
+	err := r.Controller.patchRuleStatusWithOptimisticLock(
+		ctx,
+		rule.Name,
+		func(latest *readinessv1alpha1.NodeReadinessRule) {
+			latest.Status.EvaluationSummary = newSummary
+		},
+	)
+	if err != nil {
+		log.Error(err, "Failed to patch rule evaluation summary")
+		return ctrl.Result{}, err
+	}
+	// Clean up status for deleted nodes
+	if err := r.Controller.cleanupDeletedNodes(ctx, rule, nodeList); err != nil {
+		log.Error(err, "Failed to clean up deleted nodes", "rule", rule.Name)
+		return ctrl.Result{}, err
+	}
+
+	metrics.RuleLastReconciliationTime.WithLabelValues(rule.Name).Set(float64(time.Now().Unix()))
 
 	return ctrl.Result{}, nil
 }
@@ -823,6 +912,7 @@ func (r *RuleReadinessController) updateRuleStatus(ctx context.Context, rule *re
 		latestRule.Status.AppliedNodes = rule.Status.AppliedNodes
 		latestRule.Status.ObservedGeneration = rule.Status.ObservedGeneration
 		latestRule.Status.DryRunResults = rule.Status.DryRunResults
+		latestRule.Status.EvaluationSummary = rule.Status.EvaluationSummary
 	})
 	if err != nil {
 		log.V(1).Info("Failed to patch rule status", "rule", rule.Name, "error", err.Error())
@@ -994,4 +1084,90 @@ func (r *RuleReadinessController) getPreviousNodeEvaluation(rule *readinessv1alp
 		}
 	}
 	return nil
+}
+
+// computeRuleSummary calculates the aggregated evaluation summary for a rule
+// across all nodes. It iterates over nodes in the local cache matching the
+// rule's NodeSelector and classifies each node into satisfied or unsatisfied.
+// The invariant targeted == satisfied + unsatisfied is strictly maintained.
+func (r *RuleReadinessController) computeRuleSummary(
+	ctx context.Context,
+	rule *readinessv1alpha1.NodeReadinessRule,
+	nodeList *corev1.NodeList,
+) readinessv1alpha1.RuleEvaluationSummary {
+	log := ctrl.LoggerFrom(ctx)
+	var targeted, satisfied, unsatisfied int32
+
+	// Parse the rule's nodeSelector into a labels.Selector.
+	selector, err := parseNodeSelector(rule)
+	if err != nil {
+		log.Error(err, "Failed to parse node selector for rule summary")
+		return readinessv1alpha1.RuleEvaluationSummary{}
+	}
+
+	// Iterate through nodes in the local cache to evaluate matching and readiness.
+	for i := range nodeList.Items {
+		node := &nodeList.Items[i]
+
+		// Filter: node must match the rule's nodeSelector.
+		if !selector.Matches(labels.Set(node.Labels)) {
+			continue
+		}
+		targeted++
+
+		// Case A: In bootstrap-only mode, if bootstrap has completed, the node
+		// remains permanently satisfied regardless of subsequent condition fluctuations.
+		if !rule.Spec.DryRun &&
+			rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly &&
+			nodeHasBootstrapAnnotation(node, rule) {
+			satisfied++
+			continue
+		}
+
+		// Case B: Evaluate node condition requirements against conditionPolicy
+		// (allOf / anyOf).
+		if r.nodeSatisfiesRule(node, rule) {
+			satisfied++
+		} else {
+			unsatisfied++
+		}
+	}
+
+	return readinessv1alpha1.RuleEvaluationSummary{
+		Targeted:    &targeted,
+		Satisfied:   &satisfied,
+		Unsatisfied: &unsatisfied,
+	}
+}
+
+// nodeSatisfiesRule evaluates whether a node satisfies a rule.
+func (r *RuleReadinessController) nodeSatisfiesRule(
+	node *corev1.Node,
+	rule *readinessv1alpha1.NodeReadinessRule,
+) bool {
+	allSatisfied := true
+	anySatisfied := false
+
+	// Evaluate each condition requirement defined on the rule.
+	for _, condReq := range rule.Spec.Conditions {
+		effectiveStatus, _ := r.getConditionStatus(
+			node,
+			condReq.Type,
+			condReq.GetDefaultStatus(),
+		)
+
+		if effectiveStatus == condReq.RequiredStatus {
+			anySatisfied = true
+		} else {
+			allSatisfied = false
+		}
+	}
+
+	// anyOf policy: at least one condition must match the required status.
+	if rule.Spec.GetConditionPolicy() == readinessv1alpha1.ConditionPolicyAnyOf {
+		return anySatisfied
+	}
+
+	// allOf policy (default): every condition must match the required status.
+	return allSatisfied
 }
