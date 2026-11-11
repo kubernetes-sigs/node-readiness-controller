@@ -548,7 +548,7 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 				"TaintObservedAt must be carried forward unchanged on subsequent reconciles")
 		})
 
-		It("C4 — TaintRemovedAt is set on Present→Absent transition, ObservedAt/AddedAt are cleared", func() {
+		It("C4 — TaintRemovedAt is set on Present→Absent transition, ObservedAt/AddedAt are retained", func() {
 			node = makeNode("nre-c-clear", []corev1.Taint{
 				{Key: taintKey, Effect: corev1.TaintEffectNoSchedule},
 			}, corev1.ConditionFalse)
@@ -556,7 +556,8 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 
 			// First reconcile: adoption — TaintObservedAt set, TaintAddedAt nil.
 			reconcileNRE(rc, node.Name)
-			Expect(getNRE(node.Name).Status.Rules[0].TaintObservedAt).NotTo(BeNil())
+			observedAt := getNRE(node.Name).Status.Rules[0].TaintObservedAt
+			Expect(observedAt).NotTo(BeNil())
 			Expect(getNRE(node.Name).Status.Rules[0].TaintRemovedAt).To(BeNil())
 
 			// Simulate taint removal + condition satisfied.
@@ -573,18 +574,21 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			reconcileNRE(rc, node.Name)
 			eval := getNRE(node.Name).Status.Rules[0]
 
-			By("TaintObservedAt and TaintAddedAt are cleared")
-			Expect(eval.TaintObservedAt).To(BeNil())
+			By("TaintObservedAt is retained so time-to-unblock can be computed")
+			Expect(eval.TaintObservedAt).To(Equal(observedAt))
+			By("TaintAddedAt stays nil — the taint was adopted, not added by NRC")
 			Expect(eval.TaintAddedAt).To(BeNil())
 
 			By("TaintRemovedAt is set to record when removal happened")
 			Expect(eval.TaintRemovedAt).NotTo(BeNil())
 
-			// Third reconcile: taint stays absent — TaintRemovedAt carries forward.
+			// Third reconcile: taint stays absent — all timestamps carry forward.
 			reconcileNRE(rc, node.Name)
 			eval2 := getNRE(node.Name).Status.Rules[0]
 
-			By("TaintRemovedAt carries forward on subsequent reconciles (historical SLI)")
+			By("all taint timestamps carry forward on subsequent reconciles (historical SLI)")
+			Expect(eval2.TaintObservedAt).To(Equal(eval.TaintObservedAt))
+			Expect(eval2.TaintAddedAt).To(Equal(eval.TaintAddedAt))
 			Expect(eval2.TaintRemovedAt).To(Equal(eval.TaintRemovedAt))
 		})
 	})
@@ -729,6 +733,104 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			// value if within the same wall-clock second — we verify via UID change above).
 		})
 	})
+
+	// Suite F — bootstrap-only rules whose bootstrap has completed on the node.
+
+	Context("Suite F — bootstrap-only rule with completed bootstrap", func() {
+		var (
+			rc   *RuleReadinessController
+			node *corev1.Node
+			rule *nodereadinessiov1alpha1.NodeReadinessRule
+		)
+
+		BeforeEach(func() {
+			rc = sharedSetup()
+
+			// Unsatisfied condition and taint present, as if the taint was re-added
+			// after bootstrap completed.
+			node = makeNode("nre-f-node", []corev1.Taint{
+				{Key: taintKey, Effect: corev1.TaintEffectNoSchedule},
+			}, corev1.ConditionFalse)
+			rule = makeRule("nre-f-rule")
+			rule.Spec.EnforcementMode = nodereadinessiov1alpha1.EnforcementModeBootstrapOnly
+
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			rc.updateRuleCache(ctx, rule)
+		})
+
+		AfterEach(func() {
+			_ = k8sClient.Delete(ctx, node)
+			updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: rule.Name}, updatedRule); err == nil {
+				updatedRule.Finalizers = nil
+				_ = k8sClient.Update(ctx, updatedRule)
+				_ = k8sClient.Delete(ctx, updatedRule)
+			}
+			Eventually(func() bool {
+				return apierrors.IsNotFound(
+					k8sClient.Get(ctx, types.NamespacedName{Name: rule.Name},
+						&nodereadinessiov1alpha1.NodeReadinessRule{}))
+			}, nreTestTimeout).Should(BeTrue())
+			nre := &nodereadinessiov1alpha1.NodeReadinessEvaluation{}
+			if err := k8sClient.Get(ctx, nreNamespacedName(node.Name), nre); err == nil {
+				_ = k8sClient.Delete(ctx, nre)
+			}
+			rc.removeRuleFromCache(ctx, rule.Name)
+		})
+
+		markBootstrapAnnotation := func() {
+			GinkgoHelper()
+			latest := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, latest)).To(Succeed())
+			if latest.Annotations == nil {
+				latest.Annotations = map[string]string{}
+			}
+			latest.Annotations[bootstrapAnnotationKey(rule.GetUID())] = bootstrapAnnotationValue(rule.Name)
+			Expect(k8sClient.Update(ctx, latest)).To(Succeed())
+		}
+
+		It("F1 — before bootstrap completes, reason reflects unsatisfied conditions", func() {
+			reconcileNRE(rc, node.Name)
+
+			eval := getNRE(node.Name).Status.Rules[0]
+			Expect(eval.Reason).To(Equal("ConditionsNotSatisfied"))
+		})
+
+		It("F2 — after bootstrap completes, entry is kept with reason BootstrapCompleted", func() {
+			markBootstrapAnnotation()
+			reconcileNRE(rc, node.Name)
+
+			nre := getNRE(node.Name)
+			Expect(nre.Status.Rules).To(HaveLen(1))
+			eval := nre.Status.Rules[0]
+
+			By("overriding reason and message")
+			Expect(eval.Reason).To(Equal("BootstrapCompleted"))
+			Expect(eval.Message).To(ContainSubstring("no longer enforced"))
+			Expect(eval.Message).To(ContainSubstring(taintKey))
+
+			By("still reporting the observed rule and taint status")
+			Expect(eval.RuleStatus).To(Equal(nodereadinessiov1alpha1.RuleStatusUnsatisfied))
+			Expect(eval.TaintStatus).To(Equal(nodereadinessiov1alpha1.TaintStatusPresent))
+		})
+
+		It("F3 — SLI timestamps are preserved across the bootstrap completion transition", func() {
+			reconcileNRE(rc, node.Name)
+			firstEval := getNRE(node.Name).Status.Rules[0]
+			Expect(firstEval.FirstEvaluatedAt).NotTo(BeNil())
+			Expect(firstEval.TaintObservedAt).NotTo(BeNil())
+
+			markBootstrapAnnotation()
+			reconcileNRE(rc, node.Name)
+
+			eval := getNRE(node.Name).Status.Rules[0]
+			Expect(eval.Reason).To(Equal("BootstrapCompleted"))
+			Expect(eval.FirstEvaluatedAt).To(Equal(firstEval.FirstEvaluatedAt))
+			Expect(eval.TaintObservedAt).To(Equal(firstEval.TaintObservedAt))
+		})
+	})
+
 	// Suite E — Wiring: NRE is written from NodeReconciler and RuleReconciler paths.
 
 	Context("Suite E — EnableNRE wiring through NodeReconciler and RuleReconciler", func() {

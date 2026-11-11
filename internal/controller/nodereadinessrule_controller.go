@@ -553,7 +553,7 @@ func (r *RuleReadinessController) updateNodeEvaluationStatus(
 	// Update evaluation
 	nodeEval.ConditionResults = conditionResults
 	nodeEval.TaintStatus = taintStatus
-	nodeEval.LastEvaluatedAt = metav1.Now()
+	nodeEval.LastEvaluationTime = metav1.Now()
 }
 
 // getApplicableRulesForNode returns all rules applicable to a node.

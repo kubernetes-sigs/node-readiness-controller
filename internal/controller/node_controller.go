@@ -506,10 +506,10 @@ func (r *RuleReadinessController) recordNodeFailure(
 
 	// Add new failure
 	failedNodes = append(failedNodes, readinessv1alpha1.NodeFailure{
-		NodeName:        nodeName,
-		Reason:          reason,
-		Message:         message,
-		LastEvaluatedAt: metav1.Now(),
+		NodeName:           nodeName,
+		Reason:             reason,
+		Message:            message,
+		LastEvaluationTime: metav1.Now(),
 	})
 
 	rule.Status.FailedNodes = failedNodes

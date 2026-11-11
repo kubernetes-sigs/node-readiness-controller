@@ -173,6 +173,15 @@ func (r *RuleReadinessController) buildRuleEvaluation(
 
 	reason, message := buildRuleEvalReasonMessage(ruleStatus, taintStatus, rule.Spec.Taint.Key, conditionResults)
 
+	// A completed bootstrap-only rule is no longer enforced (the controller neither
+	// adds nor removes its taint), so condition-driven messages would be misleading.
+	// The entry is kept (not skipped) so SLI timestamps are preserved.
+	if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly && nodeHasBootstrapAnnotation(node, rule) {
+		reason = "BootstrapCompleted"
+		message = fmt.Sprintf("Bootstrap completed; rule is no longer enforced. Taint %q is %s; conditions are currently %s.",
+			rule.Spec.Taint.Key, strings.ToLower(string(taintStatus)), strings.ToLower(string(ruleStatus)))
+	}
+
 	log.V(4).Info("Rule evaluation for NRE",
 		"node", node.Name, "rule", rule.Name,
 		"ruleStatus", ruleStatus, "taintStatus", taintStatus)
@@ -203,8 +212,10 @@ func (r *RuleReadinessController) buildRuleEvaluation(
 	}
 
 	// Taint timestamp transitions — four cases covering every state combination.
-	// TaintRemovedAt is carried forward once set so the SLI is always queryable,
-	// not just on the exact reconcile cycle where removal happened.
+	// After removal, TaintObservedAt/TaintAddedAt/TaintRemovedAt are all carried
+	// forward so time-to-unblock (removed - observed) stays queryable, not just on
+	// the exact reconcile cycle where removal happened. They are reset only when
+	// the taint is re-applied (Absent → Present), which starts a new lifecycle.
 	if prev != nil && prev.RuleUID == rule.GetUID() {
 		prevTaintPresent := prev.TaintStatus == readinessv1alpha1.TaintStatusPresent
 		switch {
@@ -218,9 +229,14 @@ func (r *RuleReadinessController) buildRuleEvaluation(
 			eval.TaintAddedAt = &now
 		case !taintPresent && prevTaintPresent:
 			// Transition: Present → Absent — NRC just removed the taint.
+			// Keep the start timestamps of the lifecycle that just ended.
+			eval.TaintObservedAt = prev.TaintObservedAt
+			eval.TaintAddedAt = prev.TaintAddedAt
 			eval.TaintRemovedAt = &now
 		default:
-			// State unchanged: taint still absent — carry forward historical removal time.
+			// State unchanged: taint still absent — carry forward the historical lifecycle.
+			eval.TaintObservedAt = prev.TaintObservedAt
+			eval.TaintAddedAt = prev.TaintAddedAt
 			eval.TaintRemovedAt = prev.TaintRemovedAt
 		}
 	} else if taintPresent {
