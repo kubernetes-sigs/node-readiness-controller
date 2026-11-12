@@ -15,7 +15,7 @@
 .DEFAULT_GOAL:=help
 
 # Force using a specific toolchain version to avoid issues with local installations.
-export GOTOOLCHAIN := go1.26.6
+export GOTOOLCHAIN := go1.26.11
 
 #
 # Directories.
@@ -70,6 +70,9 @@ GOVULNCHECK_VER := v1.7.0
 GOVULNCHECK_BIN := govulncheck
 GOVULNCHECK := $(abspath $(TOOLS_BIN_DIR)/$(GOVULNCHECK_BIN)-$(GOVULNCHECK_VER))
 GOVULNCHECK_PKG := golang.org/x/vuln/cmd/govulncheck
+# Soft heap limit for govulncheck. The periodic prow job runs with a 4Gi
+# memory limit and the scan peaks above that without it.
+GOVULNCHECK_MEMLIMIT ?= 3GiB
 
 # Image URL to use all building/pushing image targets
 IMG_PREFIX ?= controller
@@ -180,7 +183,7 @@ lint-config: $(GOLANGCI_LINT) ## Verify golangci-lint linter configuration
 
 .PHONY: verify-govulncheck
 verify-govulncheck: $(GOVULNCHECK) ## Run govulncheck verification
-	$(GOVULNCHECK) -C $(ROOT_DIR) -show verbose ./...
+	GOMEMLIMIT=$(GOVULNCHECK_MEMLIMIT) $(GOVULNCHECK) -C $(ROOT_DIR) -show verbose ./...
 
 .PHONY: verify
 verify: ## Run all verification scripts.
@@ -481,7 +484,7 @@ $(KIND): # Build kind from tools folder.
 ##@ docs
 
 MDBOOK_VERSION ?= 0.5.2
-GO_VERSION ?= 1.26.6
+GO_VERSION ?= 1.26.11
 MDBOOK_SCRIPT := $(ROOT_DIR)/docs/book/install-and-build-mdbook.sh
 
 
