@@ -903,6 +903,34 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			Expect(nre.Status.Rules).To(HaveLen(1))
 			Expect(nre.Status.Rules[0].RuleName).To(Equal(rule.Name))
 		})
+
+		It("E3 — RuleReconciler.reconcileDelete drops the rule from NRE even when no taint is present", func() {
+			// Node has no taint for this rule, so deletion will not mutate the Node.
+			Eventually(func() error {
+				n := &corev1.Node{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, n); err != nil {
+					return err
+				}
+				n.Spec.Taints = nil
+				return k8sClient.Update(ctx, n)
+			}, nreTestTimeout, nreTestInterval).Should(Succeed())
+
+			reconcileNRE(rc, node.Name)
+			Expect(getNRE(node.Name).Status.Rules).To(HaveLen(1))
+
+			nodeList := &corev1.NodeList{}
+			Expect(k8sClient.List(ctx, nodeList)).To(Succeed())
+
+			ruleReconciler := &RuleReconciler{
+				Client:     k8sClient,
+				Scheme:     k8sClient.Scheme(),
+				Controller: rc,
+			}
+			_, err := ruleReconciler.reconcileDelete(ctx, rule, nodeList)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(getNRE(node.Name).Status.Rules).To(BeEmpty())
+		})
 	})
 })
 

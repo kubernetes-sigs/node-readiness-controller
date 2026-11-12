@@ -205,6 +205,17 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	log.V(3).Info("Removing the rule from cache")
 	r.Controller.removeRuleFromCache(ctx, rule.Name)
 
+	// Refresh the NRE of every node the rule applied to so the
+	// deleted rule's entry is dropped even when there was no taint to remove.
+	if r.Controller.EnableNRE {
+		for i := range nodeList.Items {
+			node := &nodeList.Items[i]
+			if r.Controller.ruleAppliesTo(ctx, rule, node) {
+				r.Controller.updateNREForNode(ctx, node)
+			}
+		}
+	}
+
 	log.V(3).Info("Removing the finalizer from the rule")
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		latest := &readinessv1alpha1.NodeReadinessRule{}
