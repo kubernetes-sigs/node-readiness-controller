@@ -17,6 +17,7 @@
 - [Problem-Gate (Default-Allow)](./examples/problem-gate-readiness.md)
 <!-- - [Device Drivers](./examples/dra-readiness.md) -->
 - [Constrained Impersonation](./examples/constrained-impersonation.md)
+- [NPD + Descheduler Remediation](./examples/npd-descheduler-remediation.md)
 
 - [Kubelet Serving Certificate](./examples/kubelet-cert-readiness.md)
 - [Static Pod Readiness](./examples/staticpods-readiness.md)

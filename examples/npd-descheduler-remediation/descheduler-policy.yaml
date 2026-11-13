@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: descheduler-policy
+  namespace: kube-system
+data:
+  policy.yaml: |
+    apiVersion: "descheduler/v1alpha2"
+    kind: "DeschedulerPolicy"
+    profiles:
+    - name: default
+      pluginConfig:
+      - name: RemovePodsViolatingNodeTaints
+        args:
+          # Only act on our custom readiness taint.
+          # Pods without a matching toleration will be evicted.
+          includedTaints:
+          - "readiness.k8s.io/my-component-ready"
+      plugins:
+        deschedule:
+          enabled:
+          - RemovePodsViolatingNodeTaints
