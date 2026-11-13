@@ -76,6 +76,16 @@ jobs:
       # Need a multi node cluster so controller can run with leadership
       - name: Create multi node Kind cluster
         run: make kind-multi-node
-      
+
+      # Install the chart against an image built from this checkout. The chart
+      # defaults to registry.k8s.io/...:<appVersion>, which does not exist yet
+      # for a release-cut PR that bumps appVersion before the tag is pushed.
+      - name: Build controller image and load it into Kind
+        run: |
+          make docker-build IMG_PREFIX=node-readiness-controller IMG_TAG=ci
+          kind load docker-image node-readiness-controller:ci --name nrr-test
+
       - name: Run chart-testing (install)
-        run: ct install --config=.github/ci/ct.yaml
+        run: >-
+          ct install --config=.github/ci/ct.yaml
+          --helm-extra-set-args "--set image.repository=node-readiness-controller --set image.tag=ci"
