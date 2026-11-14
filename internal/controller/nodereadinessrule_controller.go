@@ -57,6 +57,7 @@ type RuleReadinessController struct {
 	clientset              kubernetes.Interface
 	EventRecorder          events.EventRecorder
 	EnableNodeStateMetrics bool
+	EnableNRE              bool
 
 	// Cache for efficient rule lookup
 	ruleCacheMutex sync.RWMutex
@@ -72,13 +73,14 @@ type RuleReconciler struct {
 }
 
 // NewRuleReadinessController creates a new controller.
-func NewRuleReadinessController(mgr ctrl.Manager, clientset kubernetes.Interface, enableNodeStateMetrics bool) *RuleReadinessController {
+func NewRuleReadinessController(mgr ctrl.Manager, clientset kubernetes.Interface, enableNodeStateMetrics bool, enableNRE bool) *RuleReadinessController {
 	return &RuleReadinessController{
 		Client:                 mgr.GetClient(),
 		Scheme:                 mgr.GetScheme(),
 		clientset:              clientset,
 		EventRecorder:          mgr.GetEventRecorder("node-readiness-controller"),
 		EnableNodeStateMetrics: enableNodeStateMetrics,
+		EnableNRE:              enableNRE,
 		ruleCache:              make(map[string]*readinessv1alpha1.NodeReadinessRule),
 	}
 }
@@ -202,6 +204,17 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 
 	log.V(3).Info("Removing the rule from cache")
 	r.Controller.removeRuleFromCache(ctx, rule.Name)
+
+	// Refresh the NRE of every node the rule applied to so the
+	// deleted rule's entry is dropped even when there was no taint to remove.
+	if r.Controller.EnableNRE {
+		for i := range nodeList.Items {
+			node := &nodeList.Items[i]
+			if r.Controller.ruleAppliesTo(ctx, rule, node) {
+				r.Controller.updateNREForNode(ctx, node)
+			}
+		}
+	}
 
 	log.V(3).Info("Removing the finalizer from the rule")
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -334,6 +347,10 @@ func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, ru
 					break
 				}
 			}
+		}
+
+		if r.EnableNRE {
+			r.updateNREForNode(ctx, &node)
 		}
 	}
 
@@ -515,7 +532,7 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		taintStatus = readinessv1alpha1.TaintStatusAbsent
 	}
 
-	// Update evaluation status
+	// Update evaluation status.
 	r.updateNodeEvaluationStatus(rule, node.Name, conditionResults, taintStatus)
 
 	return nil

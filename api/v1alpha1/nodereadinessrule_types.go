@@ -248,6 +248,13 @@ type NodeFailure struct {
 	// +kubebuilder:validation:MaxLength=10240
 	Message string `json:"message,omitempty"`
 
+	// TODO: rename to lastEvaluatedAt for consistency with NodeReadinessEvaluation
+	// (the "...At" suffix). Not done in v1alpha1 because the field shipped in
+	// v0.5.0 and is +required: renaming in place makes status patches that carry
+	// existing entries fail schema validation (e.g. applyNodeStatusDelta on a
+	// single-node update). Do it in the next API version (or add the new field,
+	// deprecate this one and write both for a release).
+
 	// lastEvaluationTime is the timestamp of the last rule check failed for this Node.
 	//
 	// +required
@@ -278,6 +285,8 @@ type NodeEvaluation struct {
 	//
 	// +required
 	TaintStatus TaintStatus `json:"taintStatus,omitempty"`
+
+	// TODO: rename to lastEvaluatedAt, see the note on NodeFailure.LastEvaluationTime.
 
 	// lastEvaluationTime is the timestamp when the controller last assessed this Node.
 	//

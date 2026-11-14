@@ -13,6 +13,13 @@ resources:
     crdVersion: v1
   controller: true
   domain: readiness.node.x-k8s.io
+  kind: NodeReadinessEvaluation
+  path: sigs.k8s.io/node-readiness-controller/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+  controller: true
+  domain: readiness.node.x-k8s.io
   kind: NodeReadinessRule
   path: sigs.k8s.io/node-readiness-controller/api/v1alpha1
   version: v1alpha1

@@ -9,6 +9,7 @@
 Package v1alpha1 contains API Schema definitions for the  v1alpha1 API group.
 
 ### Resource Types
+- [NodeReadinessEvaluation](#nodereadinessevaluation)
 - [NodeReadinessRule](#nodereadinessrule)
 
 
@@ -24,6 +25,7 @@ the Node's observed condition and the rule's requirement.
 
 _Appears in:_
 - [NodeEvaluation](#nodeevaluation)
+- [RuleEvaluation](#ruleevaluation)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -44,6 +46,7 @@ _Validation:_
 
 _Appears in:_
 - [NodeReadinessRuleSpec](#nodereadinessrulespec)
+- [RuleEvaluation](#ruleevaluation)
 
 | Field | Description |
 | --- | --- |
@@ -129,6 +132,24 @@ _Appears in:_
 | `lastEvaluationTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | lastEvaluationTime is the timestamp when the controller last assessed this Node. |  | Required: \{\} <br /> |
 
 
+#### NodeEvaluationState
+
+_Underlying type:_ _string_
+
+NodeEvaluationState indicates the overall readiness/availability state of the node based on all rules.
+
+_Validation:_
+- Enum: [Available NotAvailable]
+
+_Appears in:_
+- [NodeReadinessEvaluationStatus](#nodereadinessevaluationstatus)
+
+| Field | Description |
+| --- | --- |
+| `Available` | NodeEvaluationStateAvailable indicates the node has satisfied all applicable rules and is available for scheduling.<br /> |
+| `NotAvailable` | NodeEvaluationStateNotAvailable indicates one or more applicable rules are currently not satisfied.<br /> |
+
+
 #### NodeFailure
 
 
@@ -146,6 +167,64 @@ _Appears in:_
 | `reason` _string_ | reason provides a brief explanation of the evaluation result. |  | MaxLength: 256 <br />MinLength: 1 <br />Optional: \{\} <br /> |
 | `message` _string_ | message is a human-readable message indicating details about the evaluation. |  | MaxLength: 10240 <br />MinLength: 1 <br />Optional: \{\} <br /> |
 | `lastEvaluationTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | lastEvaluationTime is the timestamp of the last rule check failed for this Node. |  | Required: \{\} <br /> |
+
+
+#### NodeReadinessEvaluation
+
+
+
+NodeReadinessEvaluation is the Schema for the NodeReadinessEvaluations API.
+Each instance maps 1:1 to a Node and folds the outcomes of all applicable
+NodeReadinessRules for that node into a single object.
+An ownerReference to the corresponding Node is set for automatic garbage
+collection when the node is deleted.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `readiness.node.x-k8s.io/v1alpha1` | | |
+| `kind` _string_ | `NodeReadinessEvaluation` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  | Optional: \{\} <br /> |
+| `spec` _[NodeReadinessEvaluationSpec](#nodereadinessevaluationspec)_ | spec defines the desired state of NodeReadinessEvaluation. |  | Required: \{\} <br /> |
+| `status` _[NodeReadinessEvaluationStatus](#nodereadinessevaluationstatus)_ | status defines the observed state of NodeReadinessEvaluation. |  | MinProperties: 1 <br />Optional: \{\} <br /> |
+
+
+#### NodeReadinessEvaluationSpec
+
+
+
+NodeReadinessEvaluationSpec defines the desired state of NodeReadinessEvaluation.
+
+
+
+_Appears in:_
+- [NodeReadinessEvaluation](#nodereadinessevaluation)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeName` _string_ | nodeName specifies the exact name of the target Kubernetes Node.<br />This object establishes a strict 1:1 relationship with the specified node,<br />acting as the single source of truth for all rules and statuses applied to it.<br />Because it binds this resource to a specific physical or virtual machine, it cannot be changed once set.<br />The validation constraints enforce standard Kubernetes resource naming<br />(RFC 1123 DNS Subdomain format), as defined in upstream apimachinery:<br />https://github.com/kubernetes/apimachinery/blob/master/pkg/util/validation/validation.go#L198 |  | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br />Required: \{\} <br /> |
+
+
+#### NodeReadinessEvaluationStatus
+
+
+
+NodeReadinessEvaluationStatus defines the observed state of NodeReadinessEvaluation.
+
+_Validation:_
+- MinProperties: 1
+
+_Appears in:_
+- [NodeReadinessEvaluation](#nodereadinessevaluation)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | conditions represent the latest available observations of the node's readiness evaluation state.<br />Known condition types are:<br />- "Evaluated": indicates whether the controller successfully evaluated all rules without errors.<br />- "Available": indicates whether the node has satisfied all rules, has zero taints applied, and is available for scheduling. |  | MaxItems: 8 <br />Optional: \{\} <br /> |
+| `state` _[NodeEvaluationState](#nodeevaluationstate)_ | state indicates the overall readiness state of the node based on all applicable rules.<br />It acts as a top-level health indicator for this node's readiness evaluation. |  | Enum: [Available NotAvailable] <br />Optional: \{\} <br /> |
+| `rules` _[RuleEvaluation](#ruleevaluation) array_ | rules contains the evaluation outcomes for all rules applicable to this node.<br />Each entry is keyed by ruleName, allowing independent per-rule updates by<br />parallel rule-workers without last-write-wins conflicts (listType=map). |  | MaxItems: 100 <br />Optional: \{\} <br /> |
 
 
 #### NodeReadinessRule
@@ -209,6 +288,56 @@ _Appears in:_
 | `dryRunResults` _[DryRunResults](#dryrunresults)_ | dryRunResults captures the outcome of the rule evaluation when DryRun is enabled.<br />This field provides visibility into the actions the controller would have taken,<br />allowing users to preview taint changes before they are committed. |  | MinProperties: 1 <br />Optional: \{\} <br /> |
 
 
+#### RuleEvaluation
+
+
+
+RuleEvaluation defines the outcome of evaluating a single NodeReadinessRule against this Node.
+
+
+
+_Appears in:_
+- [NodeReadinessEvaluationStatus](#nodereadinessevaluationstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `ruleName` _string_ | ruleName is the name of the NodeReadinessRule.<br />This field is the map key for status.rules (listType=map) and must always be present. |  | MaxLength: 253 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `ruleUID` _[UID](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#uid-types-pkg)_ | ruleUID is the UID of the NodeReadinessRule.<br />If the rule is deleted and recreated with the same name, the UID will differ,<br />allowing the controller to detect and replace stale evaluation entries. |  | Required: \{\} <br /> |
+| `ruleStatus` _[RuleStatus](#rulestatus)_ | ruleStatus indicates the overall outcome of the rule's criteria against the Node. |  | Enum: [Satisfied Unsatisfied] <br />Required: \{\} <br /> |
+| `taintStatus` _[TaintStatus](#taintstatus)_ | taintStatus reflects the observed state of the rule's specified taint on the Node (Present/Absent). |  | Enum: [Present Absent] <br />Required: \{\} <br /> |
+| `taintKey` _string_ | taintKey is the key of the taint managed by this rule, stamped at evaluation<br />time so this entry is self-contained without requiring a lookup of the rule.<br />Matches rule.spec.taint.key. |  | MaxLength: 253 <br />MinLength: 1 <br />Required: \{\} <br /> |
+| `taintEffect` _[TaintEffect](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#tainteffect-v1-core)_ | taintEffect is the effect of the taint managed by this rule, stamped at<br />evaluation time so this entry is self-contained without requiring a lookup<br />of the rule. Matches rule.spec.taint.effect. |  | Enum: [NoSchedule PreferNoSchedule NoExecute] <br />Required: \{\} <br /> |
+| `conditionPolicy` _[ConditionPolicy](#conditionpolicy)_ | conditionPolicy is the aggregation policy used when evaluating the conditions list,<br />stamped at evaluation time so this entry is self-contained without requiring a lookup<br />of the rule. Matches rule.spec.conditionPolicy. |  | Enum: [allOf anyOf] <br />Required: \{\} <br /> |
+| `reason` _string_ | reason contains a concise, machine-readable string detailing the primary outcome. |  | MaxLength: 256 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+| `message` _string_ | message is a comprehensive, human-readable explanation providing further context. |  | MaxLength: 10240 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+| `readinessConditions` _[ConditionEvaluationResult](#conditionevaluationresult) array_ | readinessConditions provides a detailed breakdown of each condition evaluation<br />for this Node. This allows for granular debugging of which specific criteria passed/failed. |  | MaxItems: 32 <br />Optional: \{\} <br /> |
+| `lastEvaluatedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | lastEvaluatedAt records the exact moment the controller most recently assessed this rule. |  | Required: \{\} <br /> |
+| `firstEvaluatedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | firstEvaluatedAt is the time the rule was first assessed against this node. |  | Optional: \{\} <br /> |
+| `taintObservedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | taintObservedAt is the time NRC first observed the taint present on the node,<br />regardless of whether NRC applied it or it was pre-existing (e.g. via --register-with-taints).<br />This marks the beginning of the node being blocked by this rule and is the correct<br />start time for computing time-to-unblock SLIs. |  | Optional: \{\} <br /> |
+| `taintAddedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | taintAddedAt is the time NRC itself first applied the taint to the node in the<br />current taint lifecycle (i.e., since the last removal). This field is nil when<br />the taint was pre-existing and NRC adopted it rather than creating it.<br />The value is set once on the Absent→Present transition and carried forward on<br />subsequent reconciles; it is not the timestamp of the most recent reconcile.<br />Use taintObservedAt for "how long has the node been blocked"; use this field<br />to measure NRC's own apply latency (taintAddedAt - firstEvaluatedAt). |  | Optional: \{\} <br /> |
+| `taintRemovedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | taintRemovedAt is the time the controller successfully removed the taint<br />after the node satisfied all conditions. |  | Optional: \{\} <br /> |
+
+
+#### RuleStatus
+
+_Underlying type:_ _string_
+
+RuleStatus defines the result of evaluating a NodeReadinessRule's criteria against a Node.
+Rule-configuration faults (e.g. an invalid NodeSelector) are reported on the
+NodeReadinessRule's own status conditions, not here.
+
+_Validation:_
+- Enum: [Satisfied Unsatisfied]
+
+_Appears in:_
+- [RuleEvaluation](#ruleevaluation)
+
+| Field | Description |
+| --- | --- |
+| `Satisfied` | RuleStatusSatisfied indicates that the Node successfully met all conditions<br />defined in the NodeReadinessRule. The controller will ensure the corresponding<br />taint is removed so the node is unblocked.<br /> |
+| `Unsatisfied` | RuleStatusUnsatisfied indicates that one or more conditions defined in the<br />NodeReadinessRule were not met. The controller will ensure the corresponding<br />taint remains present to block scheduling.<br /> |
+
+
 #### TaintStatus
 
 _Underlying type:_ _string_
@@ -220,6 +349,7 @@ _Validation:_
 
 _Appears in:_
 - [NodeEvaluation](#nodeevaluation)
+- [RuleEvaluation](#ruleevaluation)
 
 | Field | Description |
 | --- | --- |
