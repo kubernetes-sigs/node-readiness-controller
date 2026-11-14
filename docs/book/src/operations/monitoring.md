@@ -6,6 +6,8 @@ Node Readiness Controller exposes Prometheus-compatible metrics. This page descr
 
 The controller serves metrics on `/metrics` only when metrics are explicitly enabled. Depending on the installation, the endpoint is served either over HTTP or over HTTPS. See [Installation](../user-guide/installation.md) for deployment details.
 
+For how metrics are introduced, deprecated and removed, see [Metrics Lifecycle](./metrics-lifecycle.md).
+
 ## Supported Metrics
 
 ### `node_readiness_rules_total`

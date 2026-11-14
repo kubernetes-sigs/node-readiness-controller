@@ -28,6 +28,8 @@
 # Operations
 
 - [Monitoring](./operations/monitoring.md)
+
+- [Metrics Lifecycle](./operations/metrics-lifecycle.md)
 <!-- - [Troubleshooting](./operations/troubleshooting.md) -->
 - [Security](./operations/security.md)
 
