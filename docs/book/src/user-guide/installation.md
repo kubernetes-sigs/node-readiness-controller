@@ -68,7 +68,7 @@ The official Helm chart is published to the OCI registry at `registry.k8s.io/nod
 
 ```sh
 # Chart version, which is independent of the controller release tag above.
-CHART_VERSION=0.5.0
+CHART_VERSION=0.6.0
 
 helm install node-readiness-controller \
   oci://registry.k8s.io/node-readiness-controller/charts/node-readiness-controller \
