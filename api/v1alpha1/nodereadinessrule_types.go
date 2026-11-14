@@ -219,6 +219,12 @@ type NodeReadinessRuleStatus struct {
 	//
 	// +optional
 	DryRunResults DryRunResults `json:"dryRunResults,omitempty,omitzero"`
+
+	// evaluationSummary provides an aggregated summary of node evaluation counts
+	// for the rule.
+	//
+	// +optional
+	EvaluationSummary RuleEvaluationSummary `json:"evaluationSummary,omitempty,omitzero"`
 }
 
 // NodeFailure provides diagnostic details for Nodes that could not be successfully evaluated by the rule.
@@ -354,6 +360,31 @@ type DryRunResults struct {
 	Summary string `json:"summary,omitempty"`
 }
 
+// RuleEvaluationSummary provides pre-computed, aggregated node counts for a
+// NodeReadinessRule. The counts maintain the invariant:
+// targeted == satisfied + unsatisfied.
+// +kubebuilder:validation:MinProperties=1
+type RuleEvaluationSummary struct {
+	// targeted is the total number of nodes matching the rule's nodeSelector.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Targeted *int32 `json:"targeted,omitempty"`
+
+	// satisfied is the count of targeted nodes where the rule is being satisfied
+	//  (or initial bootstrap has completed in bootstrap-only mode).
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Satisfied *int32 `json:"satisfied,omitempty"`
+
+	// unsatisfied is the count of targeted nodes where the rule is not being satisfied.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Unsatisfied *int32 `json:"unsatisfied,omitempty"`
+}
+
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=nrr
@@ -364,6 +395,8 @@ type DryRunResults struct {
 // +kubebuilder:printcolumn:name="Effect",type=string,JSONPath=`.spec.taint.effect`,description="The taint effect: NoSchedule, PreferNoSchedule or NoExecute."
 // +kubebuilder:printcolumn:name="DryRun",type=boolean,JSONPath=`.spec.dryRun`,description="Whether the rule is in dry-run mode and only previews taint changes."
 // +kubebuilder:selectablefield:JSONPath=`.spec.dryRun`
+// +kubebuilder:printcolumn:name="Targeted",type=integer,JSONPath=`.status.evaluationSummary.targeted`,priority=1,description="The total number of nodes targeted by this rule."
+// +kubebuilder:printcolumn:name="Satisfied",type=integer,JSONPath=`.status.evaluationSummary.satisfied`,priority=1,description="The number of targeted nodes that satisfy this rule."
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`,description="The age of this resource"
 
 // NodeReadinessRule is the Schema for the NodeReadinessRules API.
