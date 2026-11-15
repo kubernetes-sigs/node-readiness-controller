@@ -219,6 +219,12 @@ type NodeReadinessRuleStatus struct {
 	//
 	// +optional
 	DryRunResults DryRunResults `json:"dryRunResults,omitempty,omitzero"`
+
+	// evaluationSummary provides aggregated node counts for quick consumption by
+	// clients such as kubectl printer columns and UI dashboards.
+	//
+	// +optional
+	EvaluationSummary *RuleEvaluationSummary `json:"evaluationSummary,omitempty"`
 }
 
 // NodeFailure provides diagnostic details for Nodes that could not be successfully evaluated by the rule.
@@ -354,9 +360,51 @@ type DryRunResults struct {
 	Summary string `json:"summary,omitempty"`
 }
 
+// RuleEvaluationSummary provides pre-computed counts of nodes in each
+// evaluation state for a rule.
+//
+// Invariants:
+//   - targeted counts all nodes matching the rule's nodeSelector,
+//     regardless of evaluation outcome.
+//   - unsatisfied + satisfied + failed == targeted.
+//   - When spec.dryRun is true, summary reflects the simulated evaluation
+//     state (what would happen if dry-run were disabled).
+type RuleEvaluationSummary struct {
+	// targeted is the total number of nodes matching the rule's nodeSelector.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Targeted *int32 `json:"targeted,omitempty"`
+
+	// unsatisfied is the number of targeted nodes where the taint is Present
+	// (conditions not yet satisfied).
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Unsatisfied *int32 `json:"unsatisfied,omitempty"`
+
+	// satisfied is the number of targeted nodes where the taint is Absent
+	// (conditions satisfied, taint removed).
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Satisfied *int32 `json:"satisfied,omitempty"`
+
+	// failed is the number of nodes where rule evaluation encountered
+	// an error.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Failed *int32 `json:"failed,omitempty"`
+}
+
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=nrr
+// +kubebuilder:printcolumn:name="Targeted",type=integer,JSONPath=`.status.evaluationSummary.targeted`,description="Total nodes matching the rule's nodeSelector."
+// +kubebuilder:printcolumn:name="Satisfied",type=integer,JSONPath=`.status.evaluationSummary.satisfied`,description="Targeted nodes where the taint has been removed."
+// +kubebuilder:printcolumn:name="Unsatisfied",type=integer,JSONPath=`.status.evaluationSummary.unsatisfied`,description="Targeted nodes where the taint is present.",priority=1
+// +kubebuilder:printcolumn:name="Failed",type=integer,JSONPath=`.status.evaluationSummary.failed`,description="Nodes where rule evaluation encountered an error.",priority=1
 // +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.enforcementMode`,description="The enforcement mode of the rule: bootstrap-only or continuous."
 // +kubebuilder:selectablefield:JSONPath=`.spec.enforcementMode`
 // +kubebuilder:printcolumn:name="Taint",type=string,JSONPath=`.spec.taint.key`,description="The readiness taint applied by this rule."
