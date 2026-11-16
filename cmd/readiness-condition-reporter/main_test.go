@@ -31,6 +31,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 
 	"sigs.k8s.io/node-readiness-controller/internal/info"
 )
@@ -543,6 +544,139 @@ func TestUpdateNodeCondition(t *testing.T) {
 				t.Errorf("LastTransitionTime = %v, want a new transition at or after %v", foundCondition.LastTransitionTime, previousTransition.Time)
 			}
 		})
+	}
+}
+
+func TestApplyImpersonationConfig(t *testing.T) {
+	t.Run("enabled sets only the single-node identity", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			nodeName string
+			wantUser string
+		}{
+			{name: "simple node name", nodeName: "worker-1", wantUser: "system:node:worker-1"},
+			{name: "node name with dots and dashes", nodeName: "ip-10-0-1-23.ec2.internal", wantUser: "system:node:ip-10-0-1-23.ec2.internal"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				config := &rest.Config{}
+				applyImpersonationConfig(config, tt.nodeName, true)
+
+				if config.Impersonate.UserName != tt.wantUser {
+					t.Errorf("UserName = %q, want %q", config.Impersonate.UserName, tt.wantUser)
+				}
+
+				// Invariant: the reporter's impersonation stays
+				// username-only (system:node:<nodeName>). Groups and Extra
+				// must stay empty so the request carries no identity
+				// beyond that single user name.
+				if len(config.Impersonate.Groups) != 0 {
+					t.Errorf("Groups = %v, want none: constrained impersonation must not add groups", config.Impersonate.Groups)
+				}
+				if len(config.Impersonate.Extra) != 0 {
+					t.Errorf("Extra = %v, want none: constrained impersonation must not add extra scopes", config.Impersonate.Extra)
+				}
+				if config.Impersonate.UID != "" {
+					t.Errorf("UID = %q, want empty: constrained impersonation must not set a UID", config.Impersonate.UID)
+				}
+			})
+		}
+	})
+
+	t.Run("disabled preserves kubeconfig impersonation settings", func(t *testing.T) {
+		config := &rest.Config{
+			Impersonate: rest.ImpersonationConfig{
+				UserName: "alice",
+				Groups:   []string{"system:authenticated"},
+			},
+		}
+		applyImpersonationConfig(config, "worker-1", false)
+
+		if config.Impersonate.UserName != "alice" {
+			t.Errorf("UserName = %q, want %q: disabled flag must not clear kubeconfig impersonation", config.Impersonate.UserName, "alice")
+		}
+		if len(config.Impersonate.Groups) != 1 || config.Impersonate.Groups[0] != "system:authenticated" {
+			t.Errorf("Groups = %v, want [system:authenticated]: disabled flag must not clear kubeconfig impersonation", config.Impersonate.Groups)
+		}
+	})
+
+	t.Run("enabled replaces stale impersonation fields", func(t *testing.T) {
+		config := &rest.Config{
+			Impersonate: rest.ImpersonationConfig{
+				UserName: "alice",
+				Groups:   []string{"system:authenticated"},
+				Extra:    map[string][]string{"scopes": {"legacy"}},
+				UID:      "stale-uid",
+			},
+		}
+		applyImpersonationConfig(config, "worker-1", true)
+
+		if config.Impersonate.UserName != "system:node:worker-1" {
+			t.Errorf("UserName = %q, want %q", config.Impersonate.UserName, "system:node:worker-1")
+		}
+		if len(config.Impersonate.Groups) != 0 || len(config.Impersonate.Extra) != 0 || config.Impersonate.UID != "" {
+			t.Errorf("Impersonate = %+v, want Groups/Extra/UID cleared when enabling node impersonation", config.Impersonate)
+		}
+	})
+
+	t.Run("disabled leaves zero-value config untouched", func(t *testing.T) {
+		config := &rest.Config{}
+		applyImpersonationConfig(config, "worker-1", false)
+
+		if config.Impersonate.UserName != "" || len(config.Impersonate.Groups) != 0 || len(config.Impersonate.Extra) != 0 {
+			t.Errorf("Impersonate = %+v, want zero value when disabled", config.Impersonate)
+		}
+	})
+}
+
+// TestImpersonationHeaders verifies, without a cluster, that a REST client
+// built from the impersonated config sends the expected identity on the
+// wire: Impersonate-User carries system:node:<nodeName>, and the request
+// carries no Impersonate-Group, Impersonate-Uid or Impersonate-Extra-*
+// headers. The API server still has to enforce the binding; this test only
+// covers what the reporter puts on the request.
+func TestImpersonationHeaders(t *testing.T) {
+	var gotHeader http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeader = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	config := &rest.Config{Host: server.URL}
+	applyImpersonationConfig(config, "worker-1", true)
+
+	transport, err := rest.TransportFor(config)
+	if err != nil {
+		t.Fatalf("rest.TransportFor: %v", err)
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatalf("http.NewRequestWithContext: %v", err)
+	}
+	resp, err := (&http.Client{Transport: transport}).Do(req)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
+
+	if got := gotHeader.Get("Impersonate-User"); got != "system:node:worker-1" {
+		t.Errorf("Impersonate-User header = %q, want %q", got, "system:node:worker-1")
+	}
+	if got := gotHeader.Values("Impersonate-Group"); len(got) != 0 {
+		t.Errorf("Impersonate-Group headers = %v, want none", got)
+	}
+	if got := gotHeader.Get("Impersonate-Uid"); got != "" {
+		t.Errorf("Impersonate-Uid header = %q, want none", got)
+	}
+	for key := range gotHeader {
+		if strings.HasPrefix(strings.ToLower(key), "impersonate-extra-") {
+			t.Errorf("unexpected %s header: request must carry no Impersonate-Extra-* headers", key)
+		}
 	}
 }
 
