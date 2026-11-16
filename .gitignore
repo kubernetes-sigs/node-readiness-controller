@@ -41,3 +41,8 @@ GEMINI.md
 # Scale test artifacts
 test/scale/artifacts/
 
+
+# Secrets and Environment
+.env
+.env.*
+*.local
