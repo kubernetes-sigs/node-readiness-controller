@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-problem-detector
+  namespace: node-problem-detector
+  labels:
+    app: node-problem-detector
+    component: custom-monitor
+spec:
+  selector:
+    matchLabels:
+      app: node-problem-detector
+      component: custom-monitor
+  template:
+    metadata:
+      labels:
+        app: node-problem-detector
+        component: custom-monitor
+    spec:
+      serviceAccountName: node-problem-detector
+      hostNetwork: true
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+      containers:
+      - name: node-problem-detector
+        image: registry.k8s.io/node-problem-detector/node-problem-detector:v0.8.19
+        command:
+        - /node-problem-detector
+        - --logtostderr
+        - --config.custom-plugin-monitor=/config/custom-plugin.json
+        securityContext:
+          privileged: true
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        - name: plugin
+          mountPath: /config/plugin
+          readOnly: true
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 20m
+            memory: 64Mi
+      volumes:
+      - name: config
+        configMap:
+          name: npd-custom-monitor-config
+          items:
+          - key: custom-plugin.json
+            path: custom-plugin.json
+      - name: plugin
+        configMap:
+          name: npd-custom-monitor-config
+          defaultMode: 0755
+          items:
+          - key: check-component.sh
+            path: check-component.sh
