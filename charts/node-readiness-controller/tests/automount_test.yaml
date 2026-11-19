@@ -1,0 +1,106 @@
+suite: Test ServiceAccount token automounting and extra volumes
+
+templates:
+  - "*.yaml"
+
+release:
+  name: node-readiness-controller
+
+tests:
+  - it: sets automountServiceAccountToken on the ServiceAccount by default
+    template: templates/serviceaccount.yaml
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: automountServiceAccountToken
+          value: true
+
+  - it: sets automountServiceAccountToken on the pod spec by default
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: true
+
+  # Gatekeeper policies care that the field is explicitly false, not absent,
+  # so assert the rendered value rather than just its absence.
+  - it: renders false on both objects when automounting is disabled
+    set:
+      serviceAccount:
+        automountServiceAccountToken: false
+    asserts:
+      - equal:
+          path: automountServiceAccountToken
+          value: false
+        template: templates/serviceaccount.yaml
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+        template: templates/deployment.yaml
+
+  - it: adds extra volumes and mounts when supplied
+    template: templates/deployment.yaml
+    set:
+      extraVolumes:
+        - name: sa-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+      extraVolumeMounts:
+        - name: sa-token
+          mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          readOnly: true
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: sa-token
+            projected:
+              sources:
+                - serviceAccountToken:
+                    path: token
+                    expirationSeconds: 3600
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: sa-token
+            mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+            readOnly: true
+
+  # The chart already mounts webhook and metrics certificates, so the extra
+  # entries have to be additive rather than replacing them.
+  - it: keeps the cert volumes alongside extra volumes
+    template: templates/deployment.yaml
+    set:
+      webhook:
+        enabled: true
+      extraVolumes:
+        - name: sa-token
+          emptyDir: {}
+      extraVolumeMounts:
+        - name: sa-token
+          mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: cert
+            secret:
+              secretName: webhook-server-certs
+              defaultMode: 420
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: sa-token
+            emptyDir: {}
+
+  # volumes is rendered unconditionally by the template, so it is present but
+  # empty when nothing opts in.
+  - it: renders no extra volumes by default
+    template: templates/deployment.yaml
+    asserts:
+      - isNullOrEmpty:
+          path: spec.template.spec.volumes
