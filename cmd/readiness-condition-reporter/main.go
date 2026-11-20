@@ -87,6 +87,22 @@ func parseDurationWithDefault(input string, defaultVal time.Duration, name strin
 	return parsed
 }
 
+// applyImpersonationConfig sets the constrained node impersonation
+// configuration (KEP-5284) for a reporter running on nodeName. It sets only
+// the single-node user identity; the API server binds that identity to the
+// node through the impersonate:associated-node verb, so no groups or extra
+// scopes are ever added here. When enabled is false, config is left
+// untouched, preserving any impersonation settings loaded from the
+// kubeconfig.
+func applyImpersonationConfig(config *rest.Config, nodeName string, enabled bool) {
+	if !enabled {
+		return
+	}
+	config.Impersonate = rest.ImpersonationConfig{
+		UserName: "system:node:" + nodeName,
+	}
+}
+
 func main() {
 	klog.InitFlags(nil)
 	flag.Parse()
@@ -128,10 +144,9 @@ func main() {
 	config := ctrl.GetConfigOrDie()
 
 	// Set the constrained impersonation config
-	if os.Getenv(envImpersonateNode) == "true" {
-		config.Impersonate = rest.ImpersonationConfig{
-			UserName: "system:node:" + nodeName,
-		}
+	impersonateNode := os.Getenv(envImpersonateNode) == "true"
+	applyImpersonationConfig(config, nodeName, impersonateNode)
+	if impersonateNode {
 		klog.InfoS("Node impersonation enabled", "impersonating", config.Impersonate.UserName)
 	}
 
