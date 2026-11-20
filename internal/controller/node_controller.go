@@ -435,7 +435,8 @@ func (r *RuleReadinessController) isBootstrapCompleted(ctx context.Context, node
 // markBootstrapCompleted records bootstrap completion for a rule when a
 // node didnt have a taint remove action. For the nodes already carrying taint,
 // it is deferred and handled eventually by removeTaintAndCompleteBootstrap.
-func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, nodeName string, rule *readinessv1alpha1.NodeReadinessRule) {
+// It returns the error that prevented the annotation from being written, so that the caller records a node failure and the reconcile is retried.
+func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, nodeName string, rule *readinessv1alpha1.NodeReadinessRule) error {
 	log := ctrl.LoggerFrom(ctx)
 	marked := false
 	deferred := false
@@ -489,6 +490,7 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 	default:
 		log.V(4).Info("Bootstrap already completed", "node", nodeName, "rule", rule.Name, "uid", rule.GetUID())
 	}
+	return err
 }
 
 // recordNodeFailure records a failure for a specific node.
