@@ -976,6 +976,143 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 					}, Equal(corev1.ConditionFalse)),
 				))
 			})
+
+		It("should populate and refresh evaluation summary during reconciliation", func() {
+			nodeName := "eval-summary-node"
+			ruleName := "eval-summary-rule"
+
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nodeName,
+					Labels: map[string]string{
+						"eval-summary-test": "true",
+					},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: "TestReady", Status: corev1.ConditionTrue},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, node) }()
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       ruleName,
+					Finalizers: []string{finalizerName},
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "TestReady", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint: corev1.Taint{
+						Key:    "readiness.k8s.io/eval-summary-taint",
+						Effect: corev1.TaintEffectNoSchedule,
+					},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
+					NodeSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"eval-summary-test": "true",
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, rule) }()
+
+			// First reconciliation: rule is evaluated and status.EvaluationSummary is computed.
+			Eventually(func() error {
+				_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: types.NamespacedName{Name: ruleName},
+				})
+				return err
+			}, time.Second*5).Should(Succeed())
+
+			Eventually(func() nodereadinessiov1alpha1.RuleEvaluationSummary {
+				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, updatedRule); err != nil {
+					return nodereadinessiov1alpha1.RuleEvaluationSummary{}
+				}
+				return updatedRule.Status.EvaluationSummary
+			}, time.Second*5).Should(SatisfyAll(
+				WithTransform(func(s nodereadinessiov1alpha1.RuleEvaluationSummary) *int32 {
+					return s.Targeted
+				}, HaveValue(BeNumerically("==", int32(1)))),
+				WithTransform(func(s nodereadinessiov1alpha1.RuleEvaluationSummary) *int32 {
+					return s.Satisfied
+				}, HaveValue(BeNumerically("==", int32(1)))),
+				WithTransform(func(s nodereadinessiov1alpha1.RuleEvaluationSummary) *int32 {
+					return s.Unsatisfied
+				}, HaveValue(BeNumerically("==", int32(0)))),
+			))
+
+			// Simulate node condition change.
+			Eventually(func() error {
+				latestNode := &corev1.Node{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, latestNode); err != nil {
+					return err
+				}
+				latestNode.Status.Conditions = []corev1.NodeCondition{
+					{Type: "TestReady", Status: corev1.ConditionFalse},
+				}
+				return k8sClient.Status().Update(ctx, latestNode)
+			}, time.Second*5).Should(Succeed())
+
+			// Trigger reconciliation when rule generation is unchanged (reconcileSummaryOnly path).
+			Eventually(func() error {
+				_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: types.NamespacedName{Name: ruleName},
+				})
+				return err
+			}, time.Second*5).Should(Succeed())
+
+			// Verify evaluation summary refreshed: satisfied=0, unsatisfied=1.
+			Eventually(func() nodereadinessiov1alpha1.RuleEvaluationSummary {
+				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, updatedRule); err != nil {
+					return nodereadinessiov1alpha1.RuleEvaluationSummary{}
+				}
+				return updatedRule.Status.EvaluationSummary
+			}, time.Second*5).Should(SatisfyAll(
+				WithTransform(func(s nodereadinessiov1alpha1.RuleEvaluationSummary) *int32 {
+					return s.Targeted
+				}, HaveValue(BeNumerically("==", int32(1)))),
+				WithTransform(func(s nodereadinessiov1alpha1.RuleEvaluationSummary) *int32 {
+					return s.Satisfied
+				}, HaveValue(BeNumerically("==", int32(0)))),
+				WithTransform(func(s nodereadinessiov1alpha1.RuleEvaluationSummary) *int32 {
+					return s.Unsatisfied
+				}, HaveValue(BeNumerically("==", int32(1)))),
+			))
+
+			// Capture ResourceVersion after the evaluation summary status update.
+			var resourceVersion string
+			Eventually(func() error {
+				latestRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, latestRule); err != nil {
+					return err
+				}
+				resourceVersion = latestRule.ResourceVersion
+				return nil
+			}, time.Second*5).Should(Succeed())
+			Expect(resourceVersion).NotTo(BeEmpty())
+
+			// Trigger reconciliation again without any node or rule changes.
+			// reconcileSummaryOnly should detect no change (apiequality.Semantic.DeepEqual)
+			// and skip the status patch.
+			Eventually(func() error {
+				_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: types.NamespacedName{Name: ruleName},
+				})
+				return err
+			}, time.Second*5).Should(Succeed())
+
+			// Verify ResourceVersion remained unchanged (no unnecessary API write / status patch).
+			ruleAfterNoOp := &nodereadinessiov1alpha1.NodeReadinessRule{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: ruleName}, ruleAfterNoOp)).To(Succeed())
+			Expect(ruleAfterNoOp.ResourceVersion).To(Equal(resourceVersion))
+		})
 	})
 
 	Context("Node Processing", func() {
