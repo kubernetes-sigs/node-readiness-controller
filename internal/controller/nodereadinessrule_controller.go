@@ -504,7 +504,7 @@ func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule 
 		// Mark bootstrap completed in bootstrap-only mode when conditions satisfied even if taint is already absent.
 		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
 			if err := r.markBootstrapCompleted(ctx, node.Name, rule); err != nil {
-				return fmt.Errorf("failed to mark bootstrap completed: %w", err)
+				return fmt.Errorf("failed to mark bootstrap as completed: %w", err)
 			}
 		}
 	}

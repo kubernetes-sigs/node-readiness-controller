@@ -1063,7 +1063,7 @@ var _ = Describe("Node Controller", func() {
 			err := controller.evaluateRuleForNode(ctx, rule, node.DeepCopy())
 			Expect(err).To(HaveOccurred())
 			Expect(apierrors.IsForbidden(err)).To(BeTrue())
-			Expect(err.Error()).To(ContainSubstring("failed to mark bootstrap completed"))
+			Expect(err.Error()).To(ContainSubstring("failed to mark bootstrap as completed"))
 			Expect(controller.getPreviousNodeEvaluation(rule, node.Name)).To(BeNil())
 
 			updated := &corev1.Node{}

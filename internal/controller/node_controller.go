@@ -476,6 +476,7 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 	case err != nil:
 		log.Error(err, "Failed to mark bootstrap completed", "node", nodeName, "rule", rule.Name, "uid", rule.GetUID())
 		metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonAnnotationPatchFailed)).Inc()
+		return err
 	case deferred:
 		log.Info("Deferring bootstrap completion - rule taint still present on node",
 			"node", nodeName, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
@@ -485,7 +486,7 @@ func (r *RuleReadinessController) markBootstrapCompleted(ctx context.Context, no
 	default:
 		log.V(4).Info("Bootstrap already completed", "node", nodeName, "rule", rule.Name, "uid", rule.GetUID())
 	}
-	return err
+	return nil
 }
 
 // recordNodeFailure records a failure for a specific node.
