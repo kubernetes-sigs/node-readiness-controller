@@ -153,6 +153,13 @@ type RuleEvaluation struct {
 	// +required
 	ConditionPolicy ConditionPolicy `json:"conditionPolicy,omitempty"`
 
+	// enforcementMode is the enforcement mode of the rule, stamped at evaluation time
+	// so this entry is self-contained without requiring a lookup of the rule.
+	// Matches rule.spec.enforcementMode.
+	//
+	// +required
+	EnforcementMode EnforcementMode `json:"enforcementMode,omitempty"`
+
 	// reason contains a concise, machine-readable string detailing the primary outcome.
 	//
 	// +optional

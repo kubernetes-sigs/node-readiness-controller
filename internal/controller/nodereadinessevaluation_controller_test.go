@@ -215,7 +215,7 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			Expect(nre.Status.Rules[0].TaintStatus).To(Equal(nodereadinessiov1alpha1.TaintStatusAbsent))
 		})
 
-		It("A4 — taintKey and taintEffect are stamped on the RuleEvaluation entry", func() {
+		It("A4 — taintKey, taintEffect and enforcementMode are stamped on the RuleEvaluation entry", func() {
 			reconcileNRE(rc, node.Name)
 
 			nre := getNRE(node.Name)
@@ -227,6 +227,9 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 
 			By("taintEffect matches the rule's taint effect")
 			Expect(eval.TaintEffect).To(Equal(corev1.TaintEffectNoSchedule))
+
+			By("enforcementMode matches the rule's enforcement mode")
+			Expect(eval.EnforcementMode).To(Equal(nodereadinessiov1alpha1.EnforcementModeContinuous))
 		})
 
 		It("A4b — condition evaluation breakdown is present in RuleEvaluation", func() {

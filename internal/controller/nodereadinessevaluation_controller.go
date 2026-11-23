@@ -197,6 +197,7 @@ func (r *RuleReadinessController) buildRuleEvaluation(
 		TaintKey:            rule.Spec.Taint.Key,
 		TaintEffect:         rule.Spec.Taint.Effect,
 		ConditionPolicy:     conditionPolicy,
+		EnforcementMode:     rule.Spec.EnforcementMode,
 		Reason:              reason,
 		Message:             message,
 		ReadinessConditions: conditionResults,
