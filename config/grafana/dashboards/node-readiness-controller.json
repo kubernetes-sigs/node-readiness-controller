@@ -30,7 +30,7 @@
 			"targets": [
 				{
 					"datasource": { "type": "prometheus", "uid": "${datasource}" },
-					"expr": "sum(node_readiness_nodes_by_state)",
+					"expr": "sum(max by (rule, state) (node_readiness_rule_nodes))",
 					"legendFormat": "Total",
 					"refId": "A"
 				}
@@ -64,13 +64,13 @@
 			"id": 3,
 			"type": "stat",
 			"title": "Blocked Nodes",
-			"description": "Nodes that are currently unavailable for scheduling because they are still bootstrapping or not yet ready.",
+			"description": "Nodes currently held by a rule's taint, so they are not available for scheduling yet. A node held by several rules is counted once for each rule.",
 			"gridPos": { "h": 8, "w": 6, "x": 6, "y": 1 },
 			"datasource": { "type": "prometheus", "uid": "${datasource}" },
 			"targets": [
 				{
 					"datasource": { "type": "prometheus", "uid": "${datasource}" },
-					"expr": "sum(node_readiness_nodes_by_state{state=~\"not_ready|bootstrapping\"})",
+					"expr": "sum(max by (rule, state) (node_readiness_rule_nodes{state=\"held\"}))",
 					"legendFormat": "Blocked",
 					"refId": "A"
 				}
@@ -113,7 +113,7 @@
 			"targets": [
 				{
 					"datasource": { "type": "prometheus", "uid": "${datasource}" },
-					"expr": "sum(node_readiness_nodes_by_state{state=\"ready\"}) / sum(node_readiness_nodes_by_state) * 100",
+					"expr": "sum(max by (rule, state) (node_readiness_rule_nodes{state=\"released\"})) / (sum(max by (rule, state) (node_readiness_rule_nodes)) > 0) * 100",
 					"legendFormat": "Availability",
 					"refId": "A"
 				}
@@ -153,13 +153,13 @@
 			"id": 5,
 			"type": "stat",
 			"title": "Rules Without Nodes",
-			"description": "Rules whose node selector currently doesn't match any nodes. This may mean the selector is incorrect or the expected labels are missing.",
+			"description": "Rules whose node selector currently doesn't match any nodes. This may mean the selector is incorrect or the expected labels are missing. Shows No data if the metric isn't being reported.",
 			"gridPos": { "h": 8, "w": 6, "x": 18, "y": 1 },
 			"datasource": { "type": "prometheus", "uid": "${datasource}" },
 			"targets": [
 				{
 					"datasource": { "type": "prometheus", "uid": "${datasource}" },
-					"expr": "count(sum by (rule) (node_readiness_nodes_by_state) == 0) or vector(0)",
+					"expr": "count(max by (rule) (node_readiness_rule_matched_nodes) == 0) or (count(max by (rule) (node_readiness_rule_matched_nodes)) * 0)",
 					"legendFormat": "Rules Without Nodes",
 					"refId": "A"
 				}
