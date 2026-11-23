@@ -23,6 +23,7 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "node-readiness-controller.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -109,6 +110,9 @@ spec:
               mountPath: {{ .Values.metrics.certDir }}
               readOnly: true
             {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
       volumes:
         {{- if .Values.webhook.enabled }}
         - name: cert
@@ -120,6 +124,9 @@ spec:
         - name: metrics-certs
           secret:
             secretName: {{ .Values.metrics.certSecretName }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
