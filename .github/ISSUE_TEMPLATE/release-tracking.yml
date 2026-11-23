@@ -1,0 +1,150 @@
+name: Plan a Release
+description: (For Maintainers) Create an issue for planning a release.
+title: "[RELEASE] Plan for <vX.Y.Z>"
+labels: ["area/community-meeting"]
+assignees:
+  - ajaysundark
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **NOTE: This template is intended for maintainers to plan and track the progress of a release.**
+
+  - type: textarea
+    id: target-release-date
+    attributes:
+      label: Description
+      description: What version is being released? What's the planned day for this release?
+      value: |
+        Hello folks, we are planning the release of Node Readiness Controller <vX.Y.Z> for MONTH, DD, YYYY (tentatively). 
+    validations:
+      required: true
+
+  - type: textarea
+    id: changelog
+    attributes:
+      label: Changelog (Candidate)
+      description: |
+        Paste the list of candidate commits for the release.
+      value: |
+        The changes we plan to include in this release are listed below. Help us review and please let us know if there are any other patches or features you would like to see in this release.
+        
+        <!-- 
+        Paste the changelog below
+        Use `git log --oneline <last-tag>..HEAD` on `main` to list the commits.
+        Make sure your fork is up-to-date with upstream!
+         -->
+    validations:
+      required: true
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Release Checklist
+      description: Track and check the required steps needed to complete the release.
+      value: |
+        <!-- 
+        DO NOT EDIT THE CHECKLIST
+        -->
+        #### 1. Propose the Release
+
+        - [ ] Create a new GitHub Issue titled "Release vX.Y.Z" to track the release process.
+        - [ ] In the issue, gather a preliminary changelog by reviewing commits since the last release. A good starting point is `git log --oneline <last-tag>..HEAD`.
+
+        #### 2. Trigger the Release Automation
+
+        - [ ] Create a new PR targeting the `main` branch (for minor/major releases) or a `release-*` branch (for patch releases).
+        - [ ] Update the `VERSION` file at the repository root to the new semantic version (e.g., `v0.2.0`).
+        - [ ] Update any documentation (like `docs/book/src/releases.md`), examples, or manifests as needed for the release.
+        - [ ] Ensure all tests are passing.
+
+        #### 3. Promote the Images and Helm Chart
+
+        After the release tag is pushed, the images and Helm chart must be built, pushed to staging, and then promoted to the official registry.
+
+        - [ ] Verify Staging Images and Chart**
+          - [ ] Monitor the push job status on [Testgrid (sig-node-image-pushes)](https://testgrid.k8s.io/sig-node-image-pushes#post-node-readiness-controller-push-images).
+        HINT: the Prow job configuration is in [test-infra](https://github.com/kubernetes/test-infra/blob/master/config/jobs/image-pushing/k8s-staging-node-readiness-controller.yaml) if troubleshooting is needed.
+        - [ ] Verify the images exist in the staging repository:
+          
+          ```sh
+          skopeo list-tags docker://us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/node-readiness-controller | grep <vX.Y.Z>
+          skopeo list-tags docker://us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/node-readiness-reporter | grep <vX.Y.Z>
+          ```
+          
+        - [ ] Verify the chart exists in the staging repository:
+            
+          ```sh
+          helm pull oci://us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/charts/node-readiness-controller --verify --version <chart-version>
+          ```
+
+        #### 4. Create PR for Promotion
+
+        - [ ] Identify the image digests:
+
+          ```sh
+          skopeo inspect docker://us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/node-readiness-controller:vX.Y.Z --format '{{.Digest}}'
+          skopeo inspect docker://us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/node-readiness-reporter:vX.Y.Z --format '{{.Digest}}'
+          ```
+
+        - [ ] Identify the chart digest:
+        (Alternatively, note the digest printed by `helm push`/`helm pull` when the chart was published/verified above.)
+
+          ```sh
+          skopeo inspect --raw docker://us-central1-docker.pkg.dev/k8s-staging-images/node-readiness-controller/charts/node-readiness-controller:<chart-version> | sha256sum
+          ```
+
+        - [ ] Fork [kubernetes/k8s.io](https://github.com/kubernetes/k8s.io).
+        - [ ] Update `registry.k8s.io/images/k8s-staging-node-readiness-controller/images.yaml` with the new digests and tags for the images and the chart ([sample PR](https://github.com/kubernetes/k8s.io/pull/9176)).
+        - [ ] Submit the PR to `kubernetes/k8s.io`. Once it is approved and merged automation will schedule the promotion.
+
+        #### 5. Final Verification and GitHub Release
+
+        Before publishing the release, verify the images and chart are available at k8s-registry:
+
+        - [ ] Ensure the images are available at `registry.k8s.io`:
+          
+          ```sh
+          skopeo list-tags docker://registry.k8s.io/node-readiness-controller/node-readiness-controller | grep vX.Y.Z
+          ```
+
+        - [ ] Ensure the chart is available at `registry.k8s.io`:
+          
+          ```sh
+          helm pull oci://registry.k8s.io/node-readiness-controller/charts/node-readiness-controller --verify --version <chart-version>
+          ```
+
+        #### 6. Test Release Artifacts
+
+        - [ ] Checkout the release tag locally
+          
+          ```sh
+          git show vX.Y.Z -q  # to verify the right tag and commit
+          git checkout vX.Y.Z
+          ```
+
+        - [ ] Generate the release manifests:
+          
+          ```sh
+          rm -rf ./dist
+          make build-installer IMG_PREFIX=registry.k8s.io/node-readiness-controller/node-readiness-controller IMG_TAG=vX.Y.Z
+          ls ./dist   # to confirm the generated artifacts
+          ```
+
+        - [ ] Run a local E2E test in Kind (see `docs/TEST_README.md`) using the generated manifests from the `dist/` directory to ensure they pull the correct images and function as expected.
+
+        #### 7. Create the GitHub Release
+
+        Go to the [Releases page](https://github.com/kubernetes-sigs/node-readiness-controller/releases) on GitHub.
+
+        - [ ] Find the new tag and click "Edit tag" (or "Draft a new release" and select the tag).
+        - [ ] Paste the final changelog into the release description.
+        - [ ] Upload the generated  manifests (`dist/crds.yaml`, `dist/install.yaml`, and `dist/install-full.yaml`) as release artifacts.
+        - [ ] Publish the release.
+
+        #### 8. Post-Release Tasks
+
+        - [ ] Announce the release on the `sig-node` mailing list. The subject should be: `[ANNOUNCE] Node Readiness Controller vX.Y.Z is released`.
+        - [ ] Close the release tracking issue.
+    validations:
+      required: true
