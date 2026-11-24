@@ -29,6 +29,10 @@ diff -u \
   config/crd/bases/readiness.node.x-k8s.io_nodereadinessrules.yaml \
   charts/node-readiness-controller/crds/nodereadinessrules.readiness.node.x-k8s.io.yaml
 
+diff -u \
+  config/crd/bases/readiness.node.x-k8s.io_nodereadinessevaluations.yaml \
+  charts/node-readiness-controller/crds/nodereadinessevaluations.readiness.node.x-k8s.io.yaml
+
 # Chart.yaml is stamped at package time by build-helm, but a plain
 # `helm install ./charts/...` reads it literally, so it has to match the release
 # in the VERSION file. It drifted once already and shipped the previous image.

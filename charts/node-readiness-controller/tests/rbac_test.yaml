@@ -62,6 +62,25 @@ tests:
             resources: ["nodereadinessrules/status"]
             verbs: ["get", "patch", "update"]
 
+  - it: grants the NodeReadinessEvaluation permissions the controller needs
+    template: templates/rbac.yaml
+    documentSelector:
+      path: metadata.name
+      value: node-readiness-controller-manager-role
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["readiness.node.x-k8s.io"]
+            resources: ["nodereadinessevaluations"]
+            verbs: ["create", "get", "list", "watch"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["readiness.node.x-k8s.io"]
+            resources: ["nodereadinessevaluations/status"]
+            verbs: ["get", "patch", "update"]
+
   - it: omits rbac resources when rbac.create is disabled
     template: templates/rbac.yaml
     set:

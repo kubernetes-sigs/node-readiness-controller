@@ -73,6 +73,9 @@ spec:
             {{- if .Values.controller.pprofBindAddress }}
             - --pprof-bind-address={{ .Values.controller.pprofBindAddress }}
             {{- end }}
+            {{- if .Values.controller.enableNodeReadinessEvaluation }}
+            - --enable-node-readiness-evaluation
+            {{- end }}
           ports:
                       - name: http
                         containerPort: 8081

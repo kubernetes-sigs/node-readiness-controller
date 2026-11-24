@@ -95,6 +95,9 @@ controller:
   enableNodeStateMetrics: false
   # -- Bind address for the pprof endpoint. Leave empty to disable.
   pprofBindAddress: ""
+  # -- Enable NodeReadinessEvaluation writes (one NRE object per node).
+  # Increases API writes on node updates.
+  enableNodeReadinessEvaluation: false
 
 rbac:
   create: true
