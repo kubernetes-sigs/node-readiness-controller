@@ -1,0 +1,16 @@
+{{- if .Values.mutatingAdmissionPolicy.enabled }}
+apiVersion: {{ if .Capabilities.APIVersions.Has "admissionregistration.k8s.io/v1/MutatingAdmissionPolicy" }}admissionregistration.k8s.io/v1{{ else }}admissionregistration.k8s.io/v1beta1{{ end }}
+kind: MutatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "node-readiness-controller.fullname" . }}-inject-daemonset-tolerations-binding
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "node-readiness-controller.fullname" . }}-inject-daemonset-tolerations
+  paramRef:
+    name: {{ .Values.mutatingAdmissionPolicy.configMapName }}
+    namespace: {{ include "node-readiness-controller.namespace" . }}
+    parameterNotFoundAction: Allow
+  matchResources:
+    namespaceSelector: {}
+{{- end }}

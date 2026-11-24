@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net/http"
@@ -28,13 +29,19 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -52,6 +59,11 @@ const (
 	defaultKubeAPIBurst             = -1
 	defaultNodeConcurrentReconciles = 1
 	defaultRuleConcurrentReconciles = 1
+
+	// DefaultControllerNamespace is the default namespace where the controller and its ConfigMaps reside.
+	DefaultControllerNamespace = "nrr-system"
+	// DefaultConfigMapName is the name of the ConfigMap storing readiness taints.
+	DefaultConfigMapName = "readiness-taints"
 )
 
 var (
@@ -140,6 +152,8 @@ func main() {
 		}(),
 	}
 
+	controllerNamespace := resolveControllerNamespace()
+
 	restConfig := ctrl.GetConfigOrDie()
 	restConfig.QPS = float32(kubeAPIQPS)
 	restConfig.Burst = kubeAPIBurst
@@ -152,9 +166,40 @@ func main() {
 		LeaderElection:          enableLeaderElection,
 		LeaderElectionID:        "ba65f13e.readiness.node.x-k8s.io",
 		LeaderElectionNamespace: leaderElectionNamespace,
+		Cache: cache.Options{
+			ByObject: map[client.Object]cache.ByObject{
+				&corev1.ConfigMap{}: {
+					Namespaces: map[string]cache.Config{
+						controllerNamespace: {},
+					},
+				},
+			},
+		},
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
+		os.Exit(1)
+	}
+
+	// Initialize readiness-taints ConfigMap on manager startup.
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      DefaultConfigMapName,
+				Namespace: controllerNamespace,
+			},
+			Data: map[string]string{
+				"taint-keys": "",
+			},
+		}
+		err := mgr.GetClient().Create(ctx, cm)
+		if err != nil && !apierrors.IsAlreadyExists(err) {
+			setupLog.Error(err, "unable to initialize readiness-taints configmap; will retry during reconciliation", "namespace", controllerNamespace)
+			return nil
+		}
+		return nil
+	})); err != nil {
+		setupLog.Error(err, "failed to add readiness-taints ConfigMap initialization to manager")
 		os.Exit(1)
 	}
 
@@ -166,7 +211,7 @@ func main() {
 	}
 
 	// Create the main RuleReadinessController
-	readinessController := controller.NewRuleReadinessController(mgr, clientset, enableNodeStateMetrics, enableNodeReadinessEvaluation)
+	readinessController := controller.NewRuleReadinessController(mgr, clientset, enableNodeStateMetrics, enableNodeReadinessEvaluation, controllerNamespace)
 
 	// Register the scrape-time collector.
 	crmetrics.Registry.MustRegister(metrics.NewReadinessCollector(readinessController))
@@ -239,4 +284,15 @@ func validateKubeAPIFlags(qps float64, burst int) error {
 		return fmt.Errorf("--kube-api-burst must be greater than 0 when --kube-api-qps is set (got --kube-api-qps=%v --kube-api-burst=%d)", qps, burst)
 	}
 	return nil
+}
+
+// resolveControllerNamespace resolves the namespace where the controller and its ConfigMaps reside.
+func resolveControllerNamespace() string {
+	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+		return ns
+	}
+	if leaderElectionNamespace != "" {
+		return leaderElectionNamespace
+	}
+	return DefaultControllerNamespace
 }

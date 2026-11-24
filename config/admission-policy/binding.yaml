@@ -1,0 +1,15 @@
+---
+# MutatingAdmissionPolicyBinding binds inject-daemonset-readiness-tolerations
+# to the readiness-taints ConfigMap parameter resource.
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicyBinding
+metadata:
+  name: inject-daemonset-readiness-tolerations-binding
+spec:
+  policyName: inject-daemonset-readiness-tolerations
+  paramRef:
+    name: readiness-taints
+    namespace: nrr-system
+    parameterNotFoundAction: Allow
+  matchResources:
+    namespaceSelector: {}

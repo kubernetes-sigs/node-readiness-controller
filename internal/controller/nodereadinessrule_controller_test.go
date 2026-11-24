@@ -98,11 +98,12 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 		fakeClientset = fake.NewSimpleClientset()
 		readinessController = &RuleReadinessController{
-			Client:        k8sClient,
-			Scheme:        scheme,
-			clientset:     fakeClientset,
-			ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
-			EventRecorder: events.NewFakeRecorder(10),
+			Client:             k8sClient,
+			Scheme:             scheme,
+			clientset:          fakeClientset,
+			configMapNamespace: "default",
+			ruleCache:          make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+			EventRecorder:      events.NewFakeRecorder(10),
 		}
 
 		ruleReconciler = &RuleReconciler{
