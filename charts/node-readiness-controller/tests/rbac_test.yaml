@@ -139,4 +139,4 @@ tests:
         enabled: false
     asserts:
       - hasDocuments:
-          count: 8
+          count: 10

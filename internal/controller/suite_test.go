@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	nodereadinessiov1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
@@ -95,6 +96,11 @@ var _ = BeforeSuite(func() {
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
+
+	nrrNamespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: DefaultControllerNamespace},
+	}
+	Expect(k8sClient.Create(ctx, nrrNamespace)).To(Succeed())
 
 	By("test environment ready")
 })

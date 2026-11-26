@@ -33,6 +33,36 @@ subjects:
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "node-readiness-controller.fullname" . }}-configmap-role
+  namespace: {{ include "node-readiness-controller.namespace" . }}
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "node-readiness-controller.fullname" . }}-configmap-rolebinding
+  namespace: {{ include "node-readiness-controller.namespace" . }}
+  labels:
+    {{- include "node-readiness-controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "node-readiness-controller.fullname" . }}-configmap-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "node-readiness-controller.serviceAccountName" . }}
+    namespace: {{ include "node-readiness-controller.namespace" . }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: {{ include "node-readiness-controller.fullname" . }}-manager-role
