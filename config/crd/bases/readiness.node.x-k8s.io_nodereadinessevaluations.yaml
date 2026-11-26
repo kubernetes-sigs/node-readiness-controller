@@ -166,6 +166,16 @@ spec:
                       - allOf
                       - anyOf
                       type: string
+                    enforcementMode:
+                      description: |-
+                        enforcementMode is the enforcement mode under which this rule is evaluated
+                        (bootstrap-only or continuous), stamped at evaluation time so this entry is
+                        self-contained without requiring a lookup of the rule.
+                        Matches rule.spec.enforcementMode.
+                      enum:
+                      - bootstrap-only
+                      - continuous
+                      type: string
                     firstEvaluatedAt:
                       description: firstEvaluatedAt is the time the rule was first
                         assessed against this node.
@@ -312,6 +322,7 @@ spec:
                       type: string
                   required:
                   - conditionPolicy
+                  - enforcementMode
                   - lastEvaluatedAt
                   - ruleName
                   - ruleStatus

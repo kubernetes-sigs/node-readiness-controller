@@ -240,6 +240,17 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			Expect(cond.CurrentStatus).To(Equal(corev1.ConditionFalse))
 		})
 
+		It("A4c — enforcementMode is stamped on the RuleEvaluation entry", func() {
+			reconcileNRE(rc, node.Name)
+
+			nre := getNRE(node.Name)
+			Expect(nre.Status.Rules).To(HaveLen(1))
+			eval := nre.Status.Rules[0]
+
+			By("enforcementMode matches the rule's enforcement mode")
+			Expect(eval.EnforcementMode).To(Equal(rule.Spec.EnforcementMode))
+		})
+
 		It("A5 — Evaluated=True and Available=False conditions are set when taint is present", func() {
 			reconcileNRE(rc, node.Name)
 
@@ -813,6 +824,9 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			By("still reporting the observed rule and taint status")
 			Expect(eval.RuleStatus).To(Equal(nodereadinessiov1alpha1.RuleStatusUnsatisfied))
 			Expect(eval.TaintStatus).To(Equal(nodereadinessiov1alpha1.TaintStatusPresent))
+
+			By("stamping enforcementMode as bootstrap-only")
+			Expect(eval.EnforcementMode).To(Equal(nodereadinessiov1alpha1.EnforcementModeBootstrapOnly))
 		})
 
 		It("F3 — SLI timestamps are preserved across the bootstrap completion transition", func() {
