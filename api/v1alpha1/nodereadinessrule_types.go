@@ -197,6 +197,10 @@ type NodeReadinessRuleStatus struct {
 	// failedNodes lists the Nodes where the rule evaluation encountered an error.
 	// This is used for troubleshooting configuration issues, such as invalid selectors during node lookup.
 	//
+	// Deprecated: failedNodes is no longer populated by the controller and will be removed in a
+	// future API version. Evaluation failures are reported through the failures_total metric,
+	// EvaluationFailed events on the Node, and controller retries.
+	//
 	// +optional
 	// +listType=map
 	// +listMapKey=nodeName

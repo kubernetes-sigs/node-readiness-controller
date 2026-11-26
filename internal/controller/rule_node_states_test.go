@@ -349,7 +349,7 @@ func TestListRuleNodeStates_InvalidSelectorSkipped(t *testing.T) {
 	}))
 }
 
-func TestCleanupTaintsForRule_InvalidSelectorReturnsNil(t *testing.T) {
+func TestNodesHoldingRuleTaint_InvalidSelectorHoldsNone(t *testing.T) {
 	g := NewWithT(t)
 	invalidRule := &readinessv1alpha1.NodeReadinessRule{
 		ObjectMeta: metav1.ObjectMeta{Name: "invalid-selector-rule"},
@@ -371,8 +371,7 @@ func TestCleanupTaintsForRule_InvalidSelectorReturnsNil(t *testing.T) {
 		Items: []corev1.Node{*gpuNode("held-1", true)},
 	}
 
-	err := c.cleanupTaintsForRule(t.Context(), invalidRule, nodeList)
-	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(c.nodesHoldingRuleTaint(invalidRule, nodeList)).To(BeZero())
 }
 
 func TestListBlockedNodes_ZeroSeededWhenNoHeldNodes(t *testing.T) {

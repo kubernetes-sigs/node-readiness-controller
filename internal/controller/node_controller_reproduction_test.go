@@ -51,7 +51,6 @@ var _ = Describe("Node Controller Reproduction", func() {
 				Client:        k8sClient,
 				Scheme:        k8sClient.Scheme(),
 				clientset:     fakeClientset,
-				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
 				EventRecorder: events.NewFakeRecorder(10),
 			}
 
@@ -96,7 +95,7 @@ var _ = Describe("Node Controller Reproduction", func() {
 		JustBeforeEach(func() {
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
 			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
-			readinessController.updateRuleCache(ctx, rule)
+			admitRule(ctx, rule)
 		})
 
 		AfterEach(func() {
@@ -107,7 +106,6 @@ var _ = Describe("Node Controller Reproduction", func() {
 				_ = k8sClient.Update(ctx, updatedRule)
 				_ = k8sClient.Delete(ctx, updatedRule)
 			}
-			readinessController.removeRuleFromCache(ctx, longRuleName)
 		})
 
 		It("should successfully mark bootstrap completed using the UID-based annotation key for long rule names", func() {

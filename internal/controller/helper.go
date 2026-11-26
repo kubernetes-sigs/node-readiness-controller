@@ -19,7 +19,7 @@ package controller
 import (
 	"encoding/json"
 	"maps"
-	"sort"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -117,85 +117,79 @@ func taintsEqual(a, b []corev1.Taint) bool {
 	return true
 }
 
-// filters nodeEvaluations and failedNodes to keep only existing nodes.
-func filterStatusForExistingNodes(
-	existingNodes map[string]bool,
-	nodeEvaluations []readinessv1alpha1.NodeEvaluation,
-	failedNodes []readinessv1alpha1.NodeFailure,
-) ([]readinessv1alpha1.NodeEvaluation, []readinessv1alpha1.NodeFailure) {
-	filteredEvaluations := make([]readinessv1alpha1.NodeEvaluation, 0, len(nodeEvaluations))
-	for _, evaluation := range nodeEvaluations {
-		if existingNodes[evaluation.NodeName] {
-			filteredEvaluations = append(filteredEvaluations, evaluation)
-		}
-	}
-
-	filteredFailedNodes := make([]readinessv1alpha1.NodeFailure, 0, len(failedNodes))
-	for _, failure := range failedNodes {
-		if existingNodes[failure.NodeName] {
-			filteredFailedNodes = append(filteredFailedNodes, failure)
-		}
-	}
-
-	return filteredEvaluations, filteredFailedNodes
-}
-
 // labelsEqual checks if two label maps are equal.
 func labelsEqual(a, b map[string]string) bool {
 	return maps.Equal(a, b)
 }
 
-// nodeStatusDelta captures the per-node NodeEvaluation/NodeFailure changes produced by a single
-// processAllNodesForRule sweep, keyed by node name. It excludes AppliedNodes, ObservedGeneration,
-// and DryRunResults, which have a single writer and are safe to overwrite directly.
-//
-// A nil value in failures clears any failure recorded for that node. evaluations only holds
-// entries for nodes freshly (re-)evaluated this sweep.
-type nodeStatusDelta struct {
-	evaluations map[string]readinessv1alpha1.NodeEvaluation
-	failures    map[string]*readinessv1alpha1.NodeFailure
+// nodeStatusRelevantChange reports whether a node update can change what a rule's status
+// reports for it: its conditions, taints, labels (rule selection) or the bootstrap
+// completion annotations.
+func nodeStatusRelevantChange(oldNode, newNode *corev1.Node) bool {
+	return !conditionsEqual(oldNode.Status.Conditions, newNode.Status.Conditions) ||
+		!taintsEqual(oldNode.Spec.Taints, newNode.Spec.Taints) ||
+		!labelsEqual(oldNode.Labels, newNode.Labels) ||
+		!maps.Equal(bootstrapAnnotations(oldNode), bootstrapAnnotations(newNode))
 }
 
-// sortStatusByNodeName sorts rule.Status.NodeEvaluations and rule.Status.FailedNodes by NodeName.
-func sortStatusByNodeName(rule *readinessv1alpha1.NodeReadinessRule) {
-	sort.Slice(rule.Status.NodeEvaluations, func(i, j int) bool {
-		return rule.Status.NodeEvaluations[i].NodeName < rule.Status.NodeEvaluations[j].NodeName
-	})
-	sort.Slice(rule.Status.FailedNodes, func(i, j int) bool {
-		return rule.Status.FailedNodes[i].NodeName < rule.Status.FailedNodes[j].NodeName
-	})
+// bootstrapAnnotations returns the bootstrap completion annotations of a node.
+func bootstrapAnnotations(node *corev1.Node) map[string]string {
+	var out map[string]string
+	for k, v := range node.Annotations {
+		if strings.HasPrefix(k, bootstrapAnnotationPrefix) {
+			if out == nil {
+				out = make(map[string]string)
+			}
+			out[k] = v
+		}
+	}
+	return out
 }
 
-// applyNodeStatusDelta merges delta into rule's NodeEvaluations/FailedNodes, replacing only the
-// entries for nodes present in delta and leaving every other node's entry untouched.
-func applyNodeStatusDelta(rule *readinessv1alpha1.NodeReadinessRule, delta nodeStatusDelta) {
-	if len(delta.evaluations) > 0 {
-		merged := make([]readinessv1alpha1.NodeEvaluation, 0, len(rule.Status.NodeEvaluations)+len(delta.evaluations))
-		for _, eval := range rule.Status.NodeEvaluations {
-			if _, changed := delta.evaluations[eval.NodeName]; !changed {
-				merged = append(merged, eval)
-			}
+// conditionOutcome is the evaluation of a single rule condition against a node.
+type conditionOutcome struct {
+	result    readinessv1alpha1.ConditionEvaluationResult
+	effective corev1.ConditionStatus // observed status, or the condition's default if absent
+	satisfied bool
+}
+
+// evaluateRuleConditions evaluates every condition of rule against node without side effects
+// (no metrics, no logging). It returns the per-condition outcomes and whether the rule's
+// conditionPolicy is met (allOf: every condition satisfied; anyOf: at least one).
+func (r *RuleReadinessController) evaluateRuleConditions(node *corev1.Node, rule *readinessv1alpha1.NodeReadinessRule) ([]conditionOutcome, bool) {
+	outcomes := make([]conditionOutcome, 0, len(rule.Spec.Conditions))
+	allSatisfied := true
+	anySatisfied := false
+
+	for _, condReq := range rule.Spec.Conditions {
+		effective, found := r.getConditionStatus(node, condReq.Type, condReq.GetDefaultStatus())
+		satisfied := effective == condReq.RequiredStatus
+		if satisfied {
+			anySatisfied = true
+		} else {
+			allSatisfied = false
 		}
-		for _, eval := range delta.evaluations {
-			merged = append(merged, eval)
+
+		// observed is the condition status without applying the default fallback.
+		observed := effective
+		if !found {
+			observed = corev1.ConditionUnknown
 		}
-		rule.Status.NodeEvaluations = merged
+
+		outcomes = append(outcomes, conditionOutcome{
+			result: readinessv1alpha1.ConditionEvaluationResult{
+				Type:           condReq.Type,
+				CurrentStatus:  observed,
+				RequiredStatus: condReq.RequiredStatus,
+				DefaultStatus:  condReq.GetDefaultStatus(),
+			},
+			effective: effective,
+			satisfied: satisfied,
+		})
 	}
 
-	if len(delta.failures) > 0 {
-		merged := make([]readinessv1alpha1.NodeFailure, 0, len(rule.Status.FailedNodes)+len(delta.failures))
-		for _, failure := range rule.Status.FailedNodes {
-			if _, changed := delta.failures[failure.NodeName]; !changed {
-				merged = append(merged, failure)
-			}
-		}
-		for _, failure := range delta.failures {
-			if failure != nil {
-				merged = append(merged, *failure)
-			}
-		}
-		rule.Status.FailedNodes = merged
+	if rule.Spec.GetConditionPolicy() == readinessv1alpha1.ConditionPolicyAnyOf {
+		return outcomes, anySatisfied
 	}
-
-	sortStatusByNodeName(rule)
+	return outcomes, allSatisfied
 }
