@@ -1003,7 +1003,7 @@ var _ = Describe("Node Controller", func() {
 				EventRecorder: events.NewFakeRecorder(10),
 			}
 
-			controller.markBootstrapCompleted(ctx, node.Name, rule)
+			Expect(controller.markBootstrapCompleted(ctx, node.Name, rule)).To(Succeed())
 
 			updated := &corev1.Node{}
 			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, updated)).To(Succeed())
@@ -1011,6 +1011,64 @@ var _ = Describe("Node Controller", func() {
 				"completion must be deferred when the taint won the race")
 			Expect(controller.hasTaintBySpec(updated, rule.Spec.Taint)).To(BeTrue(),
 				"the concurrently added taint must survive")
+		})
+
+		It("should return an error when bootstrap completion of an untainted ready node cannot be written", func() {
+			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
+
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "mark-fail-rule",
+					UID:  types.UID("99999999-9999-9999-9999-999999999999"),
+				},
+				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+						{Type: "example.com/Ready", RequiredStatus: corev1.ConditionTrue},
+					},
+					Taint:           corev1.Taint{Key: "readiness.k8s.io/mark-fail", Effect: corev1.TaintEffectNoSchedule},
+					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeBootstrapOnly,
+				},
+			}
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "mark-fail-node"},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{{Type: "example.com/Ready", Status: corev1.ConditionTrue}},
+				},
+			}
+
+			// The node is ready and untainted, so evaluation takes the path that only writes the completion annotation.
+			// Every patch of the node fails.
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(testScheme).
+				WithObjects(node).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if obj.GetName() == "mark-fail-node" {
+							return apierrors.NewForbidden(corev1.Resource("nodes"), obj.GetName(), fmt.Errorf("injected"))
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        testScheme,
+				clientset:     fake.NewSimpleClientset(),
+				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
+				EventRecorder: events.NewFakeRecorder(10),
+			}
+
+			// The error must reach the caller, so that the node is recorded as failed and the reconcile is retried instead of being reported as a successful evaluation.
+			err := controller.evaluateRuleForNode(ctx, rule, node.DeepCopy())
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsForbidden(err)).To(BeTrue())
+			Expect(err.Error()).To(ContainSubstring("failed to mark bootstrap as completed"))
+			Expect(controller.getPreviousNodeEvaluation(rule, node.Name)).To(BeNil())
+
+			updated := &corev1.Node{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, updated)).To(Succeed())
+			Expect(updated.Annotations).NotTo(HaveKey(bootstrapAnnotationKey(rule.GetUID())))
 		})
 
 		It("should not add the taint when bootstrap completion annotated concurrently", func() {

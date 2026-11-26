@@ -1183,7 +1183,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			defer func() { _ = k8sClient.Delete(ctx, node) }()
 
 			// Mark as completed
-			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+			Expect(readinessController.markBootstrapCompleted(ctx, nodeName, rule)).To(Succeed())
 
 			// Should now be completed
 			Eventually(func() bool {
@@ -1242,7 +1242,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			defer func() { _ = k8sClient.Delete(ctx, node) }()
 
 			// Mark bootstrap completed
-			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+			Expect(readinessController.markBootstrapCompleted(ctx, nodeName, rule)).To(Succeed())
 
 			// Verify UID-based annotation was added and existing annotation is preserved
 			Eventually(func(g Gomega) {
@@ -1280,8 +1280,8 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			counter := metrics.BootstrapCompleted.WithLabelValues(rule.Name)
 			before := counterValue(counter)
 
-			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
-			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+			Expect(readinessController.markBootstrapCompleted(ctx, nodeName, rule)).To(Succeed())
+			Expect(readinessController.markBootstrapCompleted(ctx, nodeName, rule)).To(Succeed())
 
 			Expect(counterValue(counter)).To(Equal(before + 1))
 		})
@@ -1311,7 +1311,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			// Marking must be deferred: completion with the bootstrap taint still
 			// present would orphan the taint forever.
-			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+			Expect(readinessController.markBootstrapCompleted(ctx, nodeName, rule)).To(Succeed())
 
 			updatedNode := &corev1.Node{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, updatedNode)).To(Succeed())
@@ -1321,7 +1321,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			updatedNode.Spec.Taints = nil
 			Expect(k8sClient.Update(ctx, updatedNode)).To(Succeed())
 
-			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+			Expect(readinessController.markBootstrapCompleted(ctx, nodeName, rule)).To(Succeed())
 
 			Eventually(func() map[string]string {
 				recheckedNode := &corev1.Node{}
@@ -2990,7 +2990,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			before := counterValue(metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)))
 
-			readinessController.markBootstrapCompleted(ctx, "nonexistent-node-for-bce-test", rule)
+			Expect(readinessController.markBootstrapCompleted(ctx, "nonexistent-node-for-bce-test", rule)).NotTo(Succeed())
 
 			Expect(counterValue(metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)))).To(Equal(before + 1))
 		})
@@ -3008,7 +3008,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			before := counterValue(metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)))
 
-			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+			Expect(readinessController.markBootstrapCompleted(ctx, nodeName, rule)).To(Succeed())
 
 			Expect(counterValue(metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)))).To(Equal(before))
 		})
