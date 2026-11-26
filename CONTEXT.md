@@ -182,25 +182,33 @@ type ConditionEvaluationResult struct {
 
 ### Reconciler Structure
 
-The controller uses multiple reconcilers:
+Each resource has a single writer:
 
-1. **RuleReconciler**: Handles NodeReadinessRule changes
-   - Updates rule cache
-   - Processes dry run evaluations
-   - Re-evaluates all applicable nodes when rules change
-   
-2. **NodeReconciler**: Handles node changes 
-   - Processes new nodes
-   - Handles condition updates
-   - Evaluates node against all applicable rules
+1. **NodeReconciler** is the only writer of Node objects (taints, bootstrap annotations) and
+   NodeReadinessEvaluation.
+   - Watches Nodes, and NodeReadinessRules (a rule change is mapped to the nodes it selects)
+   - Evaluates one node against all applicable rules read from the informer cache
+   - Releases the taint of a rule that is being deleted
+   - Only enforces rules that carry the cleanup finalizer (i.e. admitted by RuleReconciler)
+   - Never writes NodeReadinessRule status
+
+2. **RuleReconciler** is the only writer of NodeReadinessRule (finalizer, status, dry-run results, rule metrics).
+   - Watches NodeReadinessRules, and Nodes (a node change is mapped to the rules selecting it, debounced)
+   - Derives `appliedNodes`, `nodeEvaluations` and `completedNodes` from node conditions and taints
+     in the informer cache; it never patches Nodes
+   - On deletion it waits (requeue) until no node holds the rule's taint, then removes the finalizer
 
 ### Key Controller Methods
 
-- `processNodeAgainstAllRules()`: Evaluates single node against all rules
-- `processAllNodesForRule()`: Re-evaluates all nodes when rule changes
-- `evaluateRuleForNode()`: Core evaluation logic for rule + node combination
-- `processDryRun()`: Simulates rule impact without making changes
+- `processNodeAgainstAllRules()`: Evaluates single node against all rules (NodeReconciler)
+- `evaluateRuleForNode()`: Core evaluation logic for rule + node combination (NodeReconciler)
+- `releaseRuleTaint()`: Removes the taint of a deleting rule from a node (NodeReconciler)
+- `deriveRuleStatus()`: Computes rule status from the informer cache (RuleReconciler)
+- `processDryRun()`: Simulates rule impact without making changes (RuleReconciler)
 - Bootstrap completion tracking via node annotations
+
+Note: `status.failedNodes` is no longer populated. Evaluation failures are reported through the
+`failures_total` metric, an `EvaluationFailed` event on the node, and workqueue retry with backoff.
 
 ## Operational Modes
 
@@ -320,7 +328,7 @@ spec:
 ## Performance Considerations
 
 ### Caching Strategy
-- In-memory rule cache with RWMutex protection
+- Rules and nodes are read from the controller-runtime informer cache
 - Efficient node selector evaluation
 - Minimal API calls through controller-runtime client caching
 

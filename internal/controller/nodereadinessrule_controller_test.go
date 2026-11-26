@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -101,7 +102,6 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Client:        k8sClient,
 			Scheme:        scheme,
 			clientset:     fakeClientset,
-			ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
 			EventRecorder: events.NewFakeRecorder(10),
 		}
 
@@ -161,7 +161,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
 		})
 
-		It("should handle rule creation and update cache", func() {
+		It("should reconcile an admitted rule and record observedGeneration", func() {
 			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       "test-rule",
@@ -193,18 +193,17 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				return err
 			}).Should(Succeed())
 
-			// Verify rule is in cache
-			readinessController.ruleCacheMutex.RLock()
-			cachedRule, exists := readinessController.ruleCache["test-rule"]
-			readinessController.ruleCacheMutex.RUnlock()
-			Expect(exists).To(BeTrue())
-			Expect(cachedRule.Spec.Taint.Key).To(Equal("readiness.k8s.io/test-taint"))
+			Eventually(func() int64 {
+				updatedRule := &nodereadinessiov1alpha1.NodeReadinessRule{}
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: "test-rule"}, updatedRule)
+				return updatedRule.Status.ObservedGeneration
+			}, time.Second*5).Should(BeNumerically(">", 0))
 
 			// Cleanup
 			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
 		})
 
-		It("should handle rule deletion and remove from cache", func() {
+		It("should release the finalizer on deletion when no node holds the taint", func() {
 			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       "test-rule-delete",
@@ -238,17 +237,15 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			// Delete the rule
 			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
 
-			// Second reconcile should remove from cache
+			// Second reconcile should release the finalizer as no node holds the taint.
 			Eventually(func() bool {
 				_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: types.NamespacedName{Name: "test-rule-delete"},
 				})
 				Expect(err).NotTo(HaveOccurred())
 
-				readinessController.ruleCacheMutex.RLock()
-				_, exists := readinessController.ruleCache["test-rule-delete"]
-				readinessController.ruleCacheMutex.RUnlock()
-				return !exists
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: "test-rule-delete"}, &nodereadinessiov1alpha1.NodeReadinessRule{})
+				return apierrors.IsNotFound(err)
 			}).Should(BeTrue())
 		})
 
@@ -295,8 +292,13 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
 			defer func() { _ = k8sClient.Delete(ctx, rule) }()
 
-			// Trigger reconciliation manually to simulate CREATE event handling
-			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+			// Trigger reconciliation manually to simulate CREATE event handling:
+			// NodeReconciler enforces the taint, RuleReconciler reports the status.
+			_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "immediate-test-node"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: types.NamespacedName{Name: "immediate-test-rule"},
 			})
 			Expect(err).NotTo(HaveOccurred())
@@ -932,7 +934,11 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				Expect(k8sClient.Create(ctx, rule)).To(Succeed())
 				defer func() { _ = k8sClient.Delete(ctx, rule) }()
 
-				_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+				_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: types.NamespacedName{Name: nodeName},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: types.NamespacedName{Name: ruleName},
 				})
 				Expect(err).NotTo(HaveOccurred())
@@ -1034,7 +1040,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			defer func() { _ = k8sClient.Delete(ctx, rule) }()
 
 			// First add rule to cache
-			readinessController.updateRuleCache(ctx, rule)
+			admitRule(ctx, rule)
 
 			// Process node
 			_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{
@@ -1168,10 +1174,6 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				},
 			}
 
-			// Initially not completed
-			completed := readinessController.isBootstrapCompleted(ctx, nodeName, rule.Name, rule.GetUID())
-			Expect(completed).To(BeFalse())
-
 			// Create a node for testing
 			node := &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1181,39 +1183,19 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
 			defer func() { _ = k8sClient.Delete(ctx, node) }()
 
-			// Mark as completed
-			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+			// Initially not completed
+			Expect(nodeHasBootstrapAnnotation(node, rule)).To(BeFalse())
 
-			// Should now be completed
+			// Mark as completed; the passed node is refreshed with the annotation.
+			Expect(readinessController.markBootstrapCompleted(ctx, node, rule)).To(Succeed())
+
+			// Should now be completed, both on the refreshed node and as stored.
+			Expect(nodeHasBootstrapAnnotation(node, rule)).To(BeTrue())
 			Eventually(func() bool {
-				return readinessController.isBootstrapCompleted(ctx, nodeName, rule.Name, rule.GetUID())
+				stored := &corev1.Node{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, stored)).To(Succeed())
+				return nodeHasBootstrapAnnotation(stored, rule)
 			}).Should(BeTrue())
-		})
-
-		It("should return false when context is cancelled", func() {
-			nodeName := "bootstrap-ctx-test-node"
-			ruleName := "bootstrap-ctx-test-rule"
-			ruleUID := types.UID("22222222-2222-2222-2222-222222222222")
-
-			// Create a node with the UID-based bootstrap annotation already set
-			node := &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: nodeName,
-					Annotations: map[string]string{
-						bootstrapAnnotationKey(ruleUID): `{"rule-name":"bootstrap-ctx-test-rule"}`,
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, node)).To(Succeed())
-			defer func() { _ = k8sClient.Delete(ctx, node) }()
-
-			// Verify it returns true with a valid context
-			Expect(readinessController.isBootstrapCompleted(ctx, nodeName, ruleName, ruleUID)).To(BeTrue())
-
-			// A cancelled context should cause the Get to fail, returning false
-			cancelledCtx, cancel := context.WithCancel(ctx)
-			cancel()
-			Expect(readinessController.isBootstrapCompleted(cancelledCtx, nodeName, ruleName, ruleUID)).To(BeFalse())
 		})
 
 		It("should set bootstrap annotation via patch in markBootstrapCompleted", func() {
@@ -1241,7 +1223,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			defer func() { _ = k8sClient.Delete(ctx, node) }()
 
 			// Mark bootstrap completed
-			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+			Expect(readinessController.markBootstrapCompleted(ctx, node, rule)).To(Succeed())
 
 			// Verify UID-based annotation was added and existing annotation is preserved
 			Eventually(func(g Gomega) {
@@ -1279,8 +1261,8 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			counter := metrics.BootstrapCompleted.WithLabelValues(rule.Name)
 			before := counterValue(counter)
 
-			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
-			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+			Expect(readinessController.markBootstrapCompleted(ctx, node, rule)).To(Succeed())
+			Expect(readinessController.markBootstrapCompleted(ctx, node, rule)).To(Succeed())
 
 			Expect(counterValue(counter)).To(Equal(before + 1))
 		})
@@ -1310,7 +1292,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			// Marking must be deferred: completion with the bootstrap taint still
 			// present would orphan the taint forever.
-			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+			Expect(readinessController.markBootstrapCompleted(ctx, node, rule)).To(Succeed())
 
 			updatedNode := &corev1.Node{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, updatedNode)).To(Succeed())
@@ -1320,7 +1302,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			updatedNode.Spec.Taints = nil
 			Expect(k8sClient.Update(ctx, updatedNode)).To(Succeed())
 
-			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+			Expect(readinessController.markBootstrapCompleted(ctx, node, rule)).To(Succeed())
 
 			Eventually(func() map[string]string {
 				recheckedNode := &corev1.Node{}
@@ -1479,8 +1461,10 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			// Create the rule
 			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
 
-			// Reconcile the rule
-			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "db-rule"}})
+			// NodeReconciler enforces the taint, RuleReconciler reports the status.
+			_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "node1"}})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "db-rule"}})
 			Expect(err).NotTo(HaveOccurred())
 
 			// Verify that the taint has been added to the node
@@ -1614,10 +1598,14 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(k8sClient.Create(ctx, newNode)).To(Succeed())
 
 			// Add the rule to the cache
-			readinessController.updateRuleCache(ctx, rule)
+			admitRule(ctx, rule)
 
-			// Manually trigger rule reconciliation to simulate watch behavior
-			_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{
+			// Manually trigger reconciliation to simulate watch behavior
+			_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "new-node"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: types.NamespacedName{Name: "new-node-rule"},
 			})
 			Expect(err).NotTo(HaveOccurred())
@@ -1719,9 +1707,15 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			// Delete the rule
 			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
 
-			// Trigger reconciliation to process deletion
-			_, err = ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cleanup-rule"}})
+			// NodeReconciler releases the taint of the deleting rule.
+			_, err = nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cleanup-test-node"}})
 			Expect(err).NotTo(HaveOccurred())
+
+			// RuleReconciler then drops the finalizer once no node holds the taint.
+			Eventually(func() error {
+				_, err := ruleReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cleanup-rule"}})
+				return err
+			}, time.Second*10).Should(Succeed())
 
 			// Verify taint is removed from node
 			Eventually(func() bool {
@@ -2484,118 +2478,6 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		})
 	})
 
-	Context("when evaluation fails for a node", func() {
-		It("should not include the failed node in appliedNodes and include in failedNodes", func() {
-			failNode := &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:   "fail-path-node",
-					Labels: map[string]string{"fail-path": "true"},
-				},
-				Status: corev1.NodeStatus{
-					Conditions: []corev1.NodeCondition{
-						{Type: "Ready", Status: corev1.ConditionFalse},
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, failNode)).To(Succeed())
-			defer func() { _ = k8sClient.Delete(ctx, failNode) }()
-
-			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
-				ObjectMeta: metav1.ObjectMeta{Name: "fail-path-rule"},
-				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
-					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
-						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
-					},
-					Taint:           corev1.Taint{Key: "readiness.k8s.io/fail-path-taint", Effect: corev1.TaintEffectNoSchedule},
-					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"fail-path": "true"}},
-					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
-				},
-			}
-
-			errClient := &errorInjectingClient{
-				Client:        k8sClient,
-				failNodeNames: map[string]bool{"fail-path-node": true},
-			}
-			failController := &RuleReadinessController{
-				Client:        errClient,
-				Scheme:        scheme,
-				clientset:     fakeClientset,
-				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
-				EventRecorder: events.NewFakeRecorder(10),
-			}
-
-			nodeList := &corev1.NodeList{Items: []corev1.Node{*failNode}}
-			_, err := failController.processAllNodesForRule(ctx, rule, nodeList)
-			Expect(err).To(MatchError(ContainSubstring("fail-path-node")))
-
-			Expect(rule.Status.AppliedNodes).NotTo(ContainElement("fail-path-node"))
-
-			failedNames := make([]string, 0, len(rule.Status.FailedNodes))
-			for _, f := range rule.Status.FailedNodes {
-				failedNames = append(failedNames, f.NodeName)
-			}
-			Expect(failedNames).To(ContainElement("fail-path-node"))
-		})
-
-		It("should remove stale failedNodes entry when evaluation succeeds and include the node in appliedNodes", func() {
-			successNode := &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:   "stale-recovery-node",
-					Labels: map[string]string{"stale-recovery": "true"},
-				},
-				Status: corev1.NodeStatus{
-					Conditions: []corev1.NodeCondition{
-						{Type: "Ready", Status: corev1.ConditionTrue},
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, successNode)).To(Succeed())
-			defer func() { _ = k8sClient.Delete(ctx, successNode) }()
-
-			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
-				ObjectMeta: metav1.ObjectMeta{Name: "stale-recovery-rule"},
-				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
-					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
-						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
-					},
-					Taint:           corev1.Taint{Key: "readiness.k8s.io/stale-recovery-taint", Effect: corev1.TaintEffectNoSchedule},
-					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"stale-recovery": "true"}},
-					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
-				},
-				Status: nodereadinessiov1alpha1.NodeReadinessRuleStatus{
-					FailedNodes: []nodereadinessiov1alpha1.NodeFailure{
-						{
-							NodeName:           "stale-recovery-node",
-							Reason:             "EvaluationError",
-							Message:            "stale from previous reconcile",
-							LastEvaluationTime: metav1.Now(),
-						},
-					},
-				},
-			}
-
-			successController := &RuleReadinessController{
-				Client:        k8sClient,
-				Scheme:        scheme,
-				clientset:     fakeClientset,
-				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
-				EventRecorder: events.NewFakeRecorder(10),
-			}
-
-			nodeList := &corev1.NodeList{Items: []corev1.Node{*successNode}}
-			_, err := successController.processAllNodesForRule(ctx, rule, nodeList)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(rule.Status.AppliedNodes).To(ContainElement("stale-recovery-node"))
-
-			failedNames := make([]string, 0, len(rule.Status.FailedNodes))
-			for _, f := range rule.Status.FailedNodes {
-				failedNames = append(failedNames, f.NodeName)
-			}
-			Expect(failedNames).NotTo(ContainElement("stale-recovery-node"))
-		})
-	})
-
 	Context("ConditionPolicy", func() {
 		var (
 			anyOfNode *corev1.Node
@@ -2637,7 +2519,9 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		})
 
 		It("anyOf: removes taint when at least one condition is satisfied", func() {
-			readinessController.updateRuleCache(ctx, rule)
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			admitRule(ctx, rule)
+			defer removeRule(ctx, rule)
 
 			Expect(k8sClient.Create(ctx, anyOfNode)).To(Succeed())
 			defer func() { Expect(k8sClient.Delete(ctx, anyOfNode)).To(Succeed()) }()
@@ -2645,11 +2529,6 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			// Taint should have been removed because HardwareDriverReady=True satisfies anyOf
 			Expect(readinessController.hasTaintBySpec(anyOfNode, rule.Spec.Taint)).To(BeFalse())
-
-			// conditionResults in status should reflect actual observed values
-			eval := readinessController.getPreviousNodeEvaluation(rule, anyOfNode.Name)
-			Expect(eval).NotTo(BeNil())
-			Expect(eval.ConditionResults).To(HaveLen(2))
 		})
 
 		It("anyOf: adds taint when no conditions are satisfied", func() {
@@ -2658,7 +2537,9 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			anyOfNode.Spec.Taints = nil
 			anyOfNode.Status.Conditions[0].Status = corev1.ConditionFalse
 
-			readinessController.updateRuleCache(ctx, rule)
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			admitRule(ctx, rule)
+			defer removeRule(ctx, rule)
 
 			Expect(k8sClient.Create(ctx, anyOfNode)).To(Succeed())
 			defer func() { Expect(k8sClient.Delete(ctx, anyOfNode)).To(Succeed()) }()
@@ -2675,7 +2556,9 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			// Node has no taint; controller should add one
 			anyOfNode.Spec.Taints = nil
 
-			readinessController.updateRuleCache(ctx, rule)
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			admitRule(ctx, rule)
+			defer removeRule(ctx, rule)
 
 			Expect(k8sClient.Create(ctx, anyOfNode)).To(Succeed())
 			defer func() { Expect(k8sClient.Delete(ctx, anyOfNode)).To(Succeed()) }()
@@ -2691,7 +2574,9 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			// Set both conditions to True to satisfy allOf
 			anyOfNode.Status.Conditions[1].Status = corev1.ConditionTrue
 
-			readinessController.updateRuleCache(ctx, rule)
+			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
+			admitRule(ctx, rule)
+			defer removeRule(ctx, rule)
 
 			Expect(k8sClient.Create(ctx, anyOfNode)).To(Succeed())
 			defer func() { Expect(k8sClient.Delete(ctx, anyOfNode)).To(Succeed()) }()
@@ -2702,80 +2587,12 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 		})
 	})
 
-	Context("concurrent status writes between RuleReconciler and NodeReconciler", func() {
-		var testScheme *runtime.Scheme
-
-		BeforeEach(func() {
-			testScheme = runtime.NewScheme()
+	Context("rule status write", func() {
+		It("should retry updateRuleStatus on a genuine conflict and keep the derived status", func() {
+			testScheme := runtime.NewScheme()
 			Expect(corev1.AddToScheme(testScheme)).To(Succeed())
 			Expect(nodereadinessiov1alpha1.AddToScheme(testScheme)).To(Succeed())
-		})
 
-		It("should not discard a NodeReconciler-written evaluation for a node outside the RuleReconciler sweep", func() {
-			nodeA := &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{Name: "concurrent-node-a", Labels: map[string]string{"role": "worker"}},
-				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: "Ready", Status: corev1.ConditionTrue}}},
-			}
-			nodeB := &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{Name: "concurrent-node-b", Labels: map[string]string{"role": "worker"}},
-				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: "Ready", Status: corev1.ConditionTrue}}},
-			}
-
-			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
-				ObjectMeta: metav1.ObjectMeta{Name: "concurrent-status-rule"},
-				Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
-					Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
-						{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
-					},
-					Taint:           corev1.Taint{Key: "readiness.k8s.io/concurrent-test", Effect: corev1.TaintEffectNoSchedule},
-					NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"role": "worker"}},
-					EnforcementMode: nodereadinessiov1alpha1.EnforcementModeContinuous,
-				},
-			}
-
-			fc := fakeclient.NewClientBuilder().
-				WithScheme(testScheme).
-				WithObjects(nodeA, nodeB, rule).
-				WithStatusSubresource(rule).
-				Build()
-
-			controller := &RuleReadinessController{
-				Client:        fc,
-				Scheme:        testScheme,
-				clientset:     fake.NewSimpleClientset(),
-				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
-				EventRecorder: events.NewFakeRecorder(10),
-			}
-			controller.updateRuleCache(ctx, rule)
-
-			// Simulate RuleReconciler starting a sweep from a nodeList snapshot that
-			// only knows about node-a (e.g. node-b joined after the snapshot was taken).
-			staleNodeList := &corev1.NodeList{Items: []corev1.Node{*nodeA}}
-			delta, err := controller.processAllNodesForRule(ctx, rule, staleNodeList)
-			Expect(err).NotTo(HaveOccurred())
-
-			// While that sweep is "in flight", NodeReconciler independently reconciles
-			// node-b and persists its own evaluation into the same rule's status.
-			Expect(controller.processNodeAgainstAllRules(ctx, nodeB)).To(Succeed())
-
-			afterConcurrentWrite := &nodereadinessiov1alpha1.NodeReadinessRule{}
-			Expect(fc.Get(ctx, types.NamespacedName{Name: rule.Name}, afterConcurrentWrite)).To(Succeed())
-			Expect(findNodeEvaluation(afterConcurrentWrite.Status.NodeEvaluations, "concurrent-node-b")).
-				NotTo(BeNil(), "NodeReconciler should have persisted an evaluation for node-b")
-
-			// RuleReconciler now finishes its (stale) sweep and patches the rule status.
-			Expect(controller.updateRuleStatus(ctx, rule, delta)).To(Succeed())
-
-			final := &nodereadinessiov1alpha1.NodeReadinessRule{}
-			Expect(fc.Get(ctx, types.NamespacedName{Name: rule.Name}, final)).To(Succeed())
-
-			Expect(findNodeEvaluation(final.Status.NodeEvaluations, "concurrent-node-a")).NotTo(BeNil(),
-				"node-a's freshly computed evaluation should be present")
-			Expect(findNodeEvaluation(final.Status.NodeEvaluations, "concurrent-node-b")).NotTo(BeNil(),
-				"node-b's evaluation, written concurrently by NodeReconciler outside this sweep, must not be discarded")
-		})
-
-		It("should retry updateRuleStatus on a genuine conflict instead of silently clobbering it", func() {
 			node := &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{Name: "conflict-node", Labels: map[string]string{"role": "worker"}},
 				Status:     corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: "Ready", Status: corev1.ConditionTrue}}},
@@ -2802,14 +2619,10 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				WithInterceptorFuncs(interceptor.Funcs{
 					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 						if r, ok := obj.(*nodereadinessiov1alpha1.NodeReadinessRule); ok && r.Name == "conflict-rule" && patchCount.Add(1) == 1 {
-							// Simulate a concurrent NodeReconciler write for a different
-							// node landing in between our Get and our Patch.
+							// Another writer bumps the resourceVersion between our Get and our Patch.
 							current := &nodereadinessiov1alpha1.NodeReadinessRule{}
 							Expect(c.Get(ctx, types.NamespacedName{Name: r.Name}, current)).To(Succeed())
-							current.Status.NodeEvaluations = append(current.Status.NodeEvaluations, nodereadinessiov1alpha1.NodeEvaluation{
-								NodeName:    "conflict-other-node",
-								TaintStatus: nodereadinessiov1alpha1.TaintStatusAbsent,
-							})
+							current.Status.AppliedNodes = []string{"someone-else"}
 							Expect(c.Status().Update(ctx, current)).To(Succeed())
 						}
 						return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
@@ -2821,23 +2634,19 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				Client:        fc,
 				Scheme:        testScheme,
 				clientset:     fake.NewSimpleClientset(),
-				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
 				EventRecorder: events.NewFakeRecorder(10),
 			}
 
 			nodeList := &corev1.NodeList{Items: []corev1.Node{*node}}
-			delta, err := controller.processAllNodesForRule(ctx, rule, nodeList)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(controller.updateRuleStatus(ctx, rule, delta)).To(Succeed())
+			controller.deriveRuleStatus(rule, nodeList)
+			Expect(controller.updateRuleStatus(ctx, rule)).To(Succeed())
 			Expect(patchCount.Load()).To(BeNumerically(">=", 2),
 				"the first patch attempt should hit a conflict and force a retry")
 
 			final := &nodereadinessiov1alpha1.NodeReadinessRule{}
 			Expect(fc.Get(ctx, types.NamespacedName{Name: rule.Name}, final)).To(Succeed())
+			Expect(final.Status.AppliedNodes).To(Equal([]string{"conflict-node"}))
 			Expect(findNodeEvaluation(final.Status.NodeEvaluations, "conflict-node")).NotTo(BeNil())
-			Expect(findNodeEvaluation(final.Status.NodeEvaluations, "conflict-other-node")).NotTo(BeNil(),
-				"the concurrently-written evaluation must survive the retried patch")
 		})
 	})
 
@@ -2889,7 +2698,6 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				Client:        fc,
 				Scheme:        scheme,
 				clientset:     fake.NewSimpleClientset(),
-				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
 				EventRecorder: events.NewFakeRecorder(10),
 			}
 
@@ -2907,7 +2715,7 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 			Expect(res.RequeueAfter).To(Equal(time.Duration(0)))
 		})
 
-		It("should persist failedNodes and return the error when a node evaluation fails", func() {
+		It("should return the error from NodeReconciler so the node is retried, and leave the rule status to RuleReconciler", func() {
 			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       "eval-error-reconcile-rule",
@@ -2953,30 +2761,93 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 				Client:        errClient,
 				Scheme:        scheme,
 				clientset:     fake.NewSimpleClientset(),
-				ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
 				EventRecorder: events.NewFakeRecorder(10),
 			}
 
-			reconciler := &RuleReconciler{
+			nodeReconciler := &NodeReconciler{
 				Client:     errClient,
 				Scheme:     scheme,
 				Controller: controller,
 			}
 
-			res, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: rule.Name},
+			res, err := nodeReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: node.Name},
 			})
 			Expect(err).To(MatchError(ContainSubstring("eval-error-node")))
 			Expect(res).To(Equal(reconcile.Result{}))
 
 			final := &nodereadinessiov1alpha1.NodeReadinessRule{}
 			Expect(fc.Get(ctx, types.NamespacedName{Name: rule.Name}, final)).To(Succeed())
-			failedNames := make([]string, 0, len(final.Status.FailedNodes))
-			for _, f := range final.Status.FailedNodes {
-				failedNames = append(failedNames, f.NodeName)
+			Expect(final.Status.FailedNodes).To(BeEmpty(), "NodeReconciler must not write the rule status")
+		})
+
+		It("should keep the NRE fresh when one rule fails and another succeeds", func() {
+			newRule := func(name, taintKey string) *nodereadinessiov1alpha1.NodeReadinessRule {
+				return &nodereadinessiov1alpha1.NodeReadinessRule{
+					ObjectMeta: metav1.ObjectMeta{Name: name, Finalizers: []string{finalizerName}},
+					Spec: nodereadinessiov1alpha1.NodeReadinessRuleSpec{
+						Conditions: []nodereadinessiov1alpha1.ConditionRequirement{
+							{Type: "Ready", RequiredStatus: corev1.ConditionTrue},
+						},
+						Taint:        corev1.Taint{Key: taintKey, Effect: corev1.TaintEffectNoSchedule},
+						NodeSelector: metav1.LabelSelector{MatchLabels: map[string]string{"role": "partial"}},
+					},
+				}
 			}
-			Expect(failedNames).To(ContainElement("eval-error-node"),
-				"status should be persisted before the evaluation error is returned")
+			okRule := newRule("partial-a-rule", "readiness.k8s.io/partial-a")
+			failingRule := newRule("partial-b-rule", "readiness.k8s.io/partial-b")
+
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "partial-node", Labels: map[string]string{"role": "partial"}},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{{Type: "Ready", Status: corev1.ConditionFalse}},
+				},
+			}
+
+			fc := fakeclient.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(node, okRule, failingRule).
+				WithStatusSubresource(&nodereadinessiov1alpha1.NodeReadinessEvaluation{}).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						// Fail only the patch that adds the second rule's taint.
+						if n, ok := obj.(*corev1.Node); ok {
+							for _, t := range n.Spec.Taints {
+								if t.Key == failingRule.Spec.Taint.Key {
+									return fmt.Errorf("patch failed for node %s", n.Name)
+								}
+							}
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			controller := &RuleReadinessController{
+				Client:        fc,
+				Scheme:        scheme,
+				clientset:     fake.NewSimpleClientset(),
+				EventRecorder: events.NewFakeRecorder(10),
+				EnableNRE:     true,
+			}
+			nodeReconciler := &NodeReconciler{Client: fc, Scheme: scheme, Controller: controller}
+
+			_, err := nodeReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+			Expect(err).To(MatchError(ContainSubstring("partial-node")), "the failure must still be returned for a retry")
+
+			nre := &nodereadinessiov1alpha1.NodeReadinessEvaluation{}
+			Expect(fc.Get(ctx, types.NamespacedName{Name: node.Name}, nre)).To(Succeed(),
+				"the NRE must be written even though one rule failed")
+
+			byRule := map[string]nodereadinessiov1alpha1.RuleEvaluation{}
+			for _, re := range nre.Status.Rules {
+				byRule[re.RuleName] = re
+			}
+			Expect(byRule).To(HaveKey(okRule.Name))
+			Expect(byRule[okRule.Name].TaintStatus).To(Equal(nodereadinessiov1alpha1.TaintStatusPresent),
+				"the NRE must reflect the taint the succeeding rule just added")
+			Expect(byRule).To(HaveKey(failingRule.Name))
+			Expect(byRule[failingRule.Name].TaintStatus).To(Equal(nodereadinessiov1alpha1.TaintStatusAbsent))
 		})
 	})
 
@@ -2989,9 +2860,31 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			before := counterValue(metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)))
 
-			readinessController.markBootstrapCompleted(ctx, "nonexistent-node-for-bce-test", rule)
+			missing := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "nonexistent-node-for-bce-test"}}
+			Expect(readinessController.markBootstrapCompleted(ctx, missing, rule)).NotTo(Succeed(),
+				"the failure must be returned so the node is requeued with backoff")
 
 			Expect(counterValue(metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)))).To(Equal(before + 1))
+		})
+
+		It("should refresh the node so later steps observe the new annotation", func() {
+			nodeName := "bce-refresh-node"
+			rule := &nodereadinessiov1alpha1.NodeReadinessRule{
+				ObjectMeta: metav1.ObjectMeta{Name: "bce-refresh-rule", UID: types.UID("55555555-aaaa-aaaa-aaaa-555555555555")},
+			}
+
+			created := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}}
+			Expect(k8sClient.Create(ctx, created)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, created) }()
+
+			// The caller holds a pre-patch copy of the node.
+			stale := created.DeepCopy()
+			Expect(stale.Annotations).NotTo(HaveKey(bootstrapAnnotationKey(rule.GetUID())))
+
+			Expect(readinessController.markBootstrapCompleted(ctx, stale, rule)).To(Succeed())
+
+			Expect(stale.Annotations).To(HaveKey(bootstrapAnnotationKey(rule.GetUID())),
+				"the caller's node must carry the annotation, as the NRE update reads it afterwards")
 		})
 
 		It("should not increment counter on successful annotation write", func() {
@@ -3007,9 +2900,47 @@ var _ = Describe("NodeReadinessRule Controller", func() {
 
 			before := counterValue(metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)))
 
-			readinessController.markBootstrapCompleted(ctx, nodeName, rule)
+			Expect(readinessController.markBootstrapCompleted(ctx, node, rule)).To(Succeed())
 
 			Expect(counterValue(metrics.Failures.WithLabelValues(ruleName, string(metrics.FailureReasonAnnotationPatchFailed)))).To(Equal(before))
 		})
 	})
 })
+
+func TestEnsureFinalizer(t *testing.T) {
+	const otherFinalizer = "example.com/other"
+
+	t.Run("adds the finalizer to a live rule", func(t *testing.T) {
+		g := NewWithT(t)
+		stored := &nodereadinessiov1alpha1.NodeReadinessRule{ObjectMeta: metav1.ObjectMeta{Name: "live"}}
+		fc := fakeclient.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(stored).Build()
+		r := &RuleReconciler{Client: fc}
+
+		rule := stored.DeepCopy()
+		added, err := r.ensureFinalizer(t.Context(), rule, finalizerName)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(added).To(BeTrue())
+		g.Expect(rule.Finalizers).To(ContainElement(finalizerName))
+	})
+
+	t.Run("does not add the finalizer when the rule started deleting after it was read", func(t *testing.T) {
+		g := NewWithT(t)
+		now := metav1.Now()
+		// What the API server holds: the rule is already deleting.
+		stored := &nodereadinessiov1alpha1.NodeReadinessRule{ObjectMeta: metav1.ObjectMeta{
+			Name: "deleting", DeletionTimestamp: &now, Finalizers: []string{otherFinalizer},
+		}}
+		fc := fakeclient.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(stored).Build()
+		r := &RuleReconciler{Client: fc}
+
+		// What the reconcile read earlier: a live rule, which passes the check before the retry loop.
+		stale := &nodereadinessiov1alpha1.NodeReadinessRule{ObjectMeta: metav1.ObjectMeta{Name: "deleting"}}
+		added, err := r.ensureFinalizer(t.Context(), stale, finalizerName)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(added).To(BeFalse())
+
+		latest := &nodereadinessiov1alpha1.NodeReadinessRule{}
+		g.Expect(fc.Get(t.Context(), types.NamespacedName{Name: "deleting"}, latest)).To(Succeed())
+		g.Expect(latest.Finalizers).To(ConsistOf(otherFinalizer), "no finalizer may be added to a deleting rule")
+	})
+}

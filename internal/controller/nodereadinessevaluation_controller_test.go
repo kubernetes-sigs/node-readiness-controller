@@ -91,7 +91,6 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			Client:        k8sClient,
 			Scheme:        k8sClient.Scheme(),
 			clientset:     fake.NewSimpleClientset(),
-			ruleCache:     make(map[string]*nodereadinessiov1alpha1.NodeReadinessRule),
 			EventRecorder: events.NewFakeRecorder(32),
 			EnableNRE:     true,
 		}
@@ -132,7 +131,7 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
 			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
-			rc.updateRuleCache(ctx, rule)
+			admitRule(ctx, rule)
 		})
 
 		AfterEach(func() {
@@ -156,7 +155,6 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 				_ = k8sClient.Delete(ctx, nre)
 			}
 
-			rc.removeRuleFromCache(ctx, rule.Name)
 		})
 
 		It("A1 — creates NRE with correct spec.nodeName and ownerReference on first reconcile", func() {
@@ -303,8 +301,8 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
 			Expect(k8sClient.Create(ctx, rule1)).To(Succeed())
 			Expect(k8sClient.Create(ctx, rule2)).To(Succeed())
-			rc.updateRuleCache(ctx, rule1)
-			rc.updateRuleCache(ctx, rule2)
+			admitRule(ctx, rule1)
+			admitRule(ctx, rule2)
 		})
 
 		AfterEach(func() {
@@ -321,7 +319,6 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 						k8sClient.Get(ctx, types.NamespacedName{Name: r.Name},
 							&nodereadinessiov1alpha1.NodeReadinessRule{}))
 				}, nreTestTimeout).Should(BeTrue())
-				rc.removeRuleFromCache(ctx, r.Name)
 			}
 			nre := &nodereadinessiov1alpha1.NodeReadinessEvaluation{}
 			if err := k8sClient.Get(ctx, nreNamespacedName(node.Name), nre); err == nil {
@@ -344,19 +341,23 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 		})
 
 		It("A8 — rule whose nodeSelector does not match is absent from NRE", func() {
-			// Update rule2's selector to a non-matching label.
-			updatedRule2 := rule2.DeepCopy()
-			updatedRule2.Spec.NodeSelector = metav1.LabelSelector{
+			// nodeSelector is immutable, so create a third rule with a non-matching selector.
+			rule3 := makeRule("nre-multi-rule-3")
+			rule3.Spec.Taint = corev1.Taint{Key: "readiness.k8s.io/nre-test-3", Effect: corev1.TaintEffectNoSchedule}
+			rule3.Spec.NodeSelector = metav1.LabelSelector{
 				MatchLabels: map[string]string{"env": "non-matching"},
 			}
-			rc.updateRuleCache(ctx, updatedRule2)
+			Expect(k8sClient.Create(ctx, rule3)).To(Succeed())
+			admitRule(ctx, rule3)
+			defer removeRule(ctx, rule3)
 
 			reconcileNRE(rc, node.Name)
 
 			nre := getNRE(node.Name)
-			Expect(nre.Status.Rules).To(HaveLen(1),
-				"only the matching rule should appear in the NRE")
-			Expect(nre.Status.Rules[0].RuleName).To(Equal(rule1.Name))
+			Expect(nre.Status.Rules).To(HaveLen(2),
+				"only the matching rules should appear in the NRE")
+			Expect([]string{nre.Status.Rules[0].RuleName, nre.Status.Rules[1].RuleName}).
+				To(ConsistOf(rule1.Name, rule2.Name))
 		})
 	})
 
@@ -381,7 +382,7 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
 			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
 			// Rule cache is populated (simulates RuleReconciler having run).
-			rc.updateRuleCache(ctx, rule)
+			admitRule(ctx, rule)
 		})
 
 		AfterEach(func() {
@@ -401,7 +402,6 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			if err := k8sClient.Get(ctx, nreNamespacedName(node.Name), nre); err == nil {
 				_ = k8sClient.Delete(ctx, nre)
 			}
-			rc.removeRuleFromCache(ctx, rule.Name)
 		})
 
 		It("B1 — first NRE reconcile on existing cluster produces correct full state", func() {
@@ -444,7 +444,7 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			rc = sharedSetup()
 			rule = makeRule("nre-c-rule")
 			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
-			rc.updateRuleCache(ctx, rule)
+			admitRule(ctx, rule)
 		})
 
 		AfterEach(func() {
@@ -468,7 +468,6 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 					_ = k8sClient.Delete(ctx, nre)
 				}
 			}
-			rc.removeRuleFromCache(ctx, rule.Name)
 		})
 
 		It("C1 — TaintObservedAt is set and TaintAddedAt is nil when taint is pre-existing (adoption)", func() {
@@ -612,7 +611,7 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
 			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
-			rc.updateRuleCache(ctx, rule)
+			admitRule(ctx, rule)
 		})
 
 		AfterEach(func() {
@@ -634,23 +633,22 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			if err := k8sClient.Get(ctx, nreNamespacedName(node.Name), nre); err == nil {
 				_ = k8sClient.Delete(ctx, nre)
 			}
-			rc.removeRuleFromCache(ctx, rule.Name)
 		})
 
-		It("D1 — rule removed from cache causes its entry to disappear from NRE on next reconcile", func() {
+		It("D1 — a removed rule disappears from NRE on next reconcile", func() {
 			// First reconcile: rule present.
 			reconcileNRE(rc, node.Name)
 			Expect(getNRE(node.Name).Status.Rules).To(HaveLen(1))
 
-			// Remove the rule from the cache (simulates rule deletion).
-			rc.removeRuleFromCache(ctx, rule.Name)
+			// Remove the rule.
+			removeRule(ctx, rule)
 
 			// Second reconcile: no applicable rules.
 			reconcileNRE(rc, node.Name)
 			nre := getNRE(node.Name)
 
 			Expect(nre.Status.Rules).To(BeEmpty(),
-				"rules slice should be empty after the rule is removed from the cache")
+				"rules slice should be empty after the rule is removed")
 			Expect(nre.Status.State).To(Equal(nodereadinessiov1alpha1.NodeEvaluationStateAvailable),
 				"state should be Available when no rules apply and no taints are managed")
 		})
@@ -669,10 +667,7 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 		})
 
 		It("D3 — dry-run rules are excluded from NRE", func() {
-			// Mark the rule as dry-run in the cache.
-			dryRunRule := rule.DeepCopy()
-			dryRunRule.Spec.DryRun = true
-			rc.updateRuleCache(ctx, dryRunRule)
+			updateRule(ctx, rule, func(r *nodereadinessiov1alpha1.NodeReadinessRule) { r.Spec.DryRun = true })
 
 			reconcileNRE(rc, node.Name)
 
@@ -682,10 +677,8 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 		})
 
 		It("D4 — rules being deleted (DeletionTimestamp set) are excluded from NRE", func() {
-			deletingRule := rule.DeepCopy()
-			now := metav1.Now()
-			deletingRule.DeletionTimestamp = &now
-			rc.updateRuleCache(ctx, deletingRule)
+			// The finalizer keeps the rule around with a DeletionTimestamp.
+			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
 
 			reconcileNRE(rc, node.Name)
 
@@ -715,10 +708,12 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			Expect(firstNRE.Status.Rules[0].FirstEvaluatedAt).NotTo(BeNil())
 			firstUID := firstNRE.Status.Rules[0].RuleUID
 
-			// Simulate rule recreated with same name but new UID.
-			recreatedRule := rule.DeepCopy()
-			recreatedRule.UID = "new-uid-after-recreate"
-			rc.updateRuleCache(ctx, recreatedRule)
+			// Recreate the rule with the same name; the API server assigns a new UID.
+			removeRule(ctx, rule)
+			recreatedRule := makeRule(rule.Name)
+			Expect(k8sClient.Create(ctx, recreatedRule)).To(Succeed())
+			admitRule(ctx, recreatedRule)
+			rule = recreatedRule
 
 			reconcileNRE(rc, node.Name)
 
@@ -756,7 +751,7 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 
 			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
-			rc.updateRuleCache(ctx, rule)
+			admitRule(ctx, rule)
 		})
 
 		AfterEach(func() {
@@ -776,7 +771,6 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			if err := k8sClient.Get(ctx, nreNamespacedName(node.Name), nre); err == nil {
 				_ = k8sClient.Delete(ctx, nre)
 			}
-			rc.removeRuleFromCache(ctx, rule.Name)
 		})
 
 		markBootstrapAnnotation := func() {
@@ -850,7 +844,7 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
 			Expect(k8sClient.Create(ctx, rule)).To(Succeed())
-			rc.updateRuleCache(ctx, rule)
+			admitRule(ctx, rule)
 		})
 
 		AfterEach(func() {
@@ -870,7 +864,6 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			if err := k8sClient.Get(ctx, nreNamespacedName(node.Name), nre); err == nil {
 				_ = k8sClient.Delete(ctx, nre)
 			}
-			rc.removeRuleFromCache(ctx, rule.Name)
 		})
 
 		It("E1 — NodeReconciler.Reconcile creates NRE when EnableNRE=true", func() {
@@ -891,21 +884,8 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			Expect(nre.Status.Rules[0].RuleName).To(Equal(rule.Name))
 		})
 
-		It("E2 — processAllNodesForRule creates NRE per matching node when EnableNRE=true", func() {
-			nodeList := &corev1.NodeList{}
-			Expect(k8sClient.List(ctx, nodeList)).To(Succeed())
-
-			_, err := rc.processAllNodesForRule(ctx, rule, nodeList)
-			Expect(err).To(Succeed())
-
-			nre := getNRE(node.Name)
-			Expect(nre.Spec.NodeName).To(Equal(node.Name))
-			Expect(nre.Status.Rules).To(HaveLen(1))
-			Expect(nre.Status.Rules[0].RuleName).To(Equal(rule.Name))
-		})
-
-		It("E3 — RuleReconciler.reconcileDelete drops the rule from NRE even when no taint is present", func() {
-			// Node has no taint for this rule, so deletion will not mutate the Node.
+		It("E3 — NodeReconciler drops a deleting rule from NRE even when no taint is present", func() {
+			// Node has no taint for this rule, so releasing the rule will not mutate the Node.
 			Eventually(func() error {
 				n := &corev1.Node{}
 				if err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, n); err != nil {
@@ -918,16 +898,9 @@ var _ = Describe("NodeReadinessEvaluation writes", func() {
 			reconcileNRE(rc, node.Name)
 			Expect(getNRE(node.Name).Status.Rules).To(HaveLen(1))
 
-			nodeList := &corev1.NodeList{}
-			Expect(k8sClient.List(ctx, nodeList)).To(Succeed())
-
-			ruleReconciler := &RuleReconciler{
-				Client:     k8sClient,
-				Scheme:     k8sClient.Scheme(),
-				Controller: rc,
-			}
-			_, err := ruleReconciler.reconcileDelete(ctx, rule, nodeList)
-			Expect(err).NotTo(HaveOccurred())
+			// The rule starts deleting; the finalizer keeps it visible to NodeReconciler.
+			Expect(k8sClient.Delete(ctx, rule)).To(Succeed())
+			reconcileNRE(rc, node.Name)
 
 			Expect(getNRE(node.Name).Status.Rules).To(BeEmpty())
 		})

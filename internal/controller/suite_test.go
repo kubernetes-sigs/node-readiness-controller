@@ -25,9 +25,11 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -140,6 +142,49 @@ var _ = AfterSuite(func() {
 		Expect(err).NotTo(HaveOccurred())
 	}
 })
+
+// admitRule registers the cleanup finalizer on an already created rule, the way
+// RuleReconciler does on its first reconcile. NodeReconciler only enforces rules that
+// carry the finalizer. The rule is refreshed in place with the stored object.
+func admitRule(ctx context.Context, rule *nodereadinessiov1alpha1.NodeReadinessRule) {
+	GinkgoHelper()
+
+	latest := &nodereadinessiov1alpha1.NodeReadinessRule{}
+	Expect(k8sClient.Get(ctx, client.ObjectKey{Name: rule.Name}, latest)).To(Succeed())
+	if controllerutil.AddFinalizer(latest, finalizerName) {
+		Expect(k8sClient.Update(ctx, latest)).To(Succeed())
+	}
+	latest.DeepCopyInto(rule)
+}
+
+// updateRule applies mutate to the stored rule and writes it back, refreshing rule in place.
+func updateRule(ctx context.Context, rule *nodereadinessiov1alpha1.NodeReadinessRule, mutate func(*nodereadinessiov1alpha1.NodeReadinessRule)) {
+	GinkgoHelper()
+
+	Eventually(func() error {
+		latest := &nodereadinessiov1alpha1.NodeReadinessRule{}
+		if err := k8sClient.Get(ctx, client.ObjectKey{Name: rule.Name}, latest); err != nil {
+			return err
+		}
+		mutate(latest)
+		if err := k8sClient.Update(ctx, latest); err != nil {
+			return err
+		}
+		latest.DeepCopyInto(rule)
+		return nil
+	}).Should(Succeed())
+}
+
+// removeRule deletes a rule for good, dropping its finalizer first so it disappears immediately.
+func removeRule(ctx context.Context, rule *nodereadinessiov1alpha1.NodeReadinessRule) {
+	GinkgoHelper()
+
+	updateRule(ctx, rule, func(r *nodereadinessiov1alpha1.NodeReadinessRule) { r.Finalizers = nil })
+	Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, rule))).To(Succeed())
+	Eventually(func() bool {
+		return apierrors.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: rule.Name}, &nodereadinessiov1alpha1.NodeReadinessRule{}))
+	}).Should(BeTrue())
+}
 
 // getFirstFoundEnvTestBinaryDir locates the first binary in the specified path.
 // ENVTEST-based tests depend on specific binaries, usually located in paths set by

@@ -36,9 +36,8 @@ import (
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessevaluations/status,verbs=get;update;patch
 
 // updateNREForNode writes (or updates) the NodeReadinessEvaluation for the given
-// node using the current rule cache. It is called as a side-effect from both
-// NodeReconciler.Reconcile (after processing the node against all rules) and
-// RuleReconciler.Reconcile (after processing all nodes for the changed rule).
+// node from the rules in the informer cache. It is called by NodeReconciler.Reconcile
+// after processing the node against all rules; NodeReconciler is the only writer of NREs.
 func (r *RuleReadinessController) updateNREForNode(ctx context.Context, node *corev1.Node) {
 	log := ctrl.LoggerFrom(ctx)
 

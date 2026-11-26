@@ -18,6 +18,7 @@ package controller
 
 import (
 	"testing"
+	"time"
 
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -227,181 +228,179 @@ func TestLabelsEqual(t *testing.T) {
 	}
 }
 
-func TestGetApplicableRulesForNode_DeepCopy(t *testing.T) {
-	g := NewWithT(t)
-
-	c := &RuleReadinessController{
-		ruleCache: make(map[string]*readinessv1alpha1.NodeReadinessRule),
-	}
-
-	rule := &readinessv1alpha1.NodeReadinessRule{
-		ObjectMeta: metav1.ObjectMeta{Name: "rule-1"},
-		Spec: readinessv1alpha1.NodeReadinessRuleSpec{
-			NodeSelector: metav1.LabelSelector{
-				MatchLabels: map[string]string{"env": "prod"},
+func TestNodeStatusRelevantChange(t *testing.T) {
+	base := func() *corev1.Node {
+		return &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "n",
+				Labels:      map[string]string{"env": "prod"},
+				Annotations: map[string]string{"unrelated": "a"},
 			},
-		},
-		Status: readinessv1alpha1.NodeReadinessRuleStatus{
-			AppliedNodes: []string{"node-1"},
-		},
+			Spec: corev1.NodeSpec{Taints: []corev1.Taint{{Key: "k", Effect: corev1.TaintEffectNoSchedule}}},
+			Status: corev1.NodeStatus{
+				Conditions: []corev1.NodeCondition{{Type: "Ready", Status: corev1.ConditionTrue}},
+			},
+		}
 	}
 
-	ctx := t.Context()
-	c.updateRuleCache(ctx, rule)
-
-	node := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   "node-1",
-			Labels: map[string]string{"env": "prod"},
-		},
+	tests := []struct {
+		name     string
+		mutate   func(n *corev1.Node)
+		expected bool
+	}{
+		{"no change", func(n *corev1.Node) {}, false},
+		{"unrelated annotation", func(n *corev1.Node) { n.Annotations["unrelated"] = "b" }, false},
+		{"heartbeat only", func(n *corev1.Node) { n.Status.Conditions[0].LastHeartbeatTime = metav1.Now() }, false},
+		{"condition status", func(n *corev1.Node) { n.Status.Conditions[0].Status = corev1.ConditionFalse }, true},
+		{"taint removed", func(n *corev1.Node) { n.Spec.Taints = nil }, true},
+		{"label changed", func(n *corev1.Node) { n.Labels["env"] = "dev" }, true},
+		{"bootstrap annotation added", func(n *corev1.Node) {
+			n.Annotations[bootstrapAnnotationKey("uid-1")] = `{"rule-name":"r"}`
+		}, true},
 	}
 
-	rules := c.getApplicableRulesForNode(ctx, node)
-	g.Expect(rules).To(HaveLen(1))
-
-	// Mutate the returned rule's status
-	rules[0].Status.AppliedNodes = append(rules[0].Status.AppliedNodes, "node-2")
-
-	// Ensure the cached rule was isolated and not mutated
-	c.ruleCacheMutex.RLock()
-	cachedRule := c.ruleCache["rule-1"]
-	c.ruleCacheMutex.RUnlock()
-
-	g.Expect(cachedRule.Status.AppliedNodes).To(Equal([]string{"node-1"}))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			updated := base()
+			tt.mutate(updated)
+			g.Expect(nodeStatusRelevantChange(base(), updated)).To(Equal(tt.expected))
+		})
+	}
 }
 
-func TestApplyNodeStatusDelta(t *testing.T) {
-	g := NewWithT(t)
-
-	t.Run("empty delta leaves status untouched", func(t *testing.T) {
-		rule := &readinessv1alpha1.NodeReadinessRule{
-			Status: readinessv1alpha1.NodeReadinessRuleStatus{
-				NodeEvaluations: []readinessv1alpha1.NodeEvaluation{
-					{NodeName: "node-1"},
-				},
-				FailedNodes: []readinessv1alpha1.NodeFailure{
-					{NodeName: "node-1", Reason: "Err"},
-				},
+func TestEvaluateRuleConditions(t *testing.T) {
+	c := &RuleReadinessController{}
+	node := &corev1.Node{
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{
+				{Type: "A", Status: corev1.ConditionTrue},
+				{Type: "B", Status: corev1.ConditionFalse},
 			},
+		},
+	}
+	newRule := func(policy readinessv1alpha1.ConditionPolicy, condTypes ...string) *readinessv1alpha1.NodeReadinessRule {
+		rule := &readinessv1alpha1.NodeReadinessRule{
+			Spec: readinessv1alpha1.NodeReadinessRuleSpec{ConditionPolicy: policy},
 		}
-
-		delta := nodeStatusDelta{
-			evaluations: nil,
-			failures:    nil,
+		for _, ct := range condTypes {
+			rule.Spec.Conditions = append(rule.Spec.Conditions, readinessv1alpha1.ConditionRequirement{
+				Type: ct, RequiredStatus: corev1.ConditionTrue,
+			})
 		}
+		return rule
+	}
 
-		applyNodeStatusDelta(rule, delta)
-		g.Expect(rule.Status.NodeEvaluations).To(HaveLen(1))
-		g.Expect(rule.Status.NodeEvaluations[0].NodeName).To(Equal("node-1"))
-		g.Expect(rule.Status.FailedNodes).To(HaveLen(1))
-		g.Expect(rule.Status.FailedNodes[0].NodeName).To(Equal("node-1"))
+	t.Run("allOf requires every condition", func(t *testing.T) {
+		g := NewWithT(t)
+		outcomes, satisfied := c.evaluateRuleConditions(node, newRule(readinessv1alpha1.ConditionPolicyAllOf, "A", "B"))
+		g.Expect(satisfied).To(BeFalse())
+		g.Expect(outcomes).To(HaveLen(2))
+		g.Expect(outcomes[0].satisfied).To(BeTrue())
+		g.Expect(outcomes[1].satisfied).To(BeFalse())
 	})
 
-	t.Run("merges evaluation updates and new evaluations in sorted order", func(t *testing.T) {
-		rule := &readinessv1alpha1.NodeReadinessRule{
-			Status: readinessv1alpha1.NodeReadinessRuleStatus{
-				NodeEvaluations: []readinessv1alpha1.NodeEvaluation{
-					{NodeName: "node-1", TaintStatus: readinessv1alpha1.TaintStatusAbsent},
-					{NodeName: "node-3", TaintStatus: readinessv1alpha1.TaintStatusAbsent},
-				},
-			},
-		}
-
-		delta := nodeStatusDelta{
-			evaluations: map[string]readinessv1alpha1.NodeEvaluation{
-				"node-1": {NodeName: "node-1", TaintStatus: readinessv1alpha1.TaintStatusPresent}, // update existing
-				"node-2": {NodeName: "node-2", TaintStatus: readinessv1alpha1.TaintStatusPresent}, // add new
-			},
-		}
-
-		applyNodeStatusDelta(rule, delta)
-
-		g.Expect(rule.Status.NodeEvaluations).To(HaveLen(3))
-		g.Expect(rule.Status.NodeEvaluations[0].NodeName).To(Equal("node-1"))
-		g.Expect(rule.Status.NodeEvaluations[0].TaintStatus).To(Equal(readinessv1alpha1.TaintStatusPresent))
-		g.Expect(rule.Status.NodeEvaluations[1].NodeName).To(Equal("node-2"))
-		g.Expect(rule.Status.NodeEvaluations[2].NodeName).To(Equal("node-3"))
-		g.Expect(rule.Status.NodeEvaluations[2].TaintStatus).To(Equal(readinessv1alpha1.TaintStatusAbsent))
+	t.Run("anyOf requires one condition", func(t *testing.T) {
+		g := NewWithT(t)
+		_, satisfied := c.evaluateRuleConditions(node, newRule(readinessv1alpha1.ConditionPolicyAnyOf, "A", "B"))
+		g.Expect(satisfied).To(BeTrue())
 	})
 
-	t.Run("merges failures and clears failure when nil in delta", func(t *testing.T) {
-		rule := &readinessv1alpha1.NodeReadinessRule{
-			Status: readinessv1alpha1.NodeReadinessRuleStatus{
-				FailedNodes: []readinessv1alpha1.NodeFailure{
-					{NodeName: "node-1", Reason: "OldError"},
-					{NodeName: "node-3", Reason: "PersistentError"},
-				},
-			},
-		}
-
-		delta := nodeStatusDelta{
-			failures: map[string]*readinessv1alpha1.NodeFailure{
-				"node-1": nil,                                      // clear failure for node-1
-				"node-2": {NodeName: "node-2", Reason: "NewError"}, // add failure for node-2
-			},
-		}
-
-		applyNodeStatusDelta(rule, delta)
-
-		g.Expect(rule.Status.FailedNodes).To(HaveLen(2))
-		g.Expect(rule.Status.FailedNodes[0].NodeName).To(Equal("node-2"))
-		g.Expect(rule.Status.FailedNodes[0].Reason).To(Equal("NewError"))
-		g.Expect(rule.Status.FailedNodes[1].NodeName).To(Equal("node-3"))
-		g.Expect(rule.Status.FailedNodes[1].Reason).To(Equal("PersistentError"))
+	t.Run("missing condition is reported Unknown and unsatisfied", func(t *testing.T) {
+		g := NewWithT(t)
+		outcomes, satisfied := c.evaluateRuleConditions(node, newRule(readinessv1alpha1.ConditionPolicyAllOf, "Missing"))
+		g.Expect(satisfied).To(BeFalse())
+		g.Expect(outcomes[0].result.CurrentStatus).To(Equal(corev1.ConditionUnknown))
 	})
+}
 
-	t.Run("does not add zero-value evaluation when evaluations map has no entry for node", func(t *testing.T) {
-		rule := &readinessv1alpha1.NodeReadinessRule{
+func TestDeriveRuleStatus(t *testing.T) {
+	c := &RuleReadinessController{}
+	taint := corev1.Taint{Key: "readiness.k8s.io/t", Effect: corev1.TaintEffectNoSchedule}
+
+	nodeList := &corev1.NodeList{Items: []corev1.Node{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "b-tainted", Labels: map[string]string{"env": "prod"}},
+			Spec:       corev1.NodeSpec{Taints: []corev1.Taint{taint}},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "a-ready", Labels: map[string]string{"env": "prod"}},
+			Status: corev1.NodeStatus{
+				Conditions: []corev1.NodeCondition{{Type: "Ready", Status: corev1.ConditionTrue}},
+			},
+		},
+		{ObjectMeta: metav1.ObjectMeta{Name: "c-other", Labels: map[string]string{"env": "dev"}}},
+	}}
+
+	newRule := func() *readinessv1alpha1.NodeReadinessRule {
+		return &readinessv1alpha1.NodeReadinessRule{
+			ObjectMeta: metav1.ObjectMeta{Name: "r", Generation: 3},
+			Spec: readinessv1alpha1.NodeReadinessRuleSpec{
+				Conditions:      []readinessv1alpha1.ConditionRequirement{{Type: "Ready", RequiredStatus: corev1.ConditionTrue}},
+				NodeSelector:    metav1.LabelSelector{MatchLabels: map[string]string{"env": "prod"}},
+				Taint:           taint,
+				EnforcementMode: readinessv1alpha1.EnforcementModeContinuous,
+			},
 			Status: readinessv1alpha1.NodeReadinessRuleStatus{
-				NodeEvaluations: []readinessv1alpha1.NodeEvaluation{
-					{NodeName: "other-node", TaintStatus: readinessv1alpha1.TaintStatusPresent},
-				},
+				FailedNodes: []readinessv1alpha1.NodeFailure{{NodeName: "b-tainted"}},
 			},
 		}
+	}
 
-		delta := nodeStatusDelta{
-			evaluations: make(map[string]readinessv1alpha1.NodeEvaluation),
-			failures: map[string]*readinessv1alpha1.NodeFailure{
-				"probe-node": {NodeName: "probe-node", Reason: "EvaluationError"},
-			},
-		}
+	t.Run("derives sorted per-node status from node state", func(t *testing.T) {
+		g := NewWithT(t)
+		rule := newRule()
+		c.deriveRuleStatus(rule, nodeList)
 
-		applyNodeStatusDelta(rule, delta)
-
-		g.Expect(rule.Status.NodeEvaluations).To(HaveLen(1))
-		g.Expect(rule.Status.NodeEvaluations[0].NodeName).To(Equal("other-node"))
-		g.Expect(rule.Status.FailedNodes).To(HaveLen(1))
-		g.Expect(rule.Status.FailedNodes[0].NodeName).To(Equal("probe-node"))
-	})
-
-	t.Run("clears stale failure when evaluation succeeds and produces new evaluation", func(t *testing.T) {
-		rule := &readinessv1alpha1.NodeReadinessRule{
-			Status: readinessv1alpha1.NodeReadinessRuleStatus{
-				NodeEvaluations: []readinessv1alpha1.NodeEvaluation{
-					{NodeName: "other-node", TaintStatus: readinessv1alpha1.TaintStatusPresent},
-				},
-				FailedNodes: []readinessv1alpha1.NodeFailure{
-					{NodeName: "node-1", Reason: "EvaluationError", Message: "old failure"},
-				},
-			},
-		}
-
-		delta := nodeStatusDelta{
-			evaluations: map[string]readinessv1alpha1.NodeEvaluation{
-				"node-1": {NodeName: "node-1", TaintStatus: readinessv1alpha1.TaintStatusAbsent},
-			},
-			failures: map[string]*readinessv1alpha1.NodeFailure{
-				"node-1": nil, // clear failure for node-1 on success
-			},
-		}
-
-		applyNodeStatusDelta(rule, delta)
-
+		g.Expect(rule.Status.ObservedGeneration).To(Equal(int64(3)))
+		g.Expect(rule.Status.AppliedNodes).To(Equal([]string{"a-ready", "b-tainted"}))
 		g.Expect(rule.Status.NodeEvaluations).To(HaveLen(2))
-		g.Expect(rule.Status.NodeEvaluations[0].NodeName).To(Equal("node-1"))
+		g.Expect(rule.Status.NodeEvaluations[0].NodeName).To(Equal("a-ready"))
 		g.Expect(rule.Status.NodeEvaluations[0].TaintStatus).To(Equal(readinessv1alpha1.TaintStatusAbsent))
-		g.Expect(rule.Status.NodeEvaluations[1].NodeName).To(Equal("other-node"))
+		g.Expect(rule.Status.NodeEvaluations[1].NodeName).To(Equal("b-tainted"))
+		g.Expect(rule.Status.NodeEvaluations[1].TaintStatus).To(Equal(readinessv1alpha1.TaintStatusPresent))
+		g.Expect(rule.Status.NodeEvaluations[1].ConditionResults[0].CurrentStatus).To(Equal(corev1.ConditionUnknown))
 		g.Expect(rule.Status.FailedNodes).To(BeEmpty())
+	})
+
+	t.Run("unchanged node keeps its lastEvaluationTime", func(t *testing.T) {
+		g := NewWithT(t)
+		rule := newRule()
+		c.deriveRuleStatus(rule, nodeList)
+		first := rule.Status.DeepCopy()
+
+		c.deriveRuleStatus(rule, nodeList)
+		g.Expect(rule.Status).To(Equal(*first))
+	})
+
+	t.Run("changed taint refreshes lastEvaluationTime", func(t *testing.T) {
+		g := NewWithT(t)
+		rule := newRule()
+		c.deriveRuleStatus(rule, nodeList)
+		rule.Status.NodeEvaluations[1].LastEvaluationTime = metav1.NewTime(time.Unix(1, 0))
+
+		released := nodeList.DeepCopy()
+		released.Items[0].Spec.Taints = nil
+		c.deriveRuleStatus(rule, released)
+
+		g.Expect(rule.Status.NodeEvaluations[1].TaintStatus).To(Equal(readinessv1alpha1.TaintStatusAbsent))
+		g.Expect(rule.Status.NodeEvaluations[1].LastEvaluationTime.Time.After(time.Unix(1, 0))).To(BeTrue())
+	})
+
+	t.Run("completed bootstrap keeps the last evaluation", func(t *testing.T) {
+		g := NewWithT(t)
+		rule := newRule()
+		rule.UID = "uid-1"
+		rule.Spec.EnforcementMode = readinessv1alpha1.EnforcementModeBootstrapOnly
+		c.deriveRuleStatus(rule, nodeList)
+		before := rule.Status.NodeEvaluations[0].DeepCopy()
+
+		completed := nodeList.DeepCopy()
+		completed.Items[1].Annotations = map[string]string{bootstrapAnnotationKey("uid-1"): bootstrapAnnotationValue("r")}
+		completed.Items[1].Status.Conditions[0].Status = corev1.ConditionFalse
+		c.deriveRuleStatus(rule, completed)
+
+		g.Expect(rule.Status.NodeEvaluations[0]).To(Equal(*before))
 	})
 }
 

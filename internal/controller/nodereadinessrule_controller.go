@@ -18,10 +18,9 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -31,15 +30,20 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	readinessv1alpha1 "sigs.k8s.io/node-readiness-controller/api/v1alpha1"
 	"sigs.k8s.io/node-readiness-controller/internal/metrics"
@@ -50,7 +54,23 @@ const (
 	finalizerName = "readiness.node.x-k8s.io/cleanup-taints"
 )
 
-// RuleReadinessController manages node taints based on readiness rules.
+// statusDebounce coalesces bursts of node events into a single status reconcile per rule.
+// It only delays status reporting; taint enforcement is done by NodeReconciler without delay.
+const statusDebounce = time.Second
+
+// deletionRecheckInterval is how often a deleting rule re-checks whether NodeReconciler
+// has released all the taints the rule owned.
+const deletionRecheckInterval = time.Second
+
+// RuleReadinessController holds the state shared by RuleReconciler and NodeReconciler.
+//
+// Ownership:
+//   - NodeReconciler is the only writer of Nodes (taints, bootstrap annotations) and
+//     NodeReadinessEvaluations. It reacts to node and rule events.
+//   - RuleReconciler is the only writer of NodeReadinessRules (finalizer, status). It
+//     derives status from the observed node state and never writes to Nodes.
+//
+// Both read rules and nodes from the informer cache; no controller-local copy is kept.
 type RuleReadinessController struct {
 	client.Client
 	Scheme                 *runtime.Scheme
@@ -58,10 +78,6 @@ type RuleReadinessController struct {
 	EventRecorder          events.EventRecorder
 	EnableNodeStateMetrics bool
 	EnableNRE              bool
-
-	// Cache for efficient rule lookup
-	ruleCacheMutex sync.RWMutex
-	ruleCache      map[string]*readinessv1alpha1.NodeReadinessRule // ruleName -> rule
 }
 
 // RuleReconciler handles NodeReadinessRule reconciliation.
@@ -81,7 +97,6 @@ func NewRuleReadinessController(mgr ctrl.Manager, clientset kubernetes.Interface
 		EventRecorder:          mgr.GetEventRecorder("node-readiness-controller"),
 		EnableNodeStateMetrics: enableNodeStateMetrics,
 		EnableNRE:              enableNRE,
-		ruleCache:              make(map[string]*readinessv1alpha1.NodeReadinessRule),
 	}
 }
 
@@ -92,7 +107,55 @@ func (r *RuleReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager)
 		Named("nodereadiness-controller").
 		WithOptions(controller.Options{MaxConcurrentReconciles: concurrency}).
 		For(&readinessv1alpha1.NodeReadinessRule{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		// Node changes only refresh the rule status (and a deleting rule's wait for taint
+		// release). They are debounced so N node events cost roughly one status patch per rule.
+		Watches(&corev1.Node{}, r.nodeToRulesHandler(),
+			builder.WithPredicates(predicate.Funcs{
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					oldNode, okOld := e.ObjectOld.(*corev1.Node)
+					newNode, okNew := e.ObjectNew.(*corev1.Node)
+					return okOld && okNew && nodeStatusRelevantChange(oldNode, newNode)
+				},
+			})).
 		Complete(r)
+}
+
+// nodeToRulesHandler maps node events to the rules selecting that node, delayed by statusDebounce.
+// The workqueue keeps the earliest due time for a repeated key, so a burst of events is coalesced.
+func (r *RuleReconciler) nodeToRulesHandler() handler.EventHandler {
+	enqueue := func(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request], nodes ...client.Object) {
+		rules, err := r.Controller.listRulesReadOnly(ctx)
+		if err != nil {
+			ctrl.LoggerFrom(ctx).Error(err, "Failed to list rules to map node event")
+			return
+		}
+		for _, obj := range nodes {
+			node, ok := obj.(*corev1.Node)
+			if !ok || node == nil {
+				continue
+			}
+			for _, rule := range rules {
+				if !r.Controller.ruleAppliesTo(ctx, rule, node) {
+					continue
+				}
+				// A rule matching both the old and new node is added twice; the queue coalesces it.
+				q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: rule.Name}}, statusDebounce)
+			}
+		}
+	}
+
+	return handler.Funcs{
+		CreateFunc: func(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			enqueue(ctx, q, e.Object)
+		},
+		UpdateFunc: func(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			// Include the old object so a rule that stops selecting the node is refreshed too.
+			enqueue(ctx, q, e.ObjectNew, e.ObjectOld)
+		},
+		DeleteFunc: func(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			enqueue(ctx, q, e.Object)
+		},
+	}
 }
 
 // +kubebuilder:rbac:groups=readiness.node.x-k8s.io,resources=nodereadinessrules,verbs=get;list;watch;update;patch
@@ -103,14 +166,15 @@ func (r *RuleReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager)
 
 func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.Info("Reconciling rule", "rule", req.Name)
+	log.V(2).Info("Reconciling rule", "rule", req.Name)
+
+	r.Controller.updateRulesTotal(ctx)
 
 	// Fetch the rule
 	rule := &readinessv1alpha1.NodeReadinessRule{}
 	if err := r.Get(ctx, req.NamespacedName, rule); err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Info("Rule not found, removing from cache", "rule", req.Name)
-			r.Controller.removeRuleFromCache(ctx, req.Name)
+			log.V(2).Info("Rule not found", "rule", req.Name)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
@@ -125,12 +189,13 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	} else if finalizerAdded {
 		// Adding a finalizer modifies Metadata, not Spec, so the Generation is unchanged.
 		// GenerationChangedPredicate prevents triggering a new reconcile, we must explicitly requeue to proceed.
+		// NodeReconciler is notified of the finalizer by its own rule watch and starts enforcing meanwhile.
 		log.V(3).Info("Finalizer added, requeuing")
 		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 
 	nodeList := &corev1.NodeList{}
-	if err := r.List(ctx, nodeList); err != nil {
+	if err := r.List(ctx, nodeList, client.UnsafeDisableDeepCopy); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -139,38 +204,18 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return r.reconcileDelete(ctx, rule, nodeList)
 	}
 
-	// Update rule cache (after cleanup)
-	r.Controller.updateRuleCache(ctx, rule)
-
-	// Handle dry run
-	var delta nodeStatusDelta
-	var processErr error
 	if rule.Spec.DryRun {
 		if err := r.Controller.processDryRun(ctx, rule, nodeList); err != nil {
 			log.Error(err, "Failed to process dry run", "rule", rule.Name)
 			return ctrl.Result{}, err
 		}
 	} else {
-		// Clear previous dry run results
-		rule.Status.DryRunResults = readinessv1alpha1.DryRunResults{}
-
-		// Process all applicable nodes for this rule. On node evaluation errors,
-		// still persist status (including FailedNodes) before returning the error.
-		delta, processErr = r.Controller.processAllNodesForRule(ctx, rule, nodeList)
-		if processErr != nil {
-			log.Error(processErr, "Failed to process nodes for rule", "rule", rule.Name)
-		}
+		r.Controller.deriveRuleStatus(rule, nodeList)
 	}
 
-	// Update rule status
-	if err := r.Controller.updateRuleStatus(ctx, rule, delta); err != nil {
+	// The whole status is derived from the observed node state and written in one patch.
+	if err := r.Controller.updateRuleStatus(ctx, rule); err != nil {
 		log.Error(err, "Failed to update rule status", "rule", rule.Name)
-		return ctrl.Result{}, err
-	}
-
-	// Clean up status for deleted nodes
-	if err := r.Controller.cleanupDeletedNodes(ctx, rule, nodeList); err != nil {
-		log.Error(err, "Failed to clean up deleted nodes", "rule", rule.Name)
 		return ctrl.Result{}, err
 	}
 
@@ -181,39 +226,18 @@ func (r *RuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		r.Controller.SyncNodeStateMetrics(ctx, rule)
 	}
 
-	// Requeue with backoff if any node evaluation failed.
-	return ctrl.Result{}, processErr
+	return ctrl.Result{}, nil
 }
 
-// reconcileDelete handles the rules deletion, It performs following actions
-// 1. Deletes the taints associated with the rule.
-// 2. Remove the rule from the cache.
-// 3. Remove the finalizer from the rule.
+// reconcileDelete handles the rule deletion. NodeReconciler is the only writer of Nodes,
+// so it removes the rule's taint from every node it selects (it watches the rule). This
+// function only waits for that to finish before releasing the finalizer.
 func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Update cache with deletion-marked rule before cleanup.
-	log.V(3).Info("Updating cache with deletion-marked rule before cleanup")
-	r.Controller.updateRuleCache(ctx, rule)
-
-	log.Info("Cleaning up taints for deleted rule", "rule", rule.Name)
-	if err := r.Controller.cleanupTaintsForRule(ctx, rule, nodeList); err != nil {
-		log.Error(err, "Failed to cleanup taints for rule", "rule", rule.Name)
-		return ctrl.Result{}, err
-	}
-
-	log.V(3).Info("Removing the rule from cache")
-	r.Controller.removeRuleFromCache(ctx, rule.Name)
-
-	// Refresh the NRE of every node the rule applied to so the
-	// deleted rule's entry is dropped even when there was no taint to remove.
-	if r.Controller.EnableNRE {
-		for i := range nodeList.Items {
-			node := &nodeList.Items[i]
-			if r.Controller.ruleAppliesTo(ctx, rule, node) {
-				r.Controller.updateNREForNode(ctx, node)
-			}
-		}
+	if holding := r.Controller.nodesHoldingRuleTaint(rule, nodeList); holding > 0 {
+		log.V(2).Info("Waiting for node controller to release the rule's taints", "rule", rule.Name, "nodes", holding)
+		return ctrl.Result{RequeueAfter: deletionRecheckInterval}, nil
 	}
 
 	log.V(3).Info("Removing the finalizer from the rule")
@@ -255,332 +279,133 @@ func (r *RuleReconciler) reconcileDelete(ctx context.Context, rule *readinessv1a
 	return ctrl.Result{}, nil
 }
 
-// cleanupDeletedNodes removes status entries for nodes that no longer exist.
-func (r *RuleReadinessController) cleanupDeletedNodes(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) error {
-	log := ctrl.LoggerFrom(ctx)
-
-	existingNodes := make(map[string]bool, len(nodeList.Items))
-	for _, node := range nodeList.Items {
-		existingNodes[node.Name] = true
+// listRulesReadOnly lists the rules from the informer cache without deep-copying them.
+// The returned objects are shared with the cache and must not be modified.
+func (r *RuleReadinessController) listRulesReadOnly(ctx context.Context) ([]*readinessv1alpha1.NodeReadinessRule, error) {
+	ruleList := &readinessv1alpha1.NodeReadinessRuleList{}
+	if err := r.List(ctx, ruleList, client.UnsafeDisableDeepCopy); err != nil {
+		return nil, err
 	}
+	rules := make([]*readinessv1alpha1.NodeReadinessRule, len(ruleList.Items))
+	for i := range ruleList.Items {
+		rules[i] = &ruleList.Items[i]
+	}
+	return rules, nil
+}
 
-	// Filter out deleted nodes
-	newNodeEvaluations, newFailedNodes := filterStatusForExistingNodes(
-		existingNodes,
-		rule.Status.NodeEvaluations,
-		rule.Status.FailedNodes,
-	)
-
-	if len(newNodeEvaluations) == len(rule.Status.NodeEvaluations) &&
-		len(newFailedNodes) == len(rule.Status.FailedNodes) {
-		log.V(4).Info("No deleted nodes to clean up", "rule", rule.Name)
+// getApplicableRulesForNode returns the rules selecting the node, read-only (see listRulesReadOnly).
+func (r *RuleReadinessController) getApplicableRulesForNode(ctx context.Context, node *corev1.Node) []*readinessv1alpha1.NodeReadinessRule {
+	rules, err := r.listRulesReadOnly(ctx)
+	if err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to list rules", "node", node.Name)
 		return nil
 	}
 
-	log.V(4).Info("Cleaning up deleted nodes from rule status",
-		"rule", rule.Name,
-		"before", len(rule.Status.NodeEvaluations),
-		"after", len(newNodeEvaluations))
-
-	// Use an optimistic-locked patch to avoid race conditions from concurrent node updates.
-	return r.patchRuleStatusWithOptimisticLock(ctx, rule.Name, func(fresh *readinessv1alpha1.NodeReadinessRule) {
-		freshNodeEvaluations, freshFailedNodes := filterStatusForExistingNodes(
-			existingNodes,
-			fresh.Status.NodeEvaluations,
-			fresh.Status.FailedNodes,
-		)
-
-		fresh.Status.NodeEvaluations = freshNodeEvaluations
-		fresh.Status.FailedNodes = freshFailedNodes
-	})
+	var applicable []*readinessv1alpha1.NodeReadinessRule
+	for _, rule := range rules {
+		if r.ruleAppliesTo(ctx, rule, node) {
+			applicable = append(applicable, rule)
+		}
+	}
+	return applicable
 }
 
-// processAllNodesForRule processes all nodes when a rule changes. It mutates rule.Status in place
-// and additionally returns a nodeStatusDelta describing exactly which nodes' status are changed.
-// so updateRuleStatus can merge those changes into the latest stored status
-// instead of replacing NodeEvaluations/FailedNodes wholesale.
-func (r *RuleReadinessController) processAllNodesForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) (nodeStatusDelta, error) {
-	log := ctrl.LoggerFrom(ctx)
+// updateRulesTotal refreshes the total number of rules metric.
+func (r *RuleReadinessController) updateRulesTotal(ctx context.Context) {
+	rules, err := r.listRulesReadOnly(ctx)
+	if err != nil {
+		return
+	}
+	metrics.RulesTotal.Set(float64(len(rules)))
+}
 
-	log.Info("Processing all nodes for rule", "rule", rule.Name, "totalNodes", len(nodeList.Items))
+// nodesHoldingRuleTaint counts the nodes selected by rule that still carry its taint.
+func (r *RuleReadinessController) nodesHoldingRuleTaint(rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) int {
+	selector, err := parseNodeSelector(rule)
+	if err != nil {
+		return 0
+	}
+	holding := 0
+	for i := range nodeList.Items {
+		node := &nodeList.Items[i]
+		if selector.Matches(labels.Set(node.Labels)) && r.hasTaintBySpec(node, rule.Spec.Taint) {
+			holding++
+		}
+	}
+	return holding
+}
 
-	delta := nodeStatusDelta{
-		evaluations: make(map[string]readinessv1alpha1.NodeEvaluation),
-		failures:    make(map[string]*readinessv1alpha1.NodeFailure),
+// deriveRuleStatus computes the per-node part of the rule status from the observed node
+// state (conditions and taints) and sets it on rule. It is a pure function of the cached
+// nodes plus the previous status, so it needs no information from NodeReconciler: the
+// taint on a node is the result of enforcement.
+//
+// An entry is only re-timestamped when its content changes, so an unchanged rule produces
+// an identical status and no API write.
+func (r *RuleReadinessController) deriveRuleStatus(rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) {
+	previous := make(map[string]readinessv1alpha1.NodeEvaluation, len(rule.Status.NodeEvaluations))
+	for _, eval := range rule.Status.NodeEvaluations {
+		previous[eval.NodeName] = eval
 	}
 
-	var appliedNodes []string
-	var errs []error
-	for _, node := range nodeList.Items {
-		if !r.ruleAppliesTo(ctx, rule, &node) {
+	selector, err := parseNodeSelector(rule)
+	if err != nil {
+		return
+	}
+
+	bootstrapOnly := rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly
+	applied := make([]string, 0, len(nodeList.Items))
+	evaluations := make([]readinessv1alpha1.NodeEvaluation, 0, len(nodeList.Items))
+
+	for i := range nodeList.Items {
+		node := &nodeList.Items[i]
+		if !selector.Matches(labels.Set(node.Labels)) {
+			continue
+		}
+		applied = append(applied, node.Name)
+
+		prev, hasPrev := previous[node.Name]
+
+		// A completed bootstrap-only rule no longer monitors the node, so its last
+		// evaluation is kept as is.
+		if bootstrapOnly && hasPrev && nodeHasBootstrapAnnotation(node, rule) {
+			evaluations = append(evaluations, prev)
 			continue
 		}
 
-		log.Info("Processing node for rule", "rule", rule.Name, "node", node.Name)
-		if err := r.evaluateRuleForNode(ctx, rule, &node); err != nil {
-			log.Error(err, "Failed to evaluate node for rule", "rule", rule.Name, "node", node.Name)
-			r.recordNodeFailure(rule, node.Name, string(metrics.FailureReasonEvaluationError), err.Error())
-			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonEvaluationError)).Inc()
-			errs = append(errs, err)
-
-			for _, f := range rule.Status.FailedNodes {
-				if f.NodeName == node.Name {
-					failure := f
-					delta.failures[node.Name] = &failure
-					break
-				}
-			}
-		} else {
-			appliedNodes = append(appliedNodes, node.Name)
-			var updatedFailedNodes []readinessv1alpha1.NodeFailure
-			for _, f := range rule.Status.FailedNodes {
-				if f.NodeName != node.Name {
-					updatedFailedNodes = append(updatedFailedNodes, f)
-				}
-			}
-			rule.Status.FailedNodes = updatedFailedNodes
-			delta.failures[node.Name] = nil // clear any previously-recorded failure
-
-			for _, eval := range rule.Status.NodeEvaluations {
-				if eval.NodeName == node.Name {
-					delta.evaluations[node.Name] = eval
-					break
-				}
-			}
+		outcomes, _ := r.evaluateRuleConditions(node, rule)
+		results := make([]readinessv1alpha1.ConditionEvaluationResult, 0, len(outcomes))
+		for _, outcome := range outcomes {
+			results = append(results, outcome.result)
 		}
 
-		if r.EnableNRE {
-			r.updateNREForNode(ctx, &node)
+		taintStatus := readinessv1alpha1.TaintStatusAbsent
+		if r.hasTaintBySpec(node, rule.Spec.Taint) {
+			taintStatus = readinessv1alpha1.TaintStatusPresent
 		}
+
+		eval := readinessv1alpha1.NodeEvaluation{
+			NodeName:           node.Name,
+			ConditionResults:   results,
+			TaintStatus:        taintStatus,
+			LastEvaluationTime: metav1.Now(),
+		}
+		if hasPrev && prev.TaintStatus == taintStatus && apiequality.Semantic.DeepEqual(prev.ConditionResults, results) {
+			eval.LastEvaluationTime = prev.LastEvaluationTime
+		}
+		evaluations = append(evaluations, eval)
 	}
 
-	// Update status
+	sort.Strings(applied)
+	sort.Slice(evaluations, func(i, j int) bool { return evaluations[i].NodeName < evaluations[j].NodeName })
+
 	rule.Status.ObservedGeneration = rule.Generation
-	rule.Status.AppliedNodes = appliedNodes
-
-	if !rule.Spec.DryRun {
-		rule.Status.DryRunResults = readinessv1alpha1.DryRunResults{}
-	}
-
-	log.Info("Completed processing nodes for rule", "rule", rule.Name, "processedCount", len(appliedNodes))
-	return delta, errors.Join(errs...)
-}
-
-// evaluateRuleForNode evaluates a single rule against a single node.
-func (r *RuleReadinessController) evaluateRuleForNode(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, node *corev1.Node) error {
-	timer := prometheus.NewTimer(metrics.EvaluationDuration.WithLabelValues(rule.Name))
-	defer timer.ObserveDuration()
-	log := ctrl.LoggerFrom(ctx)
-
-	// Evaluate all conditions, accumulating the policy result alongside per-condition results.
-	conditionResults := make([]readinessv1alpha1.ConditionEvaluationResult, 0, len(rule.Spec.Conditions))
-	conditionPolicy := rule.Spec.GetConditionPolicy()
-	allSatisfied := true
-	anySatisfied := false
-
-	for _, condReq := range rule.Spec.Conditions {
-		effectiveStatus, conditionFound := r.getConditionStatus(
-			node,
-			condReq.Type,
-			condReq.GetDefaultStatus(),
-		)
-		satisfied := effectiveStatus == condReq.RequiredStatus
-
-		if !satisfied {
-			allSatisfied = false
-			metrics.ConditionEvaluationFailures.WithLabelValues(rule.Name, condReq.Type).Inc()
-		} else {
-			anySatisfied = true
-		}
-
-		// observedStatus is the condition status of a node without applying the default
-		// fallback in case the condition is not found.
-		observedStatus := effectiveStatus
-		if !conditionFound {
-			observedStatus = corev1.ConditionUnknown
-		}
-
-		conditionResults = append(conditionResults, readinessv1alpha1.ConditionEvaluationResult{
-			Type:           condReq.Type,
-			CurrentStatus:  observedStatus,
-			RequiredStatus: condReq.RequiredStatus,
-			DefaultStatus:  condReq.GetDefaultStatus(),
-		})
-
-		log.V(1).Info("Condition evaluation", "node", node.Name, "rule", rule.Name,
-			"conditionType", condReq.Type, "observed", observedStatus,
-			"effective", effectiveStatus, "required", condReq.RequiredStatus,
-			"satisfied", satisfied)
-	}
-
-	// Determine taint action: allOf requires every condition satisfied; anyOf requires at least one.
-	shouldRemoveTaint := allSatisfied
-	if conditionPolicy == readinessv1alpha1.ConditionPolicyAnyOf {
-		shouldRemoveTaint = anySatisfied
-	}
-	currentlyHasTaint := r.hasTaintBySpec(node, rule.Spec.Taint)
-
-	log.Info("Evaluation result", "node", node.Name, "rule", rule.Name,
-		"conditionPolicy", rule.Spec.GetConditionPolicy(), "conditionsSatisfied", shouldRemoveTaint, "hasTaint", currentlyHasTaint)
-
-	isFirstEvaluation := r.getPreviousNodeEvaluation(rule, node.Name) == nil
-
-	// Calculate the latest transition time globally so all metrics can share it.
-	// We intentionally isolate the most recent transition time among all required conditions.
-	// Since the controller must wait for the combined state of all conditions to change
-	// before taking action, the condition that changed most recently is the "trigger" event.
-	var latestTransition metav1.Time
-	for _, req := range rule.Spec.Conditions {
-		for _, cond := range node.Status.Conditions {
-			if string(cond.Type) == req.Type && cond.LastTransitionTime.After(latestTransition.Time) {
-				latestTransition = cond.LastTransitionTime
-			}
-		}
-	}
-
-	recordLatency := func(operation metrics.ReconciliationOperation, enforcementOperation metrics.EnforcementOperation) {
-		if !latestTransition.IsZero() {
-			latency := time.Since(latestTransition.Time).Seconds()
-
-			// Protect against NTP clock drift between the node and controller.
-			// If the node's clock is ahead, latency will be negative.
-			if latency < 0 {
-				latency = 0
-			}
-
-			// Deprecated: ReconciliationLatency is superseded by EnforcementLatency and will be removed in future releases.
-			//nolint:staticcheck
-			metrics.ReconciliationLatency.WithLabelValues(rule.Name, string(operation)).Observe(latency)
-			metrics.EnforcementLatency.WithLabelValues(rule.Name, string(enforcementOperation)).Observe(latency)
-		}
-	}
-
-	var err error
-
-	switch {
-	case shouldRemoveTaint && currentlyHasTaint:
-		log.Info("Removing taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
-
-		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
-			err = r.removeTaintAndCompleteBootstrap(ctx, node, rule)
-		} else {
-			err = r.removeTaintBySpec(ctx, node, rule.Spec.Taint, rule.Name)
-		}
-		if err != nil {
-			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonRemoveTaintError)).Inc()
-			return fmt.Errorf("failed to remove taint: %w", err)
-		}
-
-		// Record taint removal latency and taint operation counter.
-		metrics.TaintOperations.WithLabelValues(rule.Name, string(metrics.TaintOperationRemove)).Inc()
-		recordLatency(metrics.ReconciliationOperationRemoveTaint, metrics.EnforcementOperationRemove)
-
-		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
-			// Only record the bootstrap duration if the node was created AFTER the rule.
-			// This prevents legacy nodes from poisoning the histogram with massive outliers.
-			if !node.CreationTimestamp.Time.Before(rule.CreationTimestamp.Time) && !latestTransition.IsZero() {
-				// Use ONLY API-server-generated timestamps to avoid Controller/Node clock skew
-				duration := latestTransition.Time.Sub(node.CreationTimestamp.Time).Seconds()
-
-				if duration > 0 {
-					metrics.BootstrapDuration.WithLabelValues(rule.Name).Observe(duration)
-				}
-			} else {
-				log.V(4).Info("Skipping bootstrap duration metric for legacy node or missing transition",
-					"node", node.Name,
-					"rule", rule.Name)
-			}
-		}
-
-	case !shouldRemoveTaint && !currentlyHasTaint:
-		log.Info("Adding taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
-
-		var added bool
-		if added, err = r.addTaintBySpec(ctx, node, rule); err != nil {
-			metrics.Failures.WithLabelValues(rule.Name, string(metrics.FailureReasonAddTaintError)).Inc()
-			return fmt.Errorf("failed to add taint: %w", err)
-		}
-
-		if added {
-			// Record add taint latency and taint operation counter
-			metrics.TaintOperations.WithLabelValues(rule.Name, string(metrics.TaintOperationAdd)).Inc()
-			recordLatency(metrics.ReconciliationOperationAddTaint, metrics.EnforcementOperationAdd)
-		}
-
-	case !shouldRemoveTaint && currentlyHasTaint:
-		if isFirstEvaluation {
-			log.Info("Adopting pre-existing taint", "node", node.Name, "rule", rule.Name, "taint", rule.Spec.Taint.Key)
-
-			message := fmt.Sprintf("Taint '%s:%s' is now managed by rule '%s'", rule.Spec.Taint.Key, rule.Spec.Taint.Effect, rule.Name)
-			r.EventRecorder.Eventf(node, nil, corev1.EventTypeNormal, "TaintAdopted", "AdoptTaint", "%s", message)
-		}
-
-	default:
-		log.Info("No taint action needed", "node", node.Name, "rule", rule.Name,
-			"shouldRemove", shouldRemoveTaint, "hasTaint", currentlyHasTaint)
-		// Mark bootstrap completed in bootstrap-only mode when conditions satisfied even if taint is already absent.
-		if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
-			r.markBootstrapCompleted(ctx, node.Name, rule)
-		}
-	}
-
-	// Determine observed taint status after any actions
-	var taintStatus readinessv1alpha1.TaintStatus
-	if r.hasTaintBySpec(node, rule.Spec.Taint) {
-		taintStatus = readinessv1alpha1.TaintStatusPresent
-	} else {
-		taintStatus = readinessv1alpha1.TaintStatusAbsent
-	}
-
-	// Update evaluation status.
-	r.updateNodeEvaluationStatus(rule, node.Name, conditionResults, taintStatus)
-
-	return nil
-}
-
-// updateNodeEvaluationStatus updates the evaluation status for a specific node.
-func (r *RuleReadinessController) updateNodeEvaluationStatus(
-	rule *readinessv1alpha1.NodeReadinessRule,
-	nodeName string,
-	conditionResults []readinessv1alpha1.ConditionEvaluationResult,
-	taintStatus readinessv1alpha1.TaintStatus,
-) {
-	// Find existing evaluation or create new
-	var nodeEval *readinessv1alpha1.NodeEvaluation
-	for i := range rule.Status.NodeEvaluations {
-		if rule.Status.NodeEvaluations[i].NodeName == nodeName {
-			nodeEval = &rule.Status.NodeEvaluations[i]
-			break
-		}
-	}
-
-	if nodeEval == nil {
-		rule.Status.NodeEvaluations = append(rule.Status.NodeEvaluations, readinessv1alpha1.NodeEvaluation{
-			NodeName: nodeName,
-		})
-		nodeEval = &rule.Status.NodeEvaluations[len(rule.Status.NodeEvaluations)-1]
-	}
-
-	// Update evaluation
-	nodeEval.ConditionResults = conditionResults
-	nodeEval.TaintStatus = taintStatus
-	nodeEval.LastEvaluationTime = metav1.Now()
-}
-
-// getApplicableRulesForNode returns all rules applicable to a node.
-func (r *RuleReadinessController) getApplicableRulesForNode(ctx context.Context, node *corev1.Node) []*readinessv1alpha1.NodeReadinessRule {
-	r.ruleCacheMutex.RLock()
-	defer r.ruleCacheMutex.RUnlock()
-
-	var applicableRules []*readinessv1alpha1.NodeReadinessRule
-
-	for _, rule := range r.ruleCache {
-		if r.ruleAppliesTo(ctx, rule, node) {
-			applicableRules = append(applicableRules, rule.DeepCopy())
-		}
-	}
-
-	return applicableRules
+	rule.Status.AppliedNodes = applied
+	rule.Status.NodeEvaluations = evaluations
+	// Per-node enforcement failures are reported by NodeReconciler through events,
+	// metrics and retries; they can not be derived from node state.
+	rule.Status.FailedNodes = nil
+	rule.Status.DryRunResults = readinessv1alpha1.DryRunResults{}
 }
 
 // ListNodes returns the current list of Nodes.
@@ -765,41 +590,16 @@ func (r *RuleReadinessController) ruleAppliesTo(ctx context.Context, rule *readi
 	return selector.Matches(labels.Set(node.Labels))
 }
 
-// updateRuleCache updates the rule cache.
-func (r *RuleReadinessController) updateRuleCache(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) {
-	log := ctrl.LoggerFrom(ctx)
-	r.ruleCacheMutex.Lock()
-	defer r.ruleCacheMutex.Unlock()
-
-	ruleCopy := rule.DeepCopy()
-	r.ruleCache[rule.Name] = ruleCopy
-	metrics.RulesTotal.Set(float64(len(r.ruleCache)))
-	log.V(4).Info("Updated rule cache",
-		"rule", rule.Name,
-		"totalRules", len(r.ruleCache),
-		"resourceVersion", ruleCopy.ResourceVersion)
-}
-
-// removeRuleFromCache removes a rule from cache.
-func (r *RuleReadinessController) removeRuleFromCache(ctx context.Context, ruleName string) {
-	log := ctrl.LoggerFrom(ctx)
-	r.ruleCacheMutex.Lock()
-	defer r.ruleCacheMutex.Unlock()
-
-	delete(r.ruleCache, ruleName)
-	metrics.RulesTotal.Set(float64(len(r.ruleCache)))
-	log.Info("Removed rule from cache", "rule", ruleName, "totalRules", len(r.ruleCache))
-}
-
-// patchRuleStatusWithOptimisticLock fetches the latest NodeReadinessRule, and apply mutate status
-// changes to it. It then patches the result to API with an optimistic-locked JSON merge patch. mutate
-// should return false if it made no changes, to skip an unnecessary Patch call.
+// patchRuleStatusWithOptimisticLock fetches the latest NodeReadinessRule, applies mutate to its
+// status and patches the result to the API with an optimistic-locked JSON merge patch. The Patch
+// call is skipped when mutate leaves the status unchanged.
 //
-// We use client.MergeFromWithOptimisticLock here for a JSON merge patch replaces slice fields
-// (NodeEvaluations, AppliedNodes, FailedNodes) wholesale rather than merging them, so without a
-// resourceVersion precondition retry.RetryOnConflict can never observe a genuine conflict and a
-// concurrent status write from the other reconciler (RuleReconciler and NodeReconciler both patch
-// NodeReadinessRule.Status independently) can be silently overwritten.
+// RuleReconciler is the only controller that writes NodeReadinessRule.Status, and the workqueue
+// never runs two reconciles of the same rule at once. The optimistic lock is kept as a safety net
+// against any other writer: a JSON merge patch replaces slice fields (NodeEvaluations,
+// AppliedNodes, FailedNodes) wholesale rather than merging them, so without a resourceVersion
+// precondition retry.RetryOnConflict can never observe a genuine conflict and a concurrent status
+// write would be silently overwritten.
 func (r *RuleReadinessController) patchRuleStatusWithOptimisticLock(
 	ctx context.Context,
 	ruleName string,
@@ -822,32 +622,12 @@ func (r *RuleReadinessController) patchRuleStatusWithOptimisticLock(
 	})
 }
 
-// updateRuleStatus updates the status of a NodeReadinessRule. delta carries the per-node
-// NodeEvaluations/FailedNodes changes processAllNodesForRule actually produced this reconcile;
-// it is merged into the latest stored status by node name (see applyNodeStatusDelta) rather than
-// replacing those fields wholesale, so a concurrent per-node update from NodeReconciler
-// (processNodeAgainstAllRules) for a node outside this sweep isn't silently discarded.
-func (r *RuleReadinessController) updateRuleStatus(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, delta nodeStatusDelta) error {
-	log := ctrl.LoggerFrom(ctx)
-
-	log.V(1).Info("Updating rule status",
-		"rule", rule.Name,
-		"nodeEvaluations", len(rule.Status.NodeEvaluations),
-		"appliedNodes", len(rule.Status.AppliedNodes))
-
-	err := r.patchRuleStatusWithOptimisticLock(ctx, rule.Name, func(latestRule *readinessv1alpha1.NodeReadinessRule) {
-		applyNodeStatusDelta(latestRule, delta)
-		latestRule.Status.AppliedNodes = rule.Status.AppliedNodes
-		latestRule.Status.ObservedGeneration = rule.Status.ObservedGeneration
-		latestRule.Status.DryRunResults = rule.Status.DryRunResults
+// updateRuleStatus writes the status computed on rule with a single optimistic-locked patch.
+func (r *RuleReadinessController) updateRuleStatus(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) error {
+	desired := rule.Status.DeepCopy()
+	return r.patchRuleStatusWithOptimisticLock(ctx, rule.Name, func(latest *readinessv1alpha1.NodeReadinessRule) {
+		latest.Status = *desired
 	})
-	if err != nil {
-		log.V(1).Info("Failed to patch rule status", "rule", rule.Name, "error", err.Error())
-		return err
-	}
-
-	log.V(1).Info("Successfully patched rule status", "rule", rule.Name)
-	return nil
 }
 
 // processDryRun processes dry run for a rule.
@@ -857,8 +637,17 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 	var affectedNodes, taintsToAdd, taintsToRemove, riskyOps int32
 	var summaryParts []string
 
-	for _, node := range nodeList.Items {
-		if !r.ruleAppliesTo(ctx, rule, &node) {
+	// An invalid selector matches no node. Parse it once rather than per node.
+	selector, err := parseNodeSelector(rule)
+	if err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "Invalid node selector for rule", "rule", rule.Name)
+		selector = labels.Nothing()
+	}
+
+	// Index into the list: the nodes come from the informer cache without a deep copy.
+	for i := range nodeList.Items {
+		node := &nodeList.Items[i]
+		if !selector.Matches(labels.Set(node.Labels)) {
 			continue
 		}
 
@@ -872,7 +661,7 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 
 		for _, condReq := range rule.Spec.Conditions {
 			currentStatus, conditionFound := r.getConditionStatus(
-				&node,
+				node,
 				condReq.Type,
 				condReq.GetDefaultStatus(),
 			)
@@ -890,7 +679,7 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 		if conditionPolicy == readinessv1alpha1.ConditionPolicyAnyOf {
 			shouldRemoveTaint = anySatisfied
 		}
-		currentlyHasTaint := r.hasTaintBySpec(&node, rule.Spec.Taint)
+		currentlyHasTaint := r.hasTaintBySpec(node, rule.Spec.Taint)
 
 		if shouldRemoveTaint && currentlyHasTaint {
 			taintsToRemove++
@@ -931,42 +720,6 @@ func (r *RuleReadinessController) processDryRun(ctx context.Context, rule *readi
 	return nil
 }
 
-// cleanupTaintsForRule removes taints managed by this rule from all applicable nodes.
-func (r *RuleReadinessController) cleanupTaintsForRule(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, nodeList *corev1.NodeList) error {
-	log := ctrl.LoggerFrom(ctx)
-
-	selector, err := parseNodeSelector(rule)
-	if err != nil {
-		log.Error(err, "Invalid node selector for rule during cleanup", "rule", rule.Name)
-		return nil
-	}
-
-	var errMsgs []string
-	for _, node := range nodeList.Items {
-		if !selector.Matches(labels.Set(node.Labels)) {
-			continue
-		}
-
-		// Check if node has the taint managed by this rule
-		if r.hasTaintBySpec(&node, rule.Spec.Taint) {
-			log.Info("Removing taint from node during rule cleanup",
-				"node", node.Name,
-				"rule", rule.Name,
-				"taint", rule.Spec.Taint.Key)
-
-			if err := r.removeTaintBySpec(ctx, &node, rule.Spec.Taint, rule.Name); err != nil {
-				errMsgs = append(errMsgs, fmt.Sprintf("node %s: %v", node.Name, err))
-			}
-		}
-	}
-
-	if len(errMsgs) > 0 {
-		return fmt.Errorf("failed to cleanup taints on some nodes: %s", strings.Join(errMsgs, "; "))
-	}
-
-	return nil
-}
-
 func (r *RuleReconciler) ensureFinalizer(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule, finalizer string) (finalizerAdded bool, err error) {
 	// Finalizers can only be added when the deletionTimestamp is not set.
 	if !rule.GetDeletionTimestamp().IsZero() {
@@ -982,7 +735,9 @@ func (r *RuleReconciler) ensureFinalizer(ctx context.Context, rule *readinessv1a
 		if err := r.Get(ctx, client.ObjectKey{Name: rule.Name}, latest); err != nil {
 			return err
 		}
-		if controllerutil.ContainsFinalizer(latest, finalizer) {
+		// The rule may have started deleting since the check above, and the API server
+		// rejects new finalizers on a deleting object.
+		if !latest.DeletionTimestamp.IsZero() || controllerutil.ContainsFinalizer(latest, finalizer) {
 			return nil
 		}
 
@@ -1011,4 +766,27 @@ func (r *RuleReadinessController) getPreviousNodeEvaluation(rule *readinessv1alp
 		}
 	}
 	return nil
+}
+
+// SyncNodeStateMetrics synchronizes the NodesByState Prometheus metrics with the current rule status.
+func (r *RuleReadinessController) SyncNodeStateMetrics(ctx context.Context, rule *readinessv1alpha1.NodeReadinessRule) {
+	var ready, notReady, bootstrapping float64
+
+	for _, eval := range rule.Status.NodeEvaluations {
+		if eval.TaintStatus == readinessv1alpha1.TaintStatusAbsent {
+			ready++
+		} else {
+			// The taint is still present.
+			if rule.Spec.EnforcementMode == readinessv1alpha1.EnforcementModeBootstrapOnly {
+				// In BootstrapOnly mode, if the taint is present, it is still bootstrapping.
+				bootstrapping++
+			} else {
+				notReady++
+			}
+		}
+	}
+
+	metrics.NodesByState.WithLabelValues(rule.Name, string(metrics.NodeStateReady)).Set(ready)
+	metrics.NodesByState.WithLabelValues(rule.Name, string(metrics.NodeStateNotReady)).Set(notReady)
+	metrics.NodesByState.WithLabelValues(rule.Name, string(metrics.NodeStateBootstrapping)).Set(bootstrapping)
 }
