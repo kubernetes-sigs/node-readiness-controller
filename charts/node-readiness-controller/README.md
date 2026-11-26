@@ -36,6 +36,8 @@ The command deploys the _node-readiness-controller_ on the Kubernetes cluster in
 
 Helm installs CRDs from the chart `crds/` directory during initial install, but Helm does not upgrade or delete CRDs from that directory during `helm upgrade` or `helm uninstall`. Before upgrading to a chart version that changes the `NodeReadinessRule` schema, apply the updated CRD from the release artifacts or from `charts/node-readiness-controller/crds`.
 
+This also applies to new CRDs. When upgrading from a release without the `NodeReadinessEvaluation` CRD, apply it from `charts/node-readiness-controller/crds` before setting `controller.enableNodeReadinessEvaluation=true`.
+
 ## Uninstalling the Chart
 
 To uninstall/delete the `my-release` deployment:
@@ -74,6 +76,7 @@ The following table lists the configurable parameters of the _node-readiness-con
 | `controller.ruleConcurrentReconciles`    | Maximum number of NodeReadinessRule objects reconciled concurrently.                                                             | `1`                                                               |
 | `controller.enableNodeStateMetrics`      | Enable per-rule aggregate node state metrics (`node_readiness_nodes_by_state` gauge).                                           | `false`                                                           |
 | `controller.pprofBindAddress`            | Bind address for the pprof debug endpoint. Leave empty to disable.                                                              | `""`                                                              |
+| `controller.enableNodeReadinessEvaluation` | Enable `NodeReadinessEvaluation` writes (one NRE object per node).                                                            | `false`                                                           |
 | `leaderElection.enabled`                 | Enable leader election to support multiple replicas                                                                             | `true`                                                            |
 | `leaderElection.namespace`               | Namespace for the leader election lease. Defaults to the release namespace when empty.                                          | `""`                                                              |
 | `priorityClassName`                      | The name of the priority class to add to pods                                                                                    | `system-cluster-critical`                                         |

@@ -87,6 +87,12 @@ rules:
   - apiGroups: ["readiness.node.x-k8s.io"]
     resources: ["nodereadinessrules/status"]
     verbs: ["get", "patch", "update"]
+  - apiGroups: ["readiness.node.x-k8s.io"]
+    resources: ["nodereadinessevaluations"]
+    verbs: ["create", "get", "list", "watch"]
+  - apiGroups: ["readiness.node.x-k8s.io"]
+    resources: ["nodereadinessevaluations/status"]
+    verbs: ["get", "patch", "update"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1

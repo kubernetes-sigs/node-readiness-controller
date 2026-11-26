@@ -145,6 +145,23 @@ tests:
           path: spec.template.spec.containers[0].args
           content: "--pprof-bind-address=:6060"
 
+  - it: does not pass enable-node-readiness-evaluation by default
+    template: templates/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-node-readiness-evaluation
+
+  - it: passes enable-node-readiness-evaluation when enabled
+    set:
+      controller:
+        enableNodeReadinessEvaluation: true
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-node-readiness-evaluation
+
   - it: does not pass leader-election-namespace by default
     template: templates/deployment.yaml
     asserts:
