@@ -212,6 +212,9 @@ type RuleEvaluation struct {
 	TaintRemovedAt *metav1.Time `json:"taintRemovedAt,omitempty"`
 }
 
+// +kubebuilder:metadata:labels=app.kubernetes.io/name=node-readiness-controller
+// +kubebuilder:metadata:labels=app.kubernetes.io/part-of=node-readiness-controller
+// +kubebuilder:metadata:labels=app.kubernetes.io/managed-by=node-readiness-controller
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=nre
