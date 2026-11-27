@@ -160,8 +160,6 @@ rules:
   - apiGroups: ["readiness.node.x-k8s.io"]
     resources: ["nodereadinessrules/status"]
     verbs: ["get"]
-  # NodeReadinessEvaluation is a read-only resource written by the controller;
-  # the helper roles share read access instead of dedicated identities (#515).
   - apiGroups: ["readiness.node.x-k8s.io"]
     resources: ["nodereadinessevaluations"]
     verbs: ["get", "list", "watch"]
