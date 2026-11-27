@@ -140,3 +140,54 @@ tests:
     asserts:
       - hasDocuments:
           count: 10
+
+  - it: grants read-only NodeReadinessEvaluation access in all three helper roles
+    template: templates/rbac.yaml
+    asserts:
+      # NRE is written by the controller only; the helper roles share read
+      # access to it instead of dedicated NRE admin/editor/viewer roles (#515).
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["readiness.node.x-k8s.io"]
+            resources: ["nodereadinessevaluations"]
+            verbs: ["get", "list", "watch"]
+        documentSelector:
+          path: metadata.name
+          value: node-readiness-controller-nodereadinessrule-viewer-role
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["readiness.node.x-k8s.io"]
+            resources: ["nodereadinessevaluations/status"]
+            verbs: ["get"]
+        documentSelector:
+          path: metadata.name
+          value: node-readiness-controller-nodereadinessrule-viewer-role
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["readiness.node.x-k8s.io"]
+            resources: ["nodereadinessevaluations"]
+            verbs: ["get", "list", "watch"]
+        documentSelector:
+          path: metadata.name
+          value: node-readiness-controller-nodereadinessrule-editor-role
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["readiness.node.x-k8s.io"]
+            resources: ["nodereadinessevaluations"]
+            verbs: ["get", "list", "watch"]
+        documentSelector:
+          path: metadata.name
+          value: node-readiness-controller-nodereadinessrule-admin-role
+      - notContains:
+          path: rules
+          content:
+            apiGroups: ["readiness.node.x-k8s.io"]
+            resources: ["nodereadinessevaluations"]
+            verbs: ["create"]
+        documentSelector:
+          path: metadata.name
+          value: node-readiness-controller-nodereadinessrule-admin-role

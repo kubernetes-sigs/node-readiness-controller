@@ -25,3 +25,17 @@ rules:
   - nodereadinessrules/status
   verbs:
   - get
+- apiGroups:
+  - readiness.node.x-k8s.io
+  resources:
+  - nodereadinessevaluations
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - readiness.node.x-k8s.io
+  resources:
+  - nodereadinessevaluations/status
+  verbs:
+  - get

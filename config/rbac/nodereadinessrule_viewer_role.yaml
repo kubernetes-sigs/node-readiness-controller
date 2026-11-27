@@ -27,3 +27,20 @@ rules:
   - nodereadinessrules/status
   verbs:
   - get
+# NodeReadinessEvaluation is a read-only resource written by the controller,
+# so all helper roles grant read access to it instead of shipping separate
+# admin/editor/viewer identities for it (see #515).
+- apiGroups:
+  - readiness.node.x-k8s.io
+  resources:
+  - nodereadinessevaluations
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - readiness.node.x-k8s.io
+  resources:
+  - nodereadinessevaluations/status
+  verbs:
+  - get
