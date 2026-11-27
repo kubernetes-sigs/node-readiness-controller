@@ -4,6 +4,10 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
+  labels:
+    app.kubernetes.io/managed-by: node-readiness-controller
+    app.kubernetes.io/name: node-readiness-controller
+    app.kubernetes.io/part-of: node-readiness-controller
   name: nodereadinessrules.readiness.node.x-k8s.io
 spec:
   group: readiness.node.x-k8s.io

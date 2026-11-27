@@ -219,6 +219,33 @@ example on deploying the controller as a static pod in a kind cluster.
     This is typically handled via a bootstrap script or post-install job in a `kubeadm` setup.
 
 ---
+## Detecting an Existing Installation (Managed Providers)
+
+In a managed provider environment the control plane is hosted, so a node-readiness-controller installed by the provider is not visible to end users. Two competing controllers managing the same readiness taints must be avoided.
+
+To make an existing installation discoverable, both CRDs (`nodereadinessrules` and `nodereadinessevaluations`) are stamped with the [recommended Kubernetes common labels](https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/):
+
+```yaml
+app.kubernetes.io/name: node-readiness-controller
+app.kubernetes.io/part-of: node-readiness-controller
+app.kubernetes.io/managed-by: node-readiness-controller
+```
+
+Because CRDs are cluster-scoped, these labels are visible across namespaces. Both CRDs carry them in the release CRD artifact `dist/crds.yaml` and in the Kustomize CRD path (`config/crd`); the controller installers `dist/install.yaml` and `dist/install-full.yaml` ship without CRDs by design and are unaffected. The Helm chart currently ships the `nodereadinessrules` CRD in its `crds/` directory with the same labels. A provider setup can stamp its own artifacts with a `app.kubernetes.io/managed-by: <provider>` value instead, so end users and tooling can tell who manages the installation.
+
+```sh
+kubectl get crd nodereadinessrules.readiness.node.x-k8s.io \
+  -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}'
+```
+
+Detection limitations to be aware of:
+
+- The labels identify the artifact and its project. The `managed-by` value is self-asserted at packaging time, so it shows who packaged the manifests, not which actor applied them.
+- Helm keeps `crds/` CRDs after `helm uninstall` by design, so CRD presence alone does not prove a controller is running. Combine the label check with a check for the controller Deployment before treating an installation as live.
+- Reading CRDs requires `get` on cluster-scoped `customresourcedefinitions`, which locked-down environments may not grant; the check needs that read access.
+- An earlier attempt at an install-time guard (#440) false-positived on exactly this uninstall/reinstall path, which is why this change sticks to visibility and documentation rather than blocking installation.
+
+---
 ## Verification
 
 After installation, verify that the controller is running successfully. 
