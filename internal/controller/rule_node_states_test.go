@@ -509,7 +509,8 @@ func TestListBlockedNodes_AnyOfNoConditionsSatisfied(t *testing.T) {
 	}))
 }
 
-// TestListBlockedNodes_AnyOfWithSatisfiedCondition verifies that only unsatisfied conditions are counted.
+// TestListBlockedNodes_AnyOfWithSatisfiedCondition verifies that a tainted
+// node satisfying an anyOf rule is not reported as blocked (issue #458).
 func TestListBlockedNodes_AnyOfWithSatisfiedCondition(t *testing.T) {
 	g := NewWithT(t)
 	rule := gpuRuleWithConditions("GPUDriverReady", "CNIReady")
@@ -531,7 +532,7 @@ func TestListBlockedNodes_AnyOfWithSatisfiedCondition(t *testing.T) {
 	blocked, err := c.ListBlockedNodes(t.Context(), nodes, rules)
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(blocked).To(Equal(map[string]metrics.RuleBlockedConditions{
-		"gpu-ready": {"GPUDriverReady": 1, "CNIReady": 0},
+		"gpu-ready": {"GPUDriverReady": 0, "CNIReady": 0},
 	}))
 }
 
